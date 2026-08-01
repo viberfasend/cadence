@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cadence_background">#F4FBF8</color>
+    <color name="cadence_background_dark">#0E1513</color>
+    <color name="ic_launcher_background">#006A60</color>
+</resources>
