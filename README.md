@@ -8,17 +8,24 @@ lives in a local database.
 
 ## Getting the APK on your phone
 
-Every push builds an installable APK in GitHub Actions.
+Open this link on the phone and tap it:
 
-1. Open the [Actions tab](../../actions/workflows/android.yml) and pick the latest green run.
-2. Download the **cadence-debug-apk** artifact (or **cadence-release-apk**).
-3. Unzip it, copy the `.apk` to your phone and open it. Android will ask you to allow installs
-   from that source — that is expected for an app that did not come from the Play Store.
+**https://github.com/andi1984/todo/releases/latest/download/cadence-debug.apk**
 
-Tagging a commit `v1.0.0` and pushing the tag also attaches both APKs to a GitHub Release.
+That URL is permanent and always serves the newest build — every push to any branch rebuilds
+the app and republishes the `latest` release. Android will ask you to allow installs from that
+source, which is expected for an app that did not come from the Play Store. There is nothing to
+unzip.
 
-The debug and release builds have different application IDs (`…cadence.debug` and `…cadence`),
-so they can live side by side.
+The release build is at the same address as `cadence-release.apk`. The two have different
+application IDs (`…cadence.debug` and `…cadence`), so they can live side by side.
+
+Prefer the raw build output? Every run also uploads both APKs as workflow artifacts, at the
+bottom of the run's **Summary** page in the [Actions tab](../../actions/workflows/android.yml).
+Those download as a `.zip` and are only visible in a browser — the GitHub mobile app does not
+show artifacts.
+
+Pushing a `v*` tag publishes a separate, permanent versioned release with the same two APKs.
 
 ### Signing the release build (optional)
 

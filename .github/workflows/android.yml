@@ -11,6 +11,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Test and build APK
@@ -53,18 +56,26 @@ jobs:
           CADENCE_KEY_PASSWORD: ${{ secrets.CADENCE_KEY_PASSWORD }}
         run: ./gradlew assembleDebug assembleRelease --stacktrace
 
+      # Fixed file names so the release download URL never changes between builds.
+      - name: Stage APKs
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/*.apk dist/cadence-debug.apk
+          cp app/build/outputs/apk/release/*.apk dist/cadence-release.apk
+          ls -lh dist
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: cadence-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: dist/cadence-debug.apk
           if-no-files-found: error
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: cadence-release-apk
-          path: app/build/outputs/apk/release/*.apk
+          path: dist/cadence-release.apk
           if-no-files-found: error
 
       - name: Upload test report
@@ -74,10 +85,36 @@ jobs:
           name: test-report
           path: app/build/reports/tests/
 
-      - name: Attach APK to release
+      # Every branch push republishes the rolling "latest" release, so
+      # /releases/latest/download/cadence-debug.apk is always the newest build.
+      # The tag is force-moved first because updating a release does not move its tag.
+      - name: Move the rolling tag
+        if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/')
+        run: |
+          git tag -f latest "$GITHUB_SHA"
+          git push -f origin refs/tags/latest
+
+      - name: Publish rolling release
+        if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          make_latest: true
+          body: |
+            Automatically published from `${{ github.ref_name }}` — commit ${{ github.sha }}.
+
+            **Install `cadence-debug.apk`** — it is signed with the standard debug key and
+            installs alongside a release build.
+
+            Permanent links, always pointing at the newest build:
+
+            - https://github.com/${{ github.repository }}/releases/latest/download/cadence-debug.apk
+            - https://github.com/${{ github.repository }}/releases/latest/download/cadence-release.apk
+          files: dist/*.apk
+
+      - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            app/build/outputs/apk/release/*.apk
-            app/build/outputs/apk/debug/*.apk
+          files: dist/*.apk
