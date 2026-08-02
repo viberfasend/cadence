@@ -24,7 +24,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
@@ -62,12 +65,12 @@ fun SearchScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(AppIcons.ArrowBack, contentDescription = "Back")
+                Icon(AppIcons.ArrowBack, contentDescription = stringResource(R.string.action_back))
             }
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                placeholder = { Text("Search tasks") },
+                placeholder = { Text(stringResource(R.string.search_placeholder)) },
                 singleLine = true,
                 modifier = Modifier
                     .weight(1f)
@@ -77,18 +80,21 @@ fun SearchScreen(
 
         if (query.isBlank()) {
             EmptyState(
-                title = "Search",
-                supporting = "Find anything by title or notes, done or not.",
+                title = stringResource(R.string.search_title),
+                supporting = stringResource(R.string.search_supporting),
             )
             return@Column
         }
         if (results.isEmpty()) {
-            EmptyState(title = "No matches", supporting = "Nothing matches “$query”.")
+            EmptyState(
+                title = stringResource(R.string.search_no_matches_title),
+                supporting = stringResource(R.string.search_no_matches_supporting, query),
+            )
             return@Column
         }
 
         Text(
-            text = if (results.size == 1) "1 result" else "${results.size} results",
+            text = pluralStringResource(R.plurals.search_results, results.size, results.size),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 18.dp, top = 12.dp, bottom = 4.dp),

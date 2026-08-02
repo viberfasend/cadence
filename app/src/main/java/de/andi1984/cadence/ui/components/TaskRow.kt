@@ -27,12 +27,15 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Task
-import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
 import de.andi1984.cadence.ui.format.compactDate
+import de.andi1984.cadence.ui.format.describeRecurrence
+import de.andi1984.cadence.ui.format.describeRecurrenceInline
 import de.andi1984.cadence.ui.format.formatTime
 import de.andi1984.cadence.ui.format.relativeDate
 import de.andi1984.cadence.ui.theme.LocalCadenceColors
@@ -74,8 +77,13 @@ fun TaskRow(
     val titleColor = if (overdue) cadenceColors.onOverdue else scheme.onSurface
     val metaColor = scheme.onSurfaceVariant
 
-    val recurrenceText = task.recurrence?.let { RecurrenceEngine.describe(it) }
-    val stateLabel = if (task.isDone) "Done" else "Not done"
+    val recurrenceText = task.recurrence?.let { describeRecurrence(it) }
+    val recurrenceInline = task.recurrence?.let { describeRecurrenceInline(it) }
+    val stateLabel = if (task.isDone) {
+        stringResource(R.string.task_state_done)
+    } else {
+        stringResource(R.string.task_state_not_done)
+    }
 
     Row(
         modifier = modifier
@@ -125,11 +133,20 @@ fun TaskRow(
                         val doneAt = task.completedAt
                             ?.atZone(java.time.ZoneId.systemDefault())
                             ?.toLocalTime()
+                        val doneLabel = if (doneAt != null) {
+                            stringResource(R.string.task_done_at, formatTime(doneAt))
+                        } else {
+                            stringResource(R.string.task_state_done)
+                        }
                         Text(
-                            text = buildString {
-                                append("Done")
-                                doneAt?.let { append(" ${formatTime(it)}") }
-                                recurrenceText?.let { append(" · repeats ${it.lowercase()}") }
+                            text = if (recurrenceInline != null) {
+                                stringResource(
+                                    R.string.task_done_repeats,
+                                    doneLabel,
+                                    recurrenceInline,
+                                )
+                            } else {
+                                doneLabel
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = metaColor,
@@ -200,7 +217,7 @@ private fun DueChip(task: Task, today: LocalDate, overdue: Boolean) {
     val (icon, label) = when {
         overdue && due != null -> AppIcons.EventBusy to relativeDate(due, today)
         due == today && task.dueTime != null -> AppIcons.Schedule to formatTime(task.dueTime)
-        recurrence != null -> AppIcons.EventRepeat to RecurrenceEngine.describe(recurrence)
+        recurrence != null -> AppIcons.EventRepeat to describeRecurrence(recurrence)
         due != null -> AppIcons.Event to relativeDate(due, today)
         else -> return
     }

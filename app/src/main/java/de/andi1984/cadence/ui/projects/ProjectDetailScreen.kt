@@ -16,7 +16,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.model.projectPath
 import de.andi1984.cadence.ui.CadenceUiState
@@ -41,7 +43,10 @@ fun ProjectDetailScreen(
 ) {
     val project = state.project(projectId)
     if (project == null) {
-        EmptyState(title = "Project not found", supporting = "It may have been deleted.")
+        EmptyState(
+            title = stringResource(R.string.project_not_found_title),
+            supporting = stringResource(R.string.deleted_supporting),
+        )
         return
     }
 
@@ -57,7 +62,7 @@ fun ProjectDetailScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(AppIcons.ArrowBack, contentDescription = "Back")
+                Icon(AppIcons.ArrowBack, contentDescription = stringResource(R.string.action_back))
             }
             Row(
                 modifier = Modifier.weight(1f),
@@ -84,14 +89,17 @@ fun ProjectDetailScreen(
                 }
             }
             IconButton(onClick = onAddTask) {
-                Icon(AppIcons.Add, contentDescription = "Add task to project")
+                Icon(
+                    AppIcons.Add,
+                    contentDescription = stringResource(R.string.project_add_task),
+                )
             }
         }
 
         if (tasks.isEmpty()) {
             EmptyState(
-                title = "No tasks here yet",
-                supporting = "Use the + button to add one straight to ${project.name}.",
+                title = stringResource(R.string.project_empty_title),
+                supporting = stringResource(R.string.project_empty_supporting, project.name),
             )
             return@Column
         }
@@ -102,7 +110,12 @@ fun ProjectDetailScreen(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             if (overdue.isNotEmpty()) {
-                item { SectionHeader("Overdue", color = MaterialTheme.colorScheme.error) }
+                item {
+                    SectionHeader(
+                        stringResource(R.string.project_section_overdue),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 items(overdue, key = { "o-${it.id}" }) { task ->
                     TaskRow(
                         task = task,
@@ -116,7 +129,7 @@ fun ProjectDetailScreen(
             }
             val rest = tasks.filterNot { it.isOverdue(today) }
             if (rest.isNotEmpty()) {
-                item { SectionHeader("All tasks") }
+                item { SectionHeader(stringResource(R.string.project_section_all)) }
                 items(rest, key = { it.id }) { task ->
                     TaskRow(
                         task = task,

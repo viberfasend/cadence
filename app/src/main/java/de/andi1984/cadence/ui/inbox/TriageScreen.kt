@@ -29,8 +29,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.CadenceUiState
@@ -72,23 +74,27 @@ fun TriageScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onClose) {
-                Icon(AppIcons.Close, contentDescription = "Close triage")
+                Icon(AppIcons.Close, contentDescription = stringResource(R.string.triage_close))
             }
             Text(
-                text = "Triage",
+                text = stringResource(R.string.triage_title),
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onClose) { Text("Skip all") }
+            TextButton(onClick = onClose) { Text(stringResource(R.string.triage_skip_all)) }
         }
 
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
             Text(
                 text = if (queue.isEmpty()) {
-                    "Nothing to triage"
+                    stringResource(R.string.triage_nothing)
                 } else {
-                    "${(index + 1).coerceAtMost(queue.size)} of ${queue.size} · tap a level to rank it"
+                    stringResource(
+                        R.string.triage_progress,
+                        (index + 1).coerceAtMost(queue.size),
+                        queue.size,
+                    )
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -105,8 +111,12 @@ fun TriageScreen(
 
         if (current == null) {
             EmptyState(
-                title = if (queue.isEmpty()) "Inbox is clear" else "Inbox triaged",
-                supporting = "Everything in the Inbox has an importance now.",
+                title = if (queue.isEmpty()) {
+                    stringResource(R.string.inbox_empty_title)
+                } else {
+                    stringResource(R.string.triage_finished_title)
+                },
+                supporting = stringResource(R.string.triage_finished_supporting),
             )
             return@Column
         }
@@ -130,7 +140,7 @@ fun TriageScreen(
             if (ranked.isNotEmpty()) {
                 item {
                     Text(
-                        text = "RANKED SO FAR",
+                        text = stringResource(R.string.triage_ranked_so_far),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp),
@@ -200,7 +210,7 @@ private fun TriageCard(
             .padding(20.dp),
     ) {
         Text(
-            text = "FROM INBOX",
+            text = stringResource(R.string.triage_from_inbox),
             style = MaterialTheme.typography.labelSmall,
             color = scheme.primary,
         )
@@ -222,7 +232,8 @@ private fun TriageCard(
                 modifier = Modifier.size(17.dp),
             )
             Text(
-                text = task.dueDate?.let { formatDate(it) } ?: "No due date",
+                text = task.dueDate?.let { formatDate(it) }
+                    ?: stringResource(R.string.triage_no_due_date),
                 style = MaterialTheme.typography.bodyMedium,
                 color = scheme.onSurfaceVariant,
             )
@@ -271,13 +282,13 @@ private fun TriageCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             TriageAction(
-                label = "Set date",
+                label = stringResource(R.string.triage_set_date),
                 icon = AppIcons.Event,
                 onClick = onSetDate,
                 modifier = Modifier.weight(1f),
             )
             TriageAction(
-                label = "Move",
+                label = stringResource(R.string.triage_move),
                 icon = AppIcons.Folder,
                 onClick = onMove,
                 modifier = Modifier.weight(1f),

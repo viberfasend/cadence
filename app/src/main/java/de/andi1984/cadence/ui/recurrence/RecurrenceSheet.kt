@@ -34,8 +34,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.MonthlyMode
 import de.andi1984.cadence.domain.model.RecurrenceMode
 import de.andi1984.cadence.domain.model.RecurrenceRule
@@ -45,10 +47,11 @@ import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.CadenceChip
 import de.andi1984.cadence.ui.components.SegmentedRow
 import de.andi1984.cadence.ui.format.formatDateWithYear
+import de.andi1984.cadence.ui.format.ordinal
+import de.andi1984.cadence.ui.format.unitWord
+import de.andi1984.cadence.ui.format.weekdayShort
 import java.time.DayOfWeek
 import java.time.LocalDate
-import java.time.format.TextStyle
-import java.util.Locale
 
 /** The repeat editor: calendar rules on one side, "after I finish" on the other. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -84,7 +87,7 @@ fun RecurrenceSheet(
                 .padding(bottom = 24.dp),
         ) {
             Text(
-                text = "Repeat",
+                text = stringResource(R.string.repeat_title),
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -96,7 +99,10 @@ fun RecurrenceSheet(
             )
 
             SegmentedRow(
-                options = listOf("On a schedule", "After I finish"),
+                options = listOf(
+                    stringResource(R.string.repeat_mode_schedule),
+                    stringResource(R.string.repeat_mode_after_completion),
+                ),
                 selectedIndex = if (rule.mode == RecurrenceMode.SCHEDULE) 0 else 1,
                 onSelect = { index ->
                     rule = rule.copy(
@@ -115,7 +121,7 @@ fun RecurrenceSheet(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    text = "Every",
+                    text = stringResource(R.string.repeat_every),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -124,15 +130,17 @@ fun RecurrenceSheet(
                     options = (1..30).map { it.toString() },
                     onSelect = { rule = rule.copy(interval = it.toInt()) },
                 )
+                // Resolved up front so the (non-composable) callback can map back to a unit.
+                val unitOptions = RecurrenceUnit.entries.map { unitWord(it, rule.interval) }
                 DropdownField(
-                    value = unitLabel(rule.unit, rule.interval),
-                    options = RecurrenceUnit.entries.map { unitLabel(it, rule.interval) },
+                    value = unitWord(rule.unit, rule.interval),
+                    options = unitOptions,
                     modifier = Modifier.weight(1f),
                     fillWidth = true,
                     onSelect = { label ->
-                        val unit = RecurrenceUnit.entries
-                            .first { unitLabel(it, rule.interval) == label }
-                        rule = rule.copy(unit = unit)
+                        unitOptions.indexOf(label)
+                            .takeIf { it >= 0 }
+                            ?.let { rule = rule.copy(unit = RecurrenceUnit.entries[it]) }
                     },
                 )
             }
@@ -140,7 +148,7 @@ fun RecurrenceSheet(
             if (rule.mode == RecurrenceMode.SCHEDULE) {
                 when (rule.unit) {
                     RecurrenceUnit.WEEK -> {
-                        SheetLabel("On")
+                        SheetLabel(stringResource(R.string.repeat_on))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -148,7 +156,7 @@ fun RecurrenceSheet(
                         ) {
                             DayOfWeek.entries.forEach { day ->
                                 CadenceChip(
-                                    label = day.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
+                                    label = weekdayShort(day),
                                     selected = day in rule.daysOfWeek,
                                     onClick = {
                                         val days = rule.daysOfWeek.toMutableSet()
@@ -161,14 +169,17 @@ fun RecurrenceSheet(
                     }
 
                     RecurrenceUnit.MONTH, RecurrenceUnit.YEAR -> {
-                        SheetLabel("On")
+                        SheetLabel(stringResource(R.string.repeat_on))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.padding(bottom = 20.dp),
                         ) {
                             CadenceChip(
-                                label = "Day ${rule.dayOfMonth ?: anchorDate.dayOfMonth}",
+                                label = stringResource(
+                                    R.string.repeat_day_of_month,
+                                    rule.dayOfMonth ?: anchorDate.dayOfMonth,
+                                ),
                                 selected = rule.monthlyMode == MonthlyMode.DAY_OF_MONTH,
                                 onClick = {
                                     rule = rule.copy(
@@ -178,12 +189,12 @@ fun RecurrenceSheet(
                                 },
                             )
                             CadenceChip(
-                                label = "Last day",
+                                label = stringResource(R.string.repeat_last_day),
                                 selected = rule.monthlyMode == MonthlyMode.LAST_DAY,
                                 onClick = { rule = rule.copy(monthlyMode = MonthlyMode.LAST_DAY) },
                             )
                             CadenceChip(
-                                label = "Last weekday",
+                                label = stringResource(R.string.repeat_last_weekday),
                                 selected = rule.monthlyMode == MonthlyMode.LAST_WEEKDAY,
                                 onClick = {
                                     rule = rule.copy(monthlyMode = MonthlyMode.LAST_WEEKDAY)
@@ -219,9 +230,9 @@ fun RecurrenceSheet(
             ) {
                 Text(
                     text = if (rule.mode == RecurrenceMode.SCHEDULE) {
-                        "Next three"
+                        stringResource(R.string.repeat_preview_next_three)
                     } else {
-                        "Next, if you finish today"
+                        stringResource(R.string.repeat_preview_after_completion)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -265,12 +276,12 @@ fun RecurrenceSheet(
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Keep missed instances",
+                        text = stringResource(R.string.repeat_keep_missed),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        text = "Skipped ones stay overdue instead of vanishing",
+                        text = stringResource(R.string.repeat_keep_missed_supporting),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -282,7 +293,11 @@ fun RecurrenceSheet(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 SheetButton(
-                    label = if (initial == null) "Cancel" else "Turn off",
+                    label = if (initial == null) {
+                        stringResource(R.string.action_cancel)
+                    } else {
+                        stringResource(R.string.repeat_turn_off)
+                    },
                     filled = false,
                     modifier = Modifier.weight(1f),
                     onClick = {
@@ -290,7 +305,7 @@ fun RecurrenceSheet(
                     },
                 )
                 SheetButton(
-                    label = "Save rule",
+                    label = stringResource(R.string.repeat_save),
                     filled = true,
                     modifier = Modifier.weight(1f),
                     onClick = { onSave(rule) },
@@ -391,18 +406,9 @@ private fun SheetButton(
     }
 }
 
-private fun unitLabel(unit: RecurrenceUnit, interval: Int): String {
-    val singular = when (unit) {
-        RecurrenceUnit.DAY -> "day"
-        RecurrenceUnit.WEEK -> "week"
-        RecurrenceUnit.MONTH -> "month"
-        RecurrenceUnit.YEAR -> "year"
-    }
-    return if (interval == 1) singular else "${singular}s"
-}
-
+@Composable
 private fun nthWeekdayLabel(rule: RecurrenceRule, anchorDate: LocalDate): String {
     val nth = rule.nthWeek ?: ((anchorDate.dayOfMonth - 1) / 7 + 1)
     val day = rule.nthDayOfWeek ?: anchorDate.dayOfWeek
-    return "${RecurrenceEngine.ordinal(nth)} ${day.getDisplayName(TextStyle.SHORT, Locale.getDefault())}"
+    return stringResource(R.string.repeat_nth_weekday, ordinal(nth), weekdayShort(day))
 }

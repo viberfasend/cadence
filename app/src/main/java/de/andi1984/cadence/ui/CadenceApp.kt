@@ -1,5 +1,6 @@
 package de.andi1984.cadence.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -21,6 +22,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import de.andi1984.cadence.R
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -28,6 +31,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import de.andi1984.cadence.ui.components.AppIcons
+import de.andi1984.cadence.ui.components.FittedLabel
 import de.andi1984.cadence.ui.detail.TaskDetailScreen
 import de.andi1984.cadence.ui.inbox.InboxScreen
 import de.andi1984.cadence.ui.inbox.TriageScreen
@@ -58,7 +62,7 @@ object Routes {
 
 private data class BottomDestination(
     val route: String,
-    val label: String,
+    @StringRes val label: Int,
     val icon: ImageVector,
 )
 
@@ -74,10 +78,10 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState) {
     var quickAddProjectId by remember { mutableStateOf<Long?>(null) }
 
     val destinations = listOf(
-        BottomDestination(Routes.TODAY, "Today", AppIcons.Today),
-        BottomDestination(Routes.UPCOMING, "Upcoming", AppIcons.CalendarMonth),
-        BottomDestination(Routes.INBOX, "Inbox", AppIcons.Inbox),
-        BottomDestination(Routes.PROJECTS, "Projects", AppIcons.Folder),
+        BottomDestination(Routes.TODAY, R.string.nav_today, AppIcons.Today),
+        BottomDestination(Routes.UPCOMING, R.string.nav_upcoming, AppIcons.CalendarMonth),
+        BottomDestination(Routes.INBOX, R.string.nav_inbox, AppIcons.Inbox),
+        BottomDestination(Routes.PROJECTS, R.string.nav_projects, AppIcons.Folder),
     )
     val showChrome = currentRoute in destinations.map { it.route }
     val inboxCount = state.tasks.count { it.isInbox && !it.isDone }
@@ -113,7 +117,7 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState) {
                                     Icon(destination.icon, contentDescription = null)
                                 }
                             },
-                            label = { Text(destination.label) },
+                            label = { FittedLabel(stringResource(destination.label)) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
                                 indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -133,7 +137,7 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState) {
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     icon = { Icon(AppIcons.Add, contentDescription = null) },
-                    text = { Text("Task") },
+                    text = { Text(stringResource(R.string.nav_add_task)) },
                 )
             }
         },

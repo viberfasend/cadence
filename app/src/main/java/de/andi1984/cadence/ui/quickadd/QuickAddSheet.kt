@@ -40,6 +40,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -48,20 +49,24 @@ import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.projectPath
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
+import de.andi1984.cadence.domain.parse.QuickAddLexicon
 import de.andi1984.cadence.domain.parse.QuickAddParser
 import de.andi1984.cadence.domain.parse.TokenKind
-import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.CadenceDatePickerDialog
 import de.andi1984.cadence.ui.components.PrioritySpine
 import de.andi1984.cadence.ui.components.ProjectPickerDialog
 import de.andi1984.cadence.ui.components.ProjectSwatch
+import de.andi1984.cadence.ui.format.currentLocale
+import de.andi1984.cadence.ui.format.describeRecurrence
 import de.andi1984.cadence.ui.format.formatDate
+import de.andi1984.cadence.ui.format.label
 import de.andi1984.cadence.ui.recurrence.RecurrenceSheet
 import de.andi1984.cadence.ui.theme.LocalCadenceColors
 import java.time.LocalDate
@@ -93,7 +98,11 @@ fun QuickAddSheet(
     var projectPickerOpen by remember { mutableStateOf(false) }
     var recurrenceOpen by remember { mutableStateOf(false) }
 
-    val parsed = remember(text, projects) { QuickAddParser.parse(text, projects, today) }
+    // Keywords follow the app language, not the system one — English always stays understood.
+    val lexicon = QuickAddLexicon.forLocale(currentLocale())
+    val parsed = remember(text, projects, lexicon) {
+        QuickAddParser.parse(text, projects, today, lexicon)
+    }
     val effective = parsed.copy(
         dueDate = dateOverride ?: parsed.dueDate,
         priority = priorityOverride ?: parsed.priority,
@@ -132,7 +141,7 @@ fun QuickAddSheet(
                     decorationBox = { inner ->
                         if (text.isEmpty()) {
                             Text(
-                                text = "Pay rent every 1st !p2 #Home",
+                                text = stringResource(R.string.quick_add_placeholder),
                                 style = MaterialTheme.typography.titleLarge,
                                 color = scheme.onSurfaceVariant,
                             )
@@ -157,7 +166,7 @@ fun QuickAddSheet(
                     }
                     effective.recurrence?.let { rule ->
                         TokenChip(
-                            label = RecurrenceEngine.describe(rule),
+                            label = describeRecurrence(rule),
                             icon = AppIcons.EventRepeat,
                             background = cadenceColors.tokenDate,
                             foreground = cadenceColors.onTokenDate,
@@ -166,7 +175,7 @@ fun QuickAddSheet(
                     }
                     effective.priority?.let { priority ->
                         TokenChip(
-                            label = priority.label,
+                            label = priority.label(),
                             background = cadenceColors.tokenPriority,
                             foreground = cadenceColors.onTokenPriority,
                             onClick = { priorityOverride = nextPriority(priority) },
@@ -191,8 +200,7 @@ fun QuickAddSheet(
                 }
 
                 Text(
-                    text = "Tap a chip to correct it. Typing plain words is fine — everything " +
-                        "here is optional.",
+                    text = stringResource(R.string.quick_add_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = scheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 6.dp, bottom = 12.dp),
@@ -209,20 +217,32 @@ fun QuickAddSheet(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 IconButton(onClick = { datePickerOpen = true }) {
-                    Icon(AppIcons.Event, contentDescription = "Set due date")
+                    Icon(
+                        AppIcons.Event,
+                        contentDescription = stringResource(R.string.quick_add_set_due_date),
+                    )
                 }
                 IconButton(onClick = { recurrenceOpen = true }) {
-                    Icon(AppIcons.EventRepeat, contentDescription = "Set repeat")
+                    Icon(
+                        AppIcons.EventRepeat,
+                        contentDescription = stringResource(R.string.quick_add_set_repeat),
+                    )
                 }
                 IconButton(
                     onClick = {
                         priorityOverride = nextPriority(effective.priority ?: Priority.P4)
                     },
                 ) {
-                    Icon(AppIcons.Flag, contentDescription = "Cycle importance")
+                    Icon(
+                        AppIcons.Flag,
+                        contentDescription = stringResource(R.string.quick_add_cycle_importance),
+                    )
                 }
                 IconButton(onClick = { projectPickerOpen = true }) {
-                    Icon(AppIcons.Folder, contentDescription = "Choose project")
+                    Icon(
+                        AppIcons.Folder,
+                        contentDescription = stringResource(R.string.quick_add_choose_project),
+                    )
                 }
                 Spacer(modifier = Modifier.weight(1f))
                 Box(
@@ -241,7 +261,7 @@ fun QuickAddSheet(
                 ) {
                     Icon(
                         imageVector = AppIcons.ArrowUpward,
-                        contentDescription = "Add task",
+                        contentDescription = stringResource(R.string.quick_add_submit),
                         tint = if (effective.title.isBlank()) {
                             scheme.onSurfaceVariant
                         } else {
@@ -272,7 +292,7 @@ fun QuickAddSheet(
     if (recurrenceOpen) {
         RecurrenceSheet(
             initial = effective.recurrence,
-            taskTitle = effective.title.ifBlank { "New task" },
+            taskTitle = effective.title.ifBlank { stringResource(R.string.quick_add_new_task) },
             anchorDate = effective.dueDate ?: today,
             onDismiss = { recurrenceOpen = false },
             onSave = { rule ->

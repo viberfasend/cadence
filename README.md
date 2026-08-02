@@ -69,6 +69,14 @@ Recognised: `!p1`–`!p4`, `#Project`, `today`/`tomorrow`/`next friday`/`in 3 da
 `every 1st`, `every last weekday`, `3 days after done`). Everything is optional; unrecognised
 words stay in the title, and every parsed chip can be corrected by tapping it.
 
+## Language
+
+English and German. The app follows the system language, and on Android 13 and newer it also
+appears in **Settings → Apps → Cadence → Language** so you can pick one just for Cadence.
+
+Quick-add still parses English keywords only (`tomorrow`, `every 2 weeks on thu`) — everything
+around them can be German, and unrecognised words stay in the title as usual.
+
 ## Accessibility
 
 - Priority is never colour alone: the segmented spine is always paired with its `P1`…`P4` label,

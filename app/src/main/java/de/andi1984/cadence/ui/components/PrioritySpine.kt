@@ -16,6 +16,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import de.andi1984.cadence.domain.model.Priority
+import de.andi1984.cadence.ui.format.label
 import de.andi1984.cadence.ui.theme.LocalCadenceColors
 
 @Composable
@@ -80,8 +81,9 @@ fun PriorityBadge(
     spineColor: Color? = null,
     trackColor: Color? = null,
 ) {
+    val spoken = priority.label()
     Row(
-        modifier = modifier.clearAndSetSemantics { contentDescription = priority.label },
+        modifier = modifier.clearAndSetSemantics { contentDescription = spoken },
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

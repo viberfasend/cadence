@@ -7,9 +7,7 @@ import de.andi1984.cadence.domain.model.RecurrenceUnit
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
-import java.time.format.TextStyle
 import java.time.temporal.TemporalAdjusters
-import java.util.Locale
 
 /**
  * Turns a [RecurrenceRule] into concrete dates.
@@ -150,65 +148,35 @@ object RecurrenceEngine {
         }
     }
 
-    /** Human-readable summary, e.g. "Every 2 weeks on Thu" or "3 days after done". */
-    fun describe(rule: RecurrenceRule): String {
+    /**
+     * Breaks a rule down into the pieces a sentence needs — "every 2 weeks", "on Thu" — without
+     * committing to any wording. [de.andi1984.cadence.ui.format.describeRecurrence] turns the
+     * result into localised text.
+     */
+    fun summarize(rule: RecurrenceRule): RecurrenceSummary {
         val interval = rule.interval.coerceAtLeast(1)
         if (rule.mode == RecurrenceMode.AFTER_COMPLETION) {
-            return "$interval ${unitWord(rule.unit, interval)} after done"
+            return RecurrenceSummary.AfterCompletion(interval = interval, unit = rule.unit)
         }
-        return when (rule.unit) {
-            RecurrenceUnit.DAY ->
-                if (interval == 1) "Daily" else "Every $interval days"
-
-            RecurrenceUnit.WEEK -> {
-                val prefix = if (interval == 1) "Weekly" else "Every $interval weeks"
-                if (rule.daysOfWeek.isEmpty()) prefix else "$prefix on ${dayList(rule.daysOfWeek)}"
-            }
-
-            RecurrenceUnit.MONTH -> {
-                val prefix = if (interval == 1) "Monthly" else "Every $interval months"
-                "$prefix on ${monthlyPhrase(rule)}"
-            }
-
-            RecurrenceUnit.YEAR ->
-                if (interval == 1) "Yearly" else "Every $interval years"
-        }
+        return RecurrenceSummary.Schedule(
+            interval = interval,
+            unit = rule.unit,
+            daysOfWeek = if (rule.unit == RecurrenceUnit.WEEK) {
+                rule.daysOfWeek.sortedBy { it.value }
+            } else {
+                emptyList()
+            },
+            monthly = if (rule.unit == RecurrenceUnit.MONTH) monthlyPhrase(rule) else null,
+        )
     }
 
-    private fun monthlyPhrase(rule: RecurrenceRule): String = when (rule.monthlyMode) {
-        MonthlyMode.DAY_OF_MONTH -> "the ${ordinal(rule.dayOfMonth ?: 1)}"
-        MonthlyMode.LAST_DAY -> "the last day"
-        MonthlyMode.LAST_WEEKDAY -> "the last weekday"
-        MonthlyMode.NTH_WEEKDAY -> {
-            val dow = (rule.nthDayOfWeek ?: DayOfWeek.MONDAY)
-                .getDisplayName(TextStyle.FULL, Locale.ENGLISH)
-            val nth = rule.nthWeek ?: 1
-            if (nth >= 5) "the last $dow" else "the ${ordinal(nth)} $dow"
-        }
-    }
-
-    private fun dayList(days: Set<DayOfWeek>): String = days
-        .sortedBy { it.value }
-        .joinToString(", ") { it.getDisplayName(TextStyle.SHORT, Locale.ENGLISH) }
-
-    private fun unitWord(unit: RecurrenceUnit, count: Int): String {
-        val singular = when (unit) {
-            RecurrenceUnit.DAY -> "day"
-            RecurrenceUnit.WEEK -> "week"
-            RecurrenceUnit.MONTH -> "month"
-            RecurrenceUnit.YEAR -> "year"
-        }
-        return if (count == 1) singular else "${singular}s"
-    }
-
-    fun ordinal(value: Int): String {
-        val suffix = when {
-            value % 100 in 11..13 -> "th"
-            value % 10 == 1 -> "st"
-            value % 10 == 2 -> "nd"
-            value % 10 == 3 -> "rd"
-            else -> "th"
-        }
-        return "$value$suffix"
+    private fun monthlyPhrase(rule: RecurrenceRule): MonthlyPhrase = when (rule.monthlyMode) {
+        MonthlyMode.DAY_OF_MONTH -> MonthlyPhrase.DayOfMonth(rule.dayOfMonth ?: 1)
+        MonthlyMode.LAST_DAY -> MonthlyPhrase.LastDay
+        MonthlyMode.LAST_WEEKDAY -> MonthlyPhrase.LastWeekday
+        MonthlyMode.NTH_WEEKDAY -> MonthlyPhrase.NthWeekday(
+            nth = rule.nthWeek ?: 1,
+            day = rule.nthDayOfWeek ?: DayOfWeek.MONDAY,
+        )
     }
 }

@@ -36,12 +36,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.model.projectPath
 import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
+import de.andi1984.cadence.ui.format.describeRecurrence
+import de.andi1984.cadence.ui.format.explanation
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.CadenceDatePickerDialog
@@ -72,7 +76,10 @@ fun TaskDetailScreen(
     onSnooze: (Task) -> Unit,
 ) {
     if (task == null) {
-        EmptyState(title = "Task not found", supporting = "It may have been deleted.")
+        EmptyState(
+            title = stringResource(R.string.task_not_found_title),
+            supporting = stringResource(R.string.deleted_supporting),
+        )
         return
     }
 
@@ -89,7 +96,8 @@ fun TaskDetailScreen(
     var menuOpen by remember { mutableStateOf(false) }
 
     val overdue = task.isOverdue(today)
-    val projectLabel = projectPath(state.project(task.projectId), state.projects) ?: "Inbox"
+    val projectLabel = projectPath(state.project(task.projectId), state.projects)
+        ?: stringResource(R.string.inbox_title)
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -97,19 +105,19 @@ fun TaskDetailScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(AppIcons.ArrowBack, contentDescription = "Back")
+                Icon(AppIcons.ArrowBack, contentDescription = stringResource(R.string.action_back))
             }
             Spacer(modifier = Modifier.weight(1f))
             IconButton(onClick = { onDelete(task) }) {
-                Icon(AppIcons.Delete, contentDescription = "Delete task")
+                Icon(AppIcons.Delete, contentDescription = stringResource(R.string.task_delete))
             }
             Box {
                 IconButton(onClick = { menuOpen = true }) {
-                    Icon(AppIcons.MoreVert, contentDescription = "More")
+                    Icon(AppIcons.MoreVert, contentDescription = stringResource(R.string.action_more))
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
-                        text = { Text("Move to project") },
+                        text = { Text(stringResource(R.string.task_move_to_project)) },
                         onClick = {
                             menuOpen = false
                             projectPickerOpen = true
@@ -117,7 +125,7 @@ fun TaskDetailScreen(
                         leadingIcon = { Icon(AppIcons.Folder, contentDescription = null) },
                     )
                     DropdownMenuItem(
-                        text = { Text("Set time") },
+                        text = { Text(stringResource(R.string.task_set_time)) },
                         onClick = {
                             menuOpen = false
                             timePickerOpen = true
@@ -143,7 +151,11 @@ fun TaskDetailScreen(
                     accent = if (overdue) cadenceColors.overdueAccent else priorityColor(task.priority),
                     size = 28.dp,
                     onToggle = { onToggle(task) },
-                    stateLabel = if (task.isDone) "Done" else "Not done",
+                    stateLabel = if (task.isDone) {
+                        stringResource(R.string.task_state_done)
+                    } else {
+                        stringResource(R.string.task_state_not_done)
+                    },
                     title = task.title,
                 )
                 BasicTextField(
@@ -188,7 +200,7 @@ fun TaskDetailScreen(
             }
 
             Text(
-                text = "Importance",
+                text = stringResource(R.string.task_importance),
                 style = MaterialTheme.typography.titleSmall,
                 color = scheme.primary,
                 modifier = Modifier.padding(top = 22.dp, bottom = 10.dp),
@@ -199,7 +211,7 @@ fun TaskDetailScreen(
                 onSelect = { index -> onSave(task.copy(priority = Priority.entries[index])) },
             )
             Text(
-                text = task.priority.explanation,
+                text = task.priority.explanation(),
                 style = MaterialTheme.typography.bodySmall,
                 color = scheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp, bottom = 22.dp),
@@ -213,9 +225,11 @@ fun TaskDetailScreen(
             ) {
                 DetailRow(
                     icon = AppIcons.Event,
-                    title = task.dueDate?.let { "Due ${relativeDate(it, today)}" } ?: "No due date",
+                    title = task.dueDate
+                        ?.let { stringResource(R.string.task_due, relativeDate(it, today)) }
+                        ?: stringResource(R.string.task_no_due_date),
                     supporting = when {
-                        task.dueDate == null -> "Tap to schedule"
+                        task.dueDate == null -> stringResource(R.string.task_tap_to_schedule)
                         overdue -> overdueByDays(task.dueDate, today)
                         else -> formatDate(task.dueDate)
                     },
@@ -227,12 +241,12 @@ fun TaskDetailScreen(
                 DetailRow(
                     icon = AppIcons.Notifications,
                     title = task.reminderTime
-                        ?.let { "Remind at ${formatTime(it)}" }
-                        ?: "No reminder",
+                        ?.let { stringResource(R.string.task_remind_at, formatTime(it)) }
+                        ?: stringResource(R.string.task_no_reminder),
                     supporting = if (task.reminderTime != null) {
-                        "On the due day"
+                        stringResource(R.string.task_on_the_due_day)
                     } else {
-                        "Tap to add one"
+                        stringResource(R.string.task_tap_to_add_reminder)
                     },
                     onClick = { reminderPickerOpen = true },
                 )
@@ -240,12 +254,12 @@ fun TaskDetailScreen(
                 DetailRow(
                     icon = AppIcons.EventRepeat,
                     title = task.recurrence
-                        ?.let { RecurrenceEngine.describe(it) }
-                        ?: "Does not repeat",
+                        ?.let { describeRecurrence(it) }
+                        ?: stringResource(R.string.task_does_not_repeat),
                     supporting = task.recurrence?.let { rule ->
                         val next = RecurrenceEngine.nextAfter(rule, task.dueDate ?: today)
-                        "Next: ${relativeDate(next, today)}"
-                    } ?: "Calendar rules or \"n days after done\"",
+                        stringResource(R.string.task_next_occurrence, relativeDate(next, today))
+                    } ?: stringResource(R.string.task_recurrence_supporting),
                     highlighted = task.recurrence != null,
                     trailingIcon = AppIcons.Tune,
                     onClick = { recurrenceOpen = true },
@@ -261,7 +275,7 @@ fun TaskDetailScreen(
                     .padding(16.dp),
             ) {
                 Text(
-                    text = "Notes",
+                    text = stringResource(R.string.task_notes),
                     style = MaterialTheme.typography.bodySmall,
                     color = scheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 6.dp),
@@ -284,7 +298,7 @@ fun TaskDetailScreen(
                     decorationBox = { inner ->
                         if (notes.isEmpty()) {
                             Text(
-                                text = "Anything worth remembering",
+                                text = stringResource(R.string.task_notes_placeholder),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = scheme.onSurfaceVariant,
                             )
@@ -313,7 +327,7 @@ fun TaskDetailScreen(
             ) {
                 Icon(
                     imageVector = AppIcons.Snooze,
-                    contentDescription = "Snooze to tomorrow",
+                    contentDescription = stringResource(R.string.task_snooze),
                     tint = scheme.onSurfaceVariant,
                 )
             }
@@ -334,7 +348,11 @@ fun TaskDetailScreen(
                     modifier = Modifier.size(22.dp),
                 )
                 Text(
-                    text = if (task.isDone) "Mark not done" else "Mark done",
+                    text = if (task.isDone) {
+                        stringResource(R.string.task_mark_not_done)
+                    } else {
+                        stringResource(R.string.task_mark_done)
+                    },
                     style = MaterialTheme.typography.titleMedium,
                     color = if (task.isDone) scheme.onSurface else scheme.onPrimary,
                     fontWeight = FontWeight.Medium,
@@ -353,7 +371,7 @@ fun TaskDetailScreen(
     if (timePickerOpen) {
         CadenceTimePickerDialog(
             initial = task.dueTime,
-            title = "Due at",
+            title = stringResource(R.string.task_due_at_picker),
             onDismiss = { timePickerOpen = false },
             onPick = { onSave(task.copy(dueTime = it)) },
         )
@@ -361,7 +379,7 @@ fun TaskDetailScreen(
     if (reminderPickerOpen) {
         CadenceTimePickerDialog(
             initial = task.reminderTime,
-            title = "Remind at",
+            title = stringResource(R.string.task_remind_at_picker),
             onDismiss = { reminderPickerOpen = false },
             onPick = { onSave(task.copy(reminderTime = it)) },
         )

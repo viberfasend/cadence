@@ -37,7 +37,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.toTree
 import de.andi1984.cadence.ui.CadenceUiState
@@ -70,12 +73,17 @@ fun ProjectsScreen(
     val recurringCount = state.tasks.count { !it.isDone && it.recurrence != null }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        de.andi1984.cadence.ui.components.ScreenHeader(title = "Projects") {
+        de.andi1984.cadence.ui.components.ScreenHeader(
+            title = stringResource(R.string.projects_title),
+        ) {
             IconButton(onClick = { createOpen = true }) {
-                Icon(AppIcons.CreateNewFolder, contentDescription = "New project")
+                Icon(
+                    AppIcons.CreateNewFolder,
+                    contentDescription = stringResource(R.string.projects_new),
+                )
             }
             IconButton(onClick = onSettings) {
-                Icon(AppIcons.Settings, contentDescription = "Settings")
+                Icon(AppIcons.Settings, contentDescription = stringResource(R.string.action_settings))
             }
         }
 
@@ -87,7 +95,7 @@ fun ProjectsScreen(
             item {
                 QuickRow(
                     icon = AppIcons.Inbox,
-                    label = "Inbox",
+                    label = stringResource(R.string.inbox_title),
                     count = inboxCount,
                     highlighted = true,
                     onClick = onInbox,
@@ -96,7 +104,7 @@ fun ProjectsScreen(
             item {
                 QuickRow(
                     icon = AppIcons.Today,
-                    label = "Today",
+                    label = stringResource(R.string.today_title),
                     count = todayCount,
                     highlighted = false,
                     onClick = onToday,
@@ -105,7 +113,7 @@ fun ProjectsScreen(
             item {
                 QuickRow(
                     icon = AppIcons.EventRepeat,
-                    label = "Recurring",
+                    label = stringResource(R.string.projects_quick_recurring),
                     count = recurringCount,
                     highlighted = false,
                     onClick = {},
@@ -113,7 +121,10 @@ fun ProjectsScreen(
             }
             item {
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp))
-                SectionHeader("Projects", modifier = Modifier.padding(start = 10.dp))
+                SectionHeader(
+                    stringResource(R.string.projects_section),
+                    modifier = Modifier.padding(start = 10.dp),
+                )
             }
 
             tree.forEach { node ->
@@ -163,10 +174,15 @@ private fun dueThisWeek(state: CadenceUiState, projectId: Long, today: LocalDate
         !it.isDone && it.dueDate != null && !it.dueDate.isAfter(today.plusDays(7))
     }
 
+@Composable
 private fun rootSubtitle(children: Int, dueThisWeek: Int): String? {
     val parts = buildList {
-        if (children == 1) add("1 subproject") else if (children > 1) add("$children subprojects")
-        if (dueThisWeek > 0) add("$dueThisWeek due this week")
+        if (children > 0) {
+            add(pluralStringResource(R.plurals.projects_subproject_count, children, children))
+        }
+        if (dueThisWeek > 0) {
+            add(stringResource(R.string.projects_due_this_week, dueThisWeek))
+        }
     }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
@@ -242,7 +258,11 @@ private fun ProjectRow(
             if (expandable) {
                 Icon(
                     imageVector = if (collapsed) AppIcons.ChevronRight else AppIcons.ExpandMore,
-                    contentDescription = if (collapsed) "Expand" else "Collapse",
+                    contentDescription = if (collapsed) {
+                        stringResource(R.string.action_expand)
+                    } else {
+                        stringResource(R.string.action_collapse)
+                    },
                     tint = scheme.onSurfaceVariant,
                     modifier = Modifier.size(22.dp),
                 )
@@ -265,7 +285,7 @@ private fun ProjectRow(
         }
         if (overdue > 0) {
             Text(
-                text = "$overdue overdue",
+                text = pluralStringResource(R.plurals.projects_overdue_count, overdue, overdue),
                 style = MaterialTheme.typography.bodySmall,
                 color = scheme.error,
             )
@@ -318,7 +338,11 @@ private fun SubprojectRow(
                 )
                 if (overdue > 0) {
                     Text(
-                        text = if (overdue == 1) "1 overdue" else "$overdue overdue",
+                        text = pluralStringResource(
+                            R.plurals.projects_overdue_count,
+                            overdue,
+                            overdue,
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = scheme.error,
                     )
@@ -345,7 +369,7 @@ private fun NewProjectDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New project") },
+        title = { Text(stringResource(R.string.projects_new)) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -354,7 +378,7 @@ private fun NewProjectDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name") },
+                    label = { Text(stringResource(R.string.projects_dialog_name)) },
                     singleLine = true,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -380,13 +404,13 @@ private fun NewProjectDialog(
                     }
                 }
                 Text(
-                    text = "Nest under",
+                    text = stringResource(R.string.projects_dialog_nest_under),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     de.andi1984.cadence.ui.components.CadenceChip(
-                        label = "Top level",
+                        label = stringResource(R.string.projects_dialog_top_level),
                         selected = parentId == null,
                         onClick = { parentId = null },
                     )
@@ -404,10 +428,10 @@ private fun NewProjectDialog(
             TextButton(
                 onClick = { onCreate(name, color, parentId) },
                 enabled = name.isNotBlank(),
-            ) { Text("Create") }
+            ) { Text(stringResource(R.string.action_create)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
         },
     )
 }
