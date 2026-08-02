@@ -20,7 +20,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
@@ -45,8 +48,12 @@ fun InboxScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenHeader(
-            title = "Inbox",
-            subtitle = if (open == 0) "Empty" else "$open to sort out",
+            title = stringResource(R.string.inbox_title),
+            subtitle = if (open == 0) {
+                stringResource(R.string.inbox_empty_subtitle)
+            } else {
+                pluralStringResource(R.plurals.inbox_to_sort, open, open)
+            },
         ) {
             if (open > 0) {
                 Row(
@@ -66,7 +73,7 @@ fun InboxScreen(
                         modifier = Modifier.size(18.dp),
                     )
                     Text(
-                        text = "Triage",
+                        text = stringResource(R.string.triage_title),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
@@ -76,8 +83,8 @@ fun InboxScreen(
 
         if (inbox.isEmpty()) {
             EmptyState(
-                title = "Inbox is clear",
-                supporting = "Anything you capture without a project waits here.",
+                title = stringResource(R.string.inbox_empty_title),
+                supporting = stringResource(R.string.inbox_empty_supporting),
             )
             return@Column
         }

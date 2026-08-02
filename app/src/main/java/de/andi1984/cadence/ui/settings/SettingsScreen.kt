@@ -18,7 +18,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.R
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.CadenceChip
@@ -40,10 +42,10 @@ fun SettingsScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(AppIcons.ArrowBack, contentDescription = "Back")
+                Icon(AppIcons.ArrowBack, contentDescription = stringResource(R.string.action_back))
             }
             Text(
-                text = "Settings",
+                text = stringResource(R.string.settings_title),
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -55,46 +57,45 @@ fun SettingsScreen(
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            SettingSection("Theme")
+            SettingSection(stringResource(R.string.settings_theme))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CadenceChip(
-                    label = "Follow system",
+                    label = stringResource(R.string.settings_theme_system),
                     selected = settings.theme == ThemeChoice.SYSTEM,
                     onClick = { onThemeChange(ThemeChoice.SYSTEM) },
                 )
                 CadenceChip(
-                    label = "Light",
+                    label = stringResource(R.string.settings_theme_light),
                     selected = settings.theme == ThemeChoice.LIGHT,
                     onClick = { onThemeChange(ThemeChoice.LIGHT) },
                 )
                 CadenceChip(
-                    label = "Dark",
+                    label = stringResource(R.string.settings_theme_dark),
                     selected = settings.theme == ThemeChoice.DARK,
                     onClick = { onThemeChange(ThemeChoice.DARK) },
                 )
             }
 
-            SettingSection("Row density")
+            SettingSection(stringResource(R.string.settings_density))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CadenceChip(
-                    label = "Comfortable",
+                    label = stringResource(R.string.settings_density_comfortable),
                     selected = settings.density == Density.COMFORTABLE,
                     onClick = { onDensityChange(Density.COMFORTABLE) },
                 )
                 CadenceChip(
-                    label = "Compact",
+                    label = stringResource(R.string.settings_density_compact),
                     selected = settings.density == Density.COMPACT,
                     onClick = { onDensityChange(Density.COMPACT) },
                 )
             }
             Text(
-                text = "Comfortable shows 64dp rows with the full meta line. Compact drops to " +
-                    "52dp single-line rows. Touch targets stay at 48dp either way.",
+                text = stringResource(R.string.settings_density_explanation),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            SettingSection("Lists")
+            SettingSection(stringResource(R.string.settings_lists))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -106,23 +107,21 @@ fun SettingsScreen(
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Show completed tasks",
+                        text = stringResource(R.string.settings_show_completed),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        text = "Finished work stays in place for the rest of the day",
+                        text = stringResource(R.string.settings_show_completed_supporting),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
 
-            SettingSection("About")
+            SettingSection(stringResource(R.string.settings_about))
             Text(
-                text = "Cadence orders work by importance first and uses the due date only to " +
-                    "break ties. Priority is always shown as a segmented spine plus its label, " +
-                    "never by colour alone.",
+                text = stringResource(R.string.settings_about_text),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

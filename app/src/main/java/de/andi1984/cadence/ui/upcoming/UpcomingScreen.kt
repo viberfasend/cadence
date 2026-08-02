@@ -26,14 +26,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.DayHeader
 import de.andi1984.cadence.ui.components.EmptyState
 import de.andi1984.cadence.ui.components.ScreenHeader
 import de.andi1984.cadence.ui.components.TaskRow
+import de.andi1984.cadence.ui.format.currentLocale
 import de.andi1984.cadence.ui.format.dayHeader
 import de.andi1984.cadence.ui.format.formatDate
 import de.andi1984.cadence.ui.format.pluralTasks
@@ -41,7 +44,6 @@ import de.andi1984.cadence.ui.sortedFor
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.TextStyle
-import java.util.Locale
 
 private sealed interface AgendaItem {
     data class Header(val date: LocalDate, val count: Int) : AgendaItem
@@ -79,8 +81,8 @@ fun UpcomingScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenHeader(
-            title = "Upcoming",
-            subtitle = "Next 7 days · ${pluralTasks(nextWeekCount)}",
+            title = stringResource(R.string.upcoming_title),
+            subtitle = stringResource(R.string.upcoming_subtitle, pluralTasks(nextWeekCount)),
         )
 
         Row(
@@ -105,8 +107,8 @@ fun UpcomingScreen(
 
         if (agenda.isEmpty()) {
             EmptyState(
-                title = "Nothing scheduled",
-                supporting = "Dated tasks show up here, grouped by day.",
+                title = stringResource(R.string.upcoming_empty_title),
+                supporting = stringResource(R.string.upcoming_empty_supporting),
             )
             return@Column
         }
@@ -127,9 +129,10 @@ fun UpcomingScreen(
                 },
             ) { index ->
                 when (val item = agenda[index]) {
+                    // "Tomorrow" is the one header that does not already say its date.
                     is AgendaItem.Header -> DayHeader(
                         title = dayHeader(item.date, today),
-                        trailing = if (dayHeader(item.date, today) == "Tomorrow") {
+                        trailing = if (item.date == today.plusDays(1)) {
                             "${formatDate(item.date)} · ${item.count}"
                         } else {
                             "${item.count}"
@@ -174,7 +177,9 @@ private fun DayChip(
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase(),
+            text = date.dayOfWeek
+                .getDisplayName(TextStyle.SHORT, currentLocale())
+                .uppercase(currentLocale()),
             style = MaterialTheme.typography.labelSmall,
             color = if (highlighted) scheme.onPrimary else scheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

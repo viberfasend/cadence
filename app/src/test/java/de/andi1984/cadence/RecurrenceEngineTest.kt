@@ -4,7 +4,9 @@ import de.andi1984.cadence.domain.model.MonthlyMode
 import de.andi1984.cadence.domain.model.RecurrenceMode
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
+import de.andi1984.cadence.domain.recurrence.MonthlyPhrase
 import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
+import de.andi1984.cadence.domain.recurrence.RecurrenceSummary
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -144,10 +146,14 @@ class RecurrenceEngineTest {
     }
 
     @Test
-    fun `descriptions read like the design copy`() {
+    fun `summaries carry the pieces the wording needs`() {
         assertEquals(
-            "Monthly on the 1st",
-            RecurrenceEngine.describe(
+            RecurrenceSummary.Schedule(
+                interval = 1,
+                unit = RecurrenceUnit.MONTH,
+                monthly = MonthlyPhrase.DayOfMonth(1),
+            ),
+            RecurrenceEngine.summarize(
                 RecurrenceRule(
                     unit = RecurrenceUnit.MONTH,
                     monthlyMode = MonthlyMode.DAY_OF_MONTH,
@@ -156,8 +162,12 @@ class RecurrenceEngineTest {
             ),
         )
         assertEquals(
-            "Every 3 months on the last weekday",
-            RecurrenceEngine.describe(
+            RecurrenceSummary.Schedule(
+                interval = 3,
+                unit = RecurrenceUnit.MONTH,
+                monthly = MonthlyPhrase.LastWeekday,
+            ),
+            RecurrenceEngine.summarize(
                 RecurrenceRule(
                     interval = 3,
                     unit = RecurrenceUnit.MONTH,
@@ -166,8 +176,8 @@ class RecurrenceEngineTest {
             ),
         )
         assertEquals(
-            "3 days after done",
-            RecurrenceEngine.describe(
+            RecurrenceSummary.AfterCompletion(interval = 3, unit = RecurrenceUnit.DAY),
+            RecurrenceEngine.summarize(
                 RecurrenceRule(
                     mode = RecurrenceMode.AFTER_COMPLETION,
                     interval = 3,
@@ -176,8 +186,27 @@ class RecurrenceEngineTest {
             ),
         )
         assertEquals(
-            "Daily",
-            RecurrenceEngine.describe(RecurrenceRule(unit = RecurrenceUnit.DAY)),
+            RecurrenceSummary.Schedule(interval = 1, unit = RecurrenceUnit.DAY),
+            RecurrenceEngine.summarize(RecurrenceRule(unit = RecurrenceUnit.DAY)),
+        )
+    }
+
+    @Test
+    fun `weekly summaries keep the selected days in order`() {
+        val summary = RecurrenceEngine.summarize(
+            RecurrenceRule(
+                interval = 2,
+                unit = RecurrenceUnit.WEEK,
+                daysOfWeek = setOf(DayOfWeek.THURSDAY, DayOfWeek.MONDAY),
+            ),
+        )
+        assertEquals(
+            RecurrenceSummary.Schedule(
+                interval = 2,
+                unit = RecurrenceUnit.WEEK,
+                daysOfWeek = listOf(DayOfWeek.MONDAY, DayOfWeek.THURSDAY),
+            ),
+            summary,
         )
     }
 

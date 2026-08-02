@@ -21,7 +21,9 @@ import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.projectPath
 import java.time.Instant
@@ -53,7 +55,7 @@ fun CadenceDatePickerDialog(
                     onPick(picked)
                     onDismiss()
                 },
-            ) { Text("Set") }
+            ) { Text(stringResource(R.string.action_set)) }
         },
         dismissButton = {
             TextButton(
@@ -61,7 +63,7 @@ fun CadenceDatePickerDialog(
                     onPick(null)
                     onDismiss()
                 },
-            ) { Text("No date") }
+            ) { Text(stringResource(R.string.picker_no_date)) }
         },
     ) {
         DatePicker(state = pickerState)
@@ -98,7 +100,7 @@ fun CadenceTimePickerDialog(
                     onPick(LocalTime.of(pickerState.hour, pickerState.minute))
                     onDismiss()
                 },
-            ) { Text("Set") }
+            ) { Text(stringResource(R.string.action_set)) }
         },
         dismissButton = {
             TextButton(
@@ -106,7 +108,7 @@ fun CadenceTimePickerDialog(
                     onPick(null)
                     onDismiss()
                 },
-            ) { Text("Clear") }
+            ) { Text(stringResource(R.string.action_clear)) }
         },
     )
 }
@@ -121,14 +123,14 @@ fun ProjectPickerDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Move to") },
+        title = { Text(stringResource(R.string.picker_move_to)) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 ProjectOption(
-                    label = "Inbox",
+                    label = stringResource(R.string.inbox_title),
                     colorHex = null,
                     selected = selectedId == null,
                     onClick = {
@@ -150,7 +152,7 @@ fun ProjectPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
         },
     )
 }

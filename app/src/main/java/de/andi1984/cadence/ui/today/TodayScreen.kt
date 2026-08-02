@@ -30,7 +30,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
@@ -68,15 +71,18 @@ fun TodayScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenHeader(
-            title = "Today",
+            title = stringResource(R.string.today_title),
             subtitle = "${formatDate(today)} · ${pluralTasks(openCount)}",
         ) {
             IconButton(onClick = onSearch) {
-                Icon(AppIcons.Search, contentDescription = "Search")
+                Icon(AppIcons.Search, contentDescription = stringResource(R.string.action_search))
             }
             Column {
                 IconButton(onClick = { sortMenuOpen = true }) {
-                    Icon(AppIcons.Sort, contentDescription = "Sort and settings")
+                    Icon(
+                        AppIcons.Sort,
+                        contentDescription = stringResource(R.string.action_sort_and_settings),
+                    )
                 }
                 DropdownMenu(
                     expanded = sortMenuOpen,
@@ -84,7 +90,7 @@ fun TodayScreen(
                 ) {
                     SortMode.entries.forEach { mode ->
                         DropdownMenuItem(
-                            text = { Text(mode.label) },
+                            text = { Text(stringResource(mode.label)) },
                             onClick = {
                                 onSortChange(mode)
                                 sortMenuOpen = false
@@ -98,7 +104,7 @@ fun TodayScreen(
                     }
                     HorizontalDivider()
                     DropdownMenuItem(
-                        text = { Text("Settings") },
+                        text = { Text(stringResource(R.string.action_settings)) },
                         onClick = {
                             sortMenuOpen = false
                             onSettings()
@@ -138,13 +144,13 @@ fun TodayScreen(
             if (dueToday.isEmpty() && overdue.isEmpty()) {
                 item(key = "empty") {
                     EmptyState(
-                        title = "Nothing due today",
-                        supporting = "Anything you add without a date lands in the Inbox.",
+                        title = stringResource(R.string.today_empty_title),
+                        supporting = stringResource(R.string.today_empty_supporting),
                     )
                 }
             } else {
                 item(key = "due-today-header") {
-                    SectionHeader("Due today")
+                    SectionHeader(stringResource(R.string.today_section_due))
                 }
                 items(dueToday, key = { it.id }) { task ->
                     TaskRow(
@@ -196,7 +202,7 @@ private fun OverdueBlock(
                 modifier = Modifier.size(20.dp),
             )
             Text(
-                text = "Overdue · ${tasks.size}",
+                text = stringResource(R.string.today_overdue_header, tasks.size),
                 style = MaterialTheme.typography.titleSmall,
                 color = cadenceColors.onOverdue,
                 modifier = Modifier.weight(1f),
@@ -211,7 +217,7 @@ private fun OverdueBlock(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Reschedule all",
+                    text = stringResource(R.string.today_reschedule_all),
                     style = MaterialTheme.typography.labelLarge,
                     color = cadenceColors.onOverdue,
                 )
@@ -240,7 +246,7 @@ private fun OverdueBlock(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Show $hidden more",
+                    text = pluralStringResource(R.plurals.today_show_more, hidden, hidden),
                     style = MaterialTheme.typography.labelLarge,
                     color = cadenceColors.onOverdue,
                 )

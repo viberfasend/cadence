@@ -1,6 +1,8 @@
 package de.andi1984.cadence.ui.settings
 
 import android.content.Context
+import androidx.annotation.StringRes
+import de.andi1984.cadence.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -10,10 +12,10 @@ enum class ThemeChoice { SYSTEM, LIGHT, DARK }
 /** 64dp comfortable rows (1a) or 52dp compact rows (1b). */
 enum class Density { COMFORTABLE, COMPACT }
 
-enum class SortMode(val label: String) {
-    IMPORTANCE("By importance"),
-    DATE("By date"),
-    MANUAL("Manual"),
+enum class SortMode(@StringRes val label: Int) {
+    IMPORTANCE(R.string.sort_importance),
+    DATE(R.string.sort_date),
+    MANUAL(R.string.sort_manual),
 }
 
 data class CadenceSettings(
