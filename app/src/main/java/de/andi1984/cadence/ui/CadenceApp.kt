@@ -31,6 +31,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import de.andi1984.cadence.ui.components.AppIcons
+import de.andi1984.cadence.ui.components.FittedLabel
 import de.andi1984.cadence.ui.detail.TaskDetailScreen
 import de.andi1984.cadence.ui.inbox.InboxScreen
 import de.andi1984.cadence.ui.inbox.TriageScreen
@@ -116,7 +117,7 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState) {
                                     Icon(destination.icon, contentDescription = null)
                                 }
                             },
-                            label = { Text(stringResource(destination.label)) },
+                            label = { FittedLabel(stringResource(destination.label)) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
                                 indicatorColor = MaterialTheme.colorScheme.secondaryContainer,

@@ -55,6 +55,7 @@ import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.projectPath
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
+import de.andi1984.cadence.domain.parse.QuickAddLexicon
 import de.andi1984.cadence.domain.parse.QuickAddParser
 import de.andi1984.cadence.domain.parse.TokenKind
 import de.andi1984.cadence.ui.components.AppIcons
@@ -62,6 +63,7 @@ import de.andi1984.cadence.ui.components.CadenceDatePickerDialog
 import de.andi1984.cadence.ui.components.PrioritySpine
 import de.andi1984.cadence.ui.components.ProjectPickerDialog
 import de.andi1984.cadence.ui.components.ProjectSwatch
+import de.andi1984.cadence.ui.format.currentLocale
 import de.andi1984.cadence.ui.format.describeRecurrence
 import de.andi1984.cadence.ui.format.formatDate
 import de.andi1984.cadence.ui.format.label
@@ -96,7 +98,11 @@ fun QuickAddSheet(
     var projectPickerOpen by remember { mutableStateOf(false) }
     var recurrenceOpen by remember { mutableStateOf(false) }
 
-    val parsed = remember(text, projects) { QuickAddParser.parse(text, projects, today) }
+    // Keywords follow the app language, not the system one — English always stays understood.
+    val lexicon = QuickAddLexicon.forLocale(currentLocale())
+    val parsed = remember(text, projects, lexicon) {
+        QuickAddParser.parse(text, projects, today, lexicon)
+    }
     val effective = parsed.copy(
         dueDate = dateOverride ?: parsed.dueDate,
         priority = priorityOverride ?: parsed.priority,

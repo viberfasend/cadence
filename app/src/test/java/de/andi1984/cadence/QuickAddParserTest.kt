@@ -7,6 +7,7 @@ import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceMode
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
+import de.andi1984.cadence.domain.parse.QuickAddLexicon
 import de.andi1984.cadence.domain.parse.QuickAddParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -15,10 +16,12 @@ import org.junit.Test
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
+import java.util.Locale
 
 class QuickAddParserTest {
 
     private val today = LocalDate.of(2026, 8, 12)
+    private val german = QuickAddLexicon.forLocale(Locale.GERMAN)
 
     private val projects = listOf(
         Project(id = 1L, name = "Home", colorHex = "#A1560A"),
@@ -109,6 +112,118 @@ class QuickAddParserTest {
         val parsed = QuickAddParser.parse("Chase the invoice in 3 days", projects, today)
         assertEquals("Chase the invoice", parsed.title)
         assertEquals(today.plusDays(3), parsed.dueDate)
+    }
+
+    @Test
+    fun `german recurrence needs no english keywords`() {
+        val parsed = QuickAddParser.parse("jeden Tag Frühstück zubereiten", projects, today, german)
+
+        assertEquals("Frühstück zubereiten", parsed.title)
+        assertEquals(RecurrenceMode.SCHEDULE, parsed.recurrence?.mode)
+        assertEquals(1, parsed.recurrence?.interval)
+        assertEquals(RecurrenceUnit.DAY, parsed.recurrence?.unit)
+    }
+
+    @Test
+    fun `german interval rules with a weekday`() {
+        val parsed = QuickAddParser.parse("Müll rausbringen alle 2 Wochen am Donnerstag", projects, today, german)
+
+        assertEquals("Müll rausbringen", parsed.title)
+        assertEquals(2, parsed.recurrence?.interval)
+        assertEquals(RecurrenceUnit.WEEK, parsed.recurrence?.unit)
+        assertEquals(setOf(DayOfWeek.THURSDAY), parsed.recurrence?.daysOfWeek)
+    }
+
+    @Test
+    fun `german ordinal rules`() {
+        val parsed = QuickAddParser.parse("Miete zahlen jeden 1.", projects, today, german)
+
+        assertEquals("Miete zahlen", parsed.title)
+        assertEquals(RecurrenceUnit.MONTH, parsed.recurrence?.unit)
+        assertEquals(MonthlyMode.DAY_OF_MONTH, parsed.recurrence?.monthlyMode)
+        assertEquals(1, parsed.recurrence?.dayOfMonth)
+        assertEquals(LocalDate.of(2026, 9, 1), parsed.dueDate)
+    }
+
+    @Test
+    fun `german after completion rules`() {
+        val parsed = QuickAddParser.parse("Blumen gießen 3 Tage nach Erledigung", projects, today, german)
+
+        assertEquals("Blumen gießen", parsed.title)
+        assertEquals(RecurrenceMode.AFTER_COMPLETION, parsed.recurrence?.mode)
+        assertEquals(3, parsed.recurrence?.interval)
+        assertEquals(RecurrenceUnit.DAY, parsed.recurrence?.unit)
+        assertEquals(today, parsed.dueDate)
+    }
+
+    @Test
+    fun `german adverbs and last-day rules`() {
+        val weekly = QuickAddParser.parse("Küche putzen wöchentlich", projects, today, german)
+        assertEquals("Küche putzen", weekly.title)
+        assertEquals(RecurrenceUnit.WEEK, weekly.recurrence?.unit)
+
+        val lastWorkday = QuickAddParser.parse("Bericht jeden letzten Werktag", projects, today, german)
+        assertEquals("Bericht", lastWorkday.title)
+        assertEquals(MonthlyMode.LAST_WEEKDAY, lastWorkday.recurrence?.monthlyMode)
+    }
+
+    @Test
+    fun `german dates and times`() {
+        val tomorrow = QuickAddParser.parse("Zahnarzt anrufen morgen um 17:00", projects, today, german)
+        assertEquals("Zahnarzt anrufen", tomorrow.title)
+        assertEquals(today.plusDays(1), tomorrow.dueDate)
+        assertEquals(LocalTime.of(17, 0), tomorrow.dueTime)
+
+        val overmorrow = QuickAddParser.parse("Rückruf übermorgen um 9 Uhr", projects, today, german)
+        assertEquals("Rückruf", overmorrow.title)
+        assertEquals(today.plusDays(2), overmorrow.dueDate)
+        assertEquals(LocalTime.of(9, 0), overmorrow.dueTime)
+
+        val friday = QuickAddParser.parse("Bericht nächsten Freitag", projects, today, german)
+        assertEquals("Bericht", friday.title)
+        assertEquals(LocalDate.of(2026, 8, 14), friday.dueDate)
+
+        val inDays = QuickAddParser.parse("Rechnung nachfassen in 3 Tagen", projects, today, german)
+        assertEquals("Rechnung nachfassen", inDays.title)
+        assertEquals(today.plusDays(3), inDays.dueDate)
+    }
+
+    @Test
+    fun `english keeps working inside the german lexicon`() {
+        val parsed = QuickAddParser.parse("Pay rent every 1st !p2 #Home", projects, today, german)
+
+        assertEquals("Pay rent", parsed.title)
+        assertEquals(Priority.P2, parsed.priority)
+        assertEquals(LocalDate.of(2026, 9, 1), parsed.dueDate)
+    }
+
+    @Test
+    fun `plain german text stays plain`() {
+        val parsed = QuickAddParser.parse("Milch kaufen", projects, today, german)
+
+        assertEquals("Milch kaufen", parsed.title)
+        assertNull(parsed.dueDate)
+        assertNull(parsed.recurrence)
+        assertTrue(parsed.spans.isEmpty())
+    }
+
+    @Test
+    fun `an unknown language still reads its own weekday names`() {
+        val french = QuickAddLexicon.forLocale(Locale.FRENCH)
+        val parsed = QuickAddParser.parse("Payer le loyer vendredi", projects, today, french)
+
+        assertEquals("Payer le loyer", parsed.title)
+        assertEquals(LocalDate.of(2026, 8, 14), parsed.dueDate)
+    }
+
+    @Test
+    fun `every shipped lexicon compiles its patterns`() {
+        // A malformed alternation only shows up when the grammar is first used, which is inside
+        // the quick-add sheet — parse one line per language so a bad pattern fails here instead.
+        listOf(Locale.ENGLISH, Locale.GERMAN, Locale.FRENCH).forEach { locale ->
+            val parsed = QuickAddParser.parse("Test", projects, today, QuickAddLexicon.forLocale(locale))
+            assertEquals("Test", parsed.title)
+        }
     }
 
     @Test

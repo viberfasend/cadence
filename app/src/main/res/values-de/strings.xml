@@ -239,8 +239,8 @@
     <string name="repeat_save">Regel speichern</string>
 
     <!-- ── Schnelleingabe ──────────────────────────────────────────────────────────── -->
-    <string name="quick_add_placeholder">Miete zahlen every 1st !p2 #Haushalt</string>
-    <string name="quick_add_hint">Tippe einen Chip an, um ihn zu korrigieren. Normale Wörter sind in Ordnung — alles hier ist optional. Datums- und Wiederholungsangaben werden auf Englisch erkannt, etwa „every 1st“ oder „tomorrow“.</string>
+    <string name="quick_add_placeholder">Miete zahlen jeden 1. !p2 #Haushalt</string>
+    <string name="quick_add_hint">Tippe einen Chip an, um ihn zu korrigieren. Normale Wörter sind in Ordnung — alles hier ist optional. Datum und Wiederholung verstehen Deutsch und Englisch, etwa „morgen“, „jeden 1.“ oder „alle 2 Wochen am Donnerstag“.</string>
     <string name="quick_add_set_due_date">Fälligkeitsdatum setzen</string>
     <string name="quick_add_set_repeat">Wiederholung setzen</string>
     <string name="quick_add_cycle_importance">Wichtigkeit durchschalten</string>

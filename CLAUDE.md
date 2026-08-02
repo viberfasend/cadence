@@ -85,6 +85,8 @@ ui/         theme, shared components, one package per screen
   and announces itself as e.g. "P2 · High". Touch targets stay ≥44–48dp even where the design
   draws a 24dp circle. Type scale carries 1.3× line-height headroom for 200% font scaling.
 - All icons go through `ui/components/AppIcons.kt` — don't import `Icons.Rounded.*` in screens.
+- Labels in fixed-width slots (the bottom bar) use `FittedLabel`, which measures the slot and
+  shrinks the type rather than wrapping — "Demnächst" is twice the width of "Today".
 
 ### Localisation
 
@@ -102,8 +104,17 @@ worth knowing before adding a screen:
 - Never branch on a formatted string (an early bug compared a day header to `"Tomorrow"`);
   compare the underlying date or enum.
 - Counts go through `<plurals>`, even where English and German happen to agree.
-- The quick-add parser (`domain/parse/`) still only recognises English keywords (`tomorrow`,
-  `every 2 weeks`). The German `quick_add_hint` says so; teaching it German is a roadmap item.
+- The quick-add parser (`domain/parse/`) keeps its keywords in `QuickAddLexicon`, not in the
+  grammar: `QuickAddParser.parse` takes one and `QuickAddSheet` picks it with
+  `QuickAddLexicon.forLocale(currentLocale())`. Lexicons compose and English is always folded in,
+  so `every 2 weeks` and `alle 2 Wochen` both parse in a German install. Weekday and month names
+  are never listed — they come from `java.time` for the locale, so an unlisted language still
+  reads `vendredi`. Adding a language means adding a lexicon, not touching the parser.
+- Patterns are compiled by **ICU on device but by `java.util.regex` in the unit tests**, and the
+  two disagree. ICU rejects the `(?u)`/`(?U)` inline flags (a crash the JVM tests cannot see), and
+  `IGNORE_CASE` alone folds only ASCII on the JVM. `QuickAddPatterns` therefore spells word
+  boundaries as `\p{L}` lookarounds and writes non-ASCII letters as two-case classes. Don't put
+  `\b` or an inline flag back in.
 
 ## CI / releases
 

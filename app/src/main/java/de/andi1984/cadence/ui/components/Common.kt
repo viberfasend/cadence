@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,17 +15,24 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun SectionHeader(
@@ -187,6 +195,57 @@ fun EmptyState(
             text = supporting,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/**
+ * A label that shrinks instead of wrapping.
+ *
+ * The bottom bar is four fixed columns, so a long translation ("Demnächst" is twice the width of
+ * "Today") wrapped onto a second line and clipped. Shrinking keeps the whole word readable and the
+ * bar exactly one row tall in every language and at every font scale; below [minScale] the text
+ * ellipsises rather than becoming unreadable.
+ */
+@Composable
+fun FittedLabel(
+    text: String,
+    modifier: Modifier = Modifier,
+    minScale: Float = 0.6f,
+) {
+    val measurer = rememberTextMeasurer()
+    val base = LocalTextStyle.current.let {
+        if (it.fontSize.isSpecified) it else it.copy(fontSize = 12.sp)
+    }
+
+    // The width comes from the slot itself — the bar's own padding makes any outside estimate
+    // too generous, and the label ellipsises instead of shrinking.
+    BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
+        val available = constraints.maxWidth
+        val fitted = remember(text, base, available, minScale, measurer) {
+            var scale = 1f
+            var candidate = base
+            while (scale > minScale) {
+                val width = measurer
+                    .measure(AnnotatedString(text), style = candidate, maxLines = 1, softWrap = false)
+                    .size.width
+                if (width <= available) break
+                scale -= 0.05f
+                candidate = base.copy(
+                    fontSize = base.fontSize * scale,
+                    lineHeight = if (base.lineHeight.isSpecified) base.lineHeight * scale else base.lineHeight,
+                )
+            }
+            candidate
+        }
+
+        Text(
+            text = text,
+            style = fitted,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
         )
     }

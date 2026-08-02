@@ -36,35 +36,17 @@ data class ParsedQuickAdd(
  *  - `every 2 weeks on thu`, `every 1st`, `daily`, `3 days after done` — recurrence
  *  - `tomorrow`, `next friday`, `in 3 days`, `24.12.`, `24 Dec`, `2026-12-24` — due date
  *  - `at 17:00`, `17:00`, `9am` — due time
+ *
+ * The keywords themselves live in [QuickAddLexicon], so the same grammar reads
+ * "jeden Tag Frühstück zubereiten" once the German lexicon is passed in.
  */
 object QuickAddParser {
-
-    private val dayNames: Map<String, DayOfWeek> = buildMap {
-        DayOfWeek.entries.forEach { day ->
-            val full = day.name.lowercase()
-            put(full, day)
-            put(full.take(3), day)
-        }
-    }
-
-    private val monthNames: Map<String, Int> = buildMap {
-        val months = listOf(
-            "january", "february", "march", "april", "may", "june",
-            "july", "august", "september", "october", "november", "december",
-        )
-        months.forEachIndexed { index, name ->
-            put(name, index + 1)
-            put(name.take(3), index + 1)
-        }
-    }
-
-    private val dayNamePattern = dayNames.keys.sortedByDescending { it.length }.joinToString("|")
-    private val monthNamePattern = monthNames.keys.sortedByDescending { it.length }.joinToString("|")
 
     fun parse(
         input: String,
         projects: List<Project> = emptyList(),
         today: LocalDate = LocalDate.now(),
+        lexicon: QuickAddLexicon = QuickAddLexicon.English,
     ): ParsedQuickAdd {
         val consumed = mutableListOf<IntRange>()
         val spans = mutableListOf<TokenSpan>()
@@ -107,13 +89,13 @@ object QuickAddParser {
         val take: (IntRange, TokenKind) -> Unit = { range, kind -> claim(range, kind) }
 
         // ── Recurrence ─────────────────────────────────────────────────────────────
-        val recurrence = parseRecurrence(find, take)
+        val recurrence = parseRecurrence(lexicon, find, take)
 
         // ── Due date ───────────────────────────────────────────────────────────────
-        val dueDate = parseDate(today, find, take)
+        val dueDate = parseDate(lexicon, today, find, take)
 
         // ── Time ───────────────────────────────────────────────────────────────────
-        val dueTime = parseTime(find, take)
+        val dueTime = parseTime(lexicon, find, take)
 
         val title = buildTitle(input, consumed)
         val resolvedDue = dueDate ?: recurrence?.let { rule ->
@@ -136,47 +118,43 @@ object QuickAddParser {
     }
 
     private fun parseRecurrence(
+        lexicon: QuickAddLexicon,
         firstMatch: (Regex) -> MatchResult?,
         claim: (IntRange, TokenKind) -> Unit,
     ): RecurrenceRule? {
-        // "3 days after done" / "2 weeks after I finish"
-        firstMatch(
-            Regex(
-                """\b(\d+)\s+(day|week|month|year)s?\s+after\s+""" +
-                    """(done|completion|finishing|i\s+finish|it'?s\s+done)\b""",
-                RegexOption.IGNORE_CASE,
-            ),
-        )?.let { match ->
+        val patterns = lexicon.patterns
+
+        // "3 days after done" / "2 Wochen nach Erledigung"
+        firstMatch(patterns.afterCompletion)?.let { match ->
             claim(match.range, TokenKind.RECURRENCE)
             return RecurrenceRule(
                 mode = RecurrenceMode.AFTER_COMPLETION,
-                interval = match.groupValues[1].toIntOrNull()?.coerceAtLeast(1) ?: 1,
-                unit = unitOf(match.groupValues[2]),
+                interval = match.group("count")?.toIntOrNull()?.coerceAtLeast(1) ?: 1,
+                unit = lexicon.unitOf(match.group("unit")),
             )
         }
 
-        // "every 1st", "every 15th of the month"
-        firstMatch(
-            Regex("""\bevery\s+(\d{1,2})(st|nd|rd|th)\b(\s+of\s+the\s+month)?""", RegexOption.IGNORE_CASE),
-        )?.let { match ->
+        // "every 1st", "jeden 15. des Monats"
+        firstMatch(patterns.everyOrdinal)?.let { match ->
             claim(match.range, TokenKind.RECURRENCE)
             return RecurrenceRule(
                 mode = RecurrenceMode.SCHEDULE,
                 interval = 1,
                 unit = RecurrenceUnit.MONTH,
                 monthlyMode = MonthlyMode.DAY_OF_MONTH,
-                dayOfMonth = match.groupValues[1].toInt().coerceIn(1, 31),
+                dayOfMonth = (match.group("dom")?.toIntOrNull() ?: 1).coerceIn(1, 31),
             )
         }
 
-        // "every last weekday" / "every last day"
-        firstMatch(Regex("""\bevery\s+last\s+(weekday|day)\b""", RegexOption.IGNORE_CASE))?.let { match ->
+        // "every last weekday" / "jeden letzten Tag"
+        firstMatch(patterns.everyLast)?.let { match ->
             claim(match.range, TokenKind.RECURRENCE)
+            val what = match.group("what").orEmpty().lowercase()
             return RecurrenceRule(
                 mode = RecurrenceMode.SCHEDULE,
                 interval = 1,
                 unit = RecurrenceUnit.MONTH,
-                monthlyMode = if (match.groupValues[1].equals("weekday", ignoreCase = true)) {
+                monthlyMode = if (what in lexicon.workday) {
                     MonthlyMode.LAST_WEEKDAY
                 } else {
                     MonthlyMode.LAST_DAY
@@ -184,38 +162,28 @@ object QuickAddParser {
             )
         }
 
-        // "every 2 weeks on thu", "every 3 months", "every other day"
-        firstMatch(
-            Regex(
-                """\bevery\s+(other\s+|\d+\s+)?(day|week|month|year)s?""" +
-                    """(\s+on\s+($dayNamePattern)s?)?\b""",
-                RegexOption.IGNORE_CASE,
-            ),
-        )?.let { match ->
+        // "every 2 weeks on thu", "alle 2 Wochen am Donnerstag", "every other day"
+        firstMatch(patterns.everyInterval)?.let { match ->
             claim(match.range, TokenKind.RECURRENCE)
-            val rawInterval = match.groupValues[1].trim()
             val interval = when {
-                rawInterval.isEmpty() -> 1
-                rawInterval.equals("other", ignoreCase = true) -> 2
-                else -> rawInterval.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                match.group("doubled") != null -> 2
+                else -> match.group("count")?.toIntOrNull()?.coerceAtLeast(1) ?: 1
             }
-            val dow = match.groupValues[4].lowercase().takeIf { it.isNotEmpty() }?.let { dayNames[it] }
+            val dow = match.group("dow")?.let { lexicon.dayOf(it) }
             return RecurrenceRule(
                 mode = RecurrenceMode.SCHEDULE,
                 interval = interval,
-                unit = unitOf(match.groupValues[2]),
+                unit = lexicon.unitOf(match.group("unit")),
                 daysOfWeek = setOfNotNull(dow),
             )
         }
 
-        // "every monday", "every mon and thu"
-        firstMatch(
-            Regex("""\bevery\s+($dayNamePattern)s?(\s*(,|and)\s*($dayNamePattern)s?)*\b""", RegexOption.IGNORE_CASE),
-        )?.let { match ->
+        // "every monday", "jeden Mo und Do"
+        firstMatch(patterns.everyWeekday)?.let { match ->
             claim(match.range, TokenKind.RECURRENCE)
-            val days = Regex(dayNamePattern, RegexOption.IGNORE_CASE)
-                .findAll(match.value)
-                .mapNotNull { dayNames[it.value.lowercase()] }
+            val days = patterns.singleDayName
+                .findAll(match.group("days").orEmpty())
+                .mapNotNull { lexicon.dayOf(it.value) }
                 .toSet()
             return RecurrenceRule(
                 mode = RecurrenceMode.SCHEDULE,
@@ -225,15 +193,10 @@ object QuickAddParser {
             )
         }
 
-        // "daily", "weekly", "monthly", "yearly"
-        firstMatch(Regex("""\b(daily|weekly|monthly|yearly|annually)\b""", RegexOption.IGNORE_CASE))?.let { match ->
+        // "daily", "täglich"
+        firstMatch(patterns.period)?.let { match ->
             claim(match.range, TokenKind.RECURRENCE)
-            val unit = when (match.groupValues[1].lowercase()) {
-                "daily" -> RecurrenceUnit.DAY
-                "weekly" -> RecurrenceUnit.WEEK
-                "monthly" -> RecurrenceUnit.MONTH
-                else -> RecurrenceUnit.YEAR
-            }
+            val unit = lexicon.periods[match.group("word")?.lowercase()] ?: RecurrenceUnit.DAY
             return RecurrenceRule(mode = RecurrenceMode.SCHEDULE, interval = 1, unit = unit)
         }
 
@@ -241,62 +204,74 @@ object QuickAddParser {
     }
 
     private fun parseDate(
+        lexicon: QuickAddLexicon,
         today: LocalDate,
         firstMatch: (Regex) -> MatchResult?,
         claim: (IntRange, TokenKind) -> Unit,
     ): LocalDate? {
-        firstMatch(Regex("""\b(today|tonight)\b""", RegexOption.IGNORE_CASE))?.let { match ->
+        val patterns = lexicon.patterns
+
+        firstMatch(patterns.today)?.let { match ->
             claim(match.range, TokenKind.DATE)
             return today
         }
-        firstMatch(Regex("""\btomorrow\b""", RegexOption.IGNORE_CASE))?.let { match ->
+        // before "tomorrow", which sits inside "day after tomorrow"
+        firstMatch(patterns.dayAfterTomorrow)?.let { match ->
+            claim(match.range, TokenKind.DATE)
+            return today.plusDays(2)
+        }
+        firstMatch(patterns.tomorrow)?.let { match ->
             claim(match.range, TokenKind.DATE)
             return today.plusDays(1)
         }
-        firstMatch(Regex("""\bin\s+(\d+)\s+(day|week|month)s?\b""", RegexOption.IGNORE_CASE))?.let { match ->
+        firstMatch(patterns.within)?.let { match ->
             claim(match.range, TokenKind.DATE)
-            val amount = match.groupValues[1].toLong()
-            return when (unitOf(match.groupValues[2])) {
+            val amount = match.group("count")?.toLongOrNull() ?: return null
+            return when (lexicon.unitOf(match.group("unit"))) {
                 RecurrenceUnit.DAY -> today.plusDays(amount)
                 RecurrenceUnit.WEEK -> today.plusWeeks(amount)
-                else -> today.plusMonths(amount)
+                RecurrenceUnit.MONTH -> today.plusMonths(amount)
+                RecurrenceUnit.YEAR -> today.plusYears(amount)
             }
         }
-        firstMatch(Regex("""\b(\d{4})-(\d{2})-(\d{2})\b"""))?.let { match ->
+        firstMatch(patterns.isoDate)?.let { match ->
             claim(match.range, TokenKind.DATE)
             return runCatching {
                 LocalDate.of(
-                    match.groupValues[1].toInt(),
-                    match.groupValues[2].toInt(),
-                    match.groupValues[3].toInt(),
+                    match.group("year")!!.toInt(),
+                    match.group("month")!!.toInt(),
+                    match.group("day")!!.toInt(),
                 )
             }.getOrNull()
         }
         // German style: 24.12. or 24.12.2026
-        firstMatch(Regex("""\b(\d{1,2})\.(\d{1,2})\.(\d{4})?"""))?.let { match ->
+        firstMatch(patterns.numericDate)?.let { match ->
             claim(match.range, TokenKind.DATE)
-            val day = match.groupValues[1].toInt()
-            val month = match.groupValues[2].toInt()
-            val year = match.groupValues[3].toIntOrNull()
-            return buildDate(today, year, month, day)
+            return buildDate(
+                today = today,
+                year = match.group("year")?.toIntOrNull(),
+                month = match.group("month")?.toIntOrNull() ?: return null,
+                day = match.group("day")?.toIntOrNull() ?: return null,
+            )
         }
-        // "24 Dec" / "Dec 24"
-        firstMatch(Regex("""\b(\d{1,2})\.?\s+($monthNamePattern)\b""", RegexOption.IGNORE_CASE))?.let { match ->
+        // "24 Dec" / "24. Dez"
+        firstMatch(patterns.dayMonth)?.let { match ->
             claim(match.range, TokenKind.DATE)
-            val month = monthNames[match.groupValues[2].lowercase()] ?: return null
-            return buildDate(today, null, month, match.groupValues[1].toInt())
+            val month = lexicon.monthOf(match.group("month")) ?: return null
+            return buildDate(today, null, month, match.group("day")?.toIntOrNull() ?: return null)
         }
-        firstMatch(Regex("""\b($monthNamePattern)\s+(\d{1,2})\b""", RegexOption.IGNORE_CASE))?.let { match ->
+        // "Dec 24"
+        firstMatch(patterns.monthDay)?.let { match ->
             claim(match.range, TokenKind.DATE)
-            val month = monthNames[match.groupValues[1].lowercase()] ?: return null
-            return buildDate(today, null, month, match.groupValues[2].toInt())
+            val month = lexicon.monthOf(match.group("month")) ?: return null
+            return buildDate(today, null, month, match.group("day")?.toIntOrNull() ?: return null)
         }
-        firstMatch(Regex("""\b(next\s+)?($dayNamePattern)\b""", RegexOption.IGNORE_CASE))?.let { match ->
+        firstMatch(patterns.weekdayDate)?.let { match ->
             claim(match.range, TokenKind.DATE)
-            val day = dayNames[match.groupValues[2].lowercase()] ?: return null
+            val day = lexicon.dayOf(match.group("dow")) ?: return null
             return today.with(TemporalAdjusters.next(day))
         }
-        firstMatch(Regex("""\bnext\s+week\b""", RegexOption.IGNORE_CASE))?.let { match ->
+        firstMatch(patterns.nextWeek)?.let { match ->
             claim(match.range, TokenKind.DATE)
             return today.plusWeeks(1)
         }
@@ -304,23 +279,34 @@ object QuickAddParser {
     }
 
     private fun parseTime(
+        lexicon: QuickAddLexicon,
         firstMatch: (Regex) -> MatchResult?,
         claim: (IntRange, TokenKind) -> Unit,
     ): LocalTime? {
-        firstMatch(Regex("""\b(?:at\s+)?(\d{1,2}):(\d{2})\b""", RegexOption.IGNORE_CASE))?.let { match ->
+        val patterns = lexicon.patterns
+
+        firstMatch(patterns.clockTime)?.let { match ->
             claim(match.range, TokenKind.TIME)
-            val hour = match.groupValues[1].toInt()
-            val minute = match.groupValues[2].toInt()
+            val hour = match.group("hour")?.toIntOrNull() ?: return null
+            val minute = match.group("minute")?.toIntOrNull() ?: return null
             if (hour > 23 || minute > 59) return null
             return LocalTime.of(hour, minute)
         }
-        firstMatch(Regex("""\b(?:at\s+)?(\d{1,2})\s*(am|pm)\b""", RegexOption.IGNORE_CASE))?.let { match ->
+        // "um 17 Uhr"
+        firstMatch(patterns.hourClock)?.let { match ->
             claim(match.range, TokenKind.TIME)
-            val raw = match.groupValues[1].toInt()
+            val hour = match.group("hour")?.toIntOrNull() ?: return null
+            if (hour > 23) return null
+            return LocalTime.of(hour, 0)
+        }
+        firstMatch(patterns.amPm)?.let { match ->
+            claim(match.range, TokenKind.TIME)
+            val raw = match.group("hour")?.toIntOrNull() ?: return null
             if (raw !in 1..12) return null
+            val pm = match.group("half").equals("pm", ignoreCase = true)
             val hour = when {
-                match.groupValues[2].equals("pm", ignoreCase = true) && raw < 12 -> raw + 12
-                match.groupValues[2].equals("am", ignoreCase = true) && raw == 12 -> 0
+                pm && raw < 12 -> raw + 12
+                !pm && raw == 12 -> 0
                 else -> raw
             }
             return LocalTime.of(hour, 0)
@@ -340,13 +326,6 @@ object QuickAddParser {
         }.getOrNull()
     }
 
-    private fun unitOf(word: String): RecurrenceUnit = when (word.lowercase().removeSuffix("s")) {
-        "day" -> RecurrenceUnit.DAY
-        "week" -> RecurrenceUnit.WEEK
-        "month" -> RecurrenceUnit.MONTH
-        else -> RecurrenceUnit.YEAR
-    }
-
     private fun buildTitle(input: String, consumed: List<IntRange>): String {
         val builder = StringBuilder()
         input.forEachIndexed { index, char ->
@@ -359,4 +338,16 @@ object QuickAddParser {
             .trimEnd(',', '·', '-')
             .trim()
     }
+
+    /** Named groups read as null when the group did not take part in the match. */
+    private fun MatchResult.group(name: String): String? = groups[name]?.value
+
+    private fun QuickAddLexicon.unitOf(word: String?): RecurrenceUnit =
+        units[word?.lowercase()] ?: RecurrenceUnit.DAY
+
+    private fun QuickAddLexicon.dayOf(word: String?): DayOfWeek? =
+        dayNames[word?.lowercase()?.trimEnd('.')]
+
+    private fun QuickAddLexicon.monthOf(word: String?): Int? =
+        monthNames[word?.lowercase()?.trimEnd('.')]
 }
