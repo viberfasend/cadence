@@ -189,6 +189,97 @@ class QuickAddParserTest {
     }
 
     @Test
+    fun `nth weekday of the month`() {
+        val parsed = QuickAddParser.parse("Team sync every 2nd monday", projects, today)
+
+        assertEquals("Team sync", parsed.title)
+        assertEquals(RecurrenceUnit.MONTH, parsed.recurrence?.unit)
+        assertEquals(MonthlyMode.NTH_WEEKDAY, parsed.recurrence?.monthlyMode)
+        assertEquals(2, parsed.recurrence?.nthWeek)
+        assertEquals(DayOfWeek.MONDAY, parsed.recurrence?.nthDayOfWeek)
+        // Second Monday in September, the first one after 12 Aug having passed on 10 Aug.
+        assertEquals(LocalDate.of(2026, 9, 14), parsed.dueDate)
+    }
+
+    @Test
+    fun `nth weekday spelled out and in german`() {
+        val spelled = QuickAddParser.parse("Team sync every second monday", projects, today)
+        assertEquals("Team sync", spelled.title)
+        assertEquals(2, spelled.recurrence?.nthWeek)
+        assertEquals(DayOfWeek.MONDAY, spelled.recurrence?.nthDayOfWeek)
+
+        val digits = QuickAddParser.parse("Jour fixe jeden 2. Montag", projects, today, german)
+        assertEquals("Jour fixe", digits.title)
+        assertEquals(MonthlyMode.NTH_WEEKDAY, digits.recurrence?.monthlyMode)
+        assertEquals(2, digits.recurrence?.nthWeek)
+        assertEquals(DayOfWeek.MONDAY, digits.recurrence?.nthDayOfWeek)
+
+        val words = QuickAddParser.parse("Jour fixe jeden zweiten Montag des Monats", projects, today, german)
+        assertEquals("Jour fixe", words.title)
+        assertEquals(2, words.recurrence?.nthWeek)
+        assertEquals(DayOfWeek.MONDAY, words.recurrence?.nthDayOfWeek)
+    }
+
+    @Test
+    fun `last named weekday of the month`() {
+        val english = QuickAddParser.parse("Retro every last friday", projects, today)
+        assertEquals("Retro", english.title)
+        assertEquals(MonthlyMode.NTH_WEEKDAY, english.recurrence?.monthlyMode)
+        // The engine reads 5 as "the last one in the month".
+        assertEquals(5, english.recurrence?.nthWeek)
+        assertEquals(DayOfWeek.FRIDAY, english.recurrence?.nthDayOfWeek)
+        assertEquals(LocalDate.of(2026, 8, 28), english.dueDate)
+
+        val german = QuickAddParser.parse("Retro jeden letzten Freitag", projects, today, german)
+        assertEquals("Retro", german.title)
+        assertEquals(5, german.recurrence?.nthWeek)
+        assertEquals(DayOfWeek.FRIDAY, german.recurrence?.nthDayOfWeek)
+    }
+
+    @Test
+    fun `spelled out counts read like digits`() {
+        val english = QuickAddParser.parse("Water plants every three days", projects, today)
+        assertEquals("Water plants", english.title)
+        assertEquals(3, english.recurrence?.interval)
+        assertEquals(RecurrenceUnit.DAY, english.recurrence?.unit)
+
+        val german = QuickAddParser.parse("Blumen gießen alle drei Tage", projects, today, german)
+        assertEquals("Blumen gießen", german.title)
+        assertEquals(3, german.recurrence?.interval)
+        assertEquals(RecurrenceUnit.DAY, german.recurrence?.unit)
+    }
+
+    @Test
+    fun `spelled out counts in relative dates and completion rules`() {
+        val inDays = QuickAddParser.parse("Rechnung nachfassen in drei Tagen", projects, today, german)
+        assertEquals("Rechnung nachfassen", inDays.title)
+        assertEquals(today.plusDays(3), inDays.dueDate)
+
+        val inWeek = QuickAddParser.parse("Follow up in one week", projects, today)
+        assertEquals("Follow up", inWeek.title)
+        assertEquals(today.plusWeeks(1), inWeek.dueDate)
+
+        val afterDone = QuickAddParser.parse("Blumen gießen drei Tage nach Erledigung", projects, today, german)
+        assertEquals("Blumen gießen", afterDone.title)
+        assertEquals(RecurrenceMode.AFTER_COMPLETION, afterDone.recurrence?.mode)
+        assertEquals(3, afterDone.recurrence?.interval)
+    }
+
+    @Test
+    fun `a spelled out ordinal still needs the month to be a day-of-month rule`() {
+        val dayOfMonth = QuickAddParser.parse("Miete zahlen jeden ersten des Monats", projects, today, german)
+        assertEquals("Miete zahlen", dayOfMonth.title)
+        assertEquals(MonthlyMode.DAY_OF_MONTH, dayOfMonth.recurrence?.monthlyMode)
+        assertEquals(1, dayOfMonth.recurrence?.dayOfMonth)
+
+        // Without it, the same shape is an interval: every third *day*, not the 3rd of the month.
+        val interval = QuickAddParser.parse("Blumen gießen jeden dritten Tag", projects, today, german)
+        assertEquals("Blumen gießen", interval.title)
+        assertEquals(RecurrenceUnit.DAY, interval.recurrence?.unit)
+        assertEquals(3, interval.recurrence?.interval)
+    }
+
+    @Test
     fun `english keeps working inside the german lexicon`() {
         val parsed = QuickAddParser.parse("Pay rent every 1st !p2 #Home", projects, today, german)
 

@@ -19,14 +19,33 @@ internal class QuickAddPatterns(lexicon: QuickAddLexicon) {
     private val next = alt(lexicon.next + lexicon.on)
     private val before = alt(lexicon.on + lexicon.at)
 
-    /** "3 days after done", "2 Wochen nach Erledigung" */
-    val afterCompletion =
-        rx("""$START(?<count>\d+)\s+(?<unit>$unit)\s+(?:${alt(lexicon.afterCompletion)})""")
+    /** A digit run or a spelled-out number — `3`, `three`, `dritten`. */
+    private val count = """\d+|${alt(lexicon.numbers.keys)}"""
 
-    /** "every 1st", "every 15th of the month", "jeden 15. des Monats" */
+    /** "3 days after done", "2 Wochen nach Erledigung", "drei Tage nach Erledigung" */
+    val afterCompletion =
+        rx("""$START(?<count>$count)\s+(?<unit>$unit)\s+(?:${alt(lexicon.afterCompletion)})""")
+
+    /**
+     * "every 2nd monday", "jeden 2. Montag", "jeden letzten Freitag".
+     *
+     * Runs before [everyOrdinal], which would otherwise read "jeden 2." as the second day of
+     * the month and leave the weekday behind in the title.
+     */
+    val everyNthWeekday = rx(
+        """$START(?:$every)\s+(?:(?<last>${alt(lexicon.last)})|""" +
+            """(?<nth>\d{1,2})(?:${alt(lexicon.ordinal)})?|(?<nthWord>${alt(lexicon.numbers.keys)}))""" +
+            """\s+(?<dow>$dayName)s?(?:\s+(?:${alt(lexicon.ofTheMonth)}))?$END""",
+    )
+
+    /** "every 1st", "every 15th of the month", "jeden 15. des Monats", "jeden ersten des Monats" */
     val everyOrdinal = rx(
-        """$START(?:$every)\s+(?<dom>\d{1,2})(?:${alt(lexicon.ordinal)})""" +
-            """(?:\s+(?:${alt(lexicon.ofTheMonth)}))?""",
+        """$START(?:$every)\s+(?:""" +
+            """(?<dom>\d{1,2})(?:${alt(lexicon.ordinal)})(?:\s+(?:${alt(lexicon.ofTheMonth)}))?""" +
+            // The spelled form must name the month, or "jeden dritten Tag" would read as a
+            // day-of-month rule instead of an interval.
+            """|(?<domWord>${alt(lexicon.numbers.keys)})\s+(?:${alt(lexicon.ofTheMonth)})""" +
+            """)""",
     )
 
     /** "every last weekday", "jeden letzten Werktag" */
@@ -35,9 +54,9 @@ internal class QuickAddPatterns(lexicon: QuickAddLexicon) {
             """(?<what>${alt(lexicon.workday + lexicon.day)})$END""",
     )
 
-    /** "every 2 weeks on thu", "alle 2 Wochen am Donnerstag", "every other day" */
+    /** "every 2 weeks on thu", "alle 2 Wochen am Donnerstag", "every other day", "alle drei Tage" */
     val everyInterval = rx(
-        """$START(?:$every)\s+(?:(?<doubled>${alt(lexicon.doubled)})\s+|(?<count>\d+)\s+)?""" +
+        """$START(?:$every)\s+(?:(?<doubled>${alt(lexicon.doubled)})\s+|(?<count>$count)\s+)?""" +
             """(?<unit>$unit)(?:\s+(?:${alt(lexicon.on)})\s+(?<dow>$dayName)s?)?$END""",
     )
 
@@ -57,8 +76,8 @@ internal class QuickAddPatterns(lexicon: QuickAddLexicon) {
     val dayAfterTomorrow = rx("""$START(?:${alt(lexicon.dayAfterTomorrow)})$END""")
     val tomorrow = rx("""$START(?:${alt(lexicon.tomorrow)})$END""")
 
-    /** "in 3 days", "in 3 Tagen" */
-    val within = rx("""$START(?:${alt(lexicon.within)})\s+(?<count>\d+)\s+(?<unit>$unit)$END""")
+    /** "in 3 days", "in 3 Tagen", "in drei Tagen" */
+    val within = rx("""$START(?:${alt(lexicon.within)})\s+(?<count>$count)\s+(?<unit>$unit)$END""")
 
     val isoDate = rx("""$START(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})$END""")
 
