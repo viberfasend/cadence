@@ -45,9 +45,9 @@ composable state, not a route.
 ### Layers
 
 ```
-domain/     pure Kotlin — model, RecurrenceEngine, QuickAddParser. NO Android imports;
-            this is what the JVM unit tests exercise. Keep it that way.
-data/       Room entities + DAOs, CadenceRepository, SeedData
+domain/     pure Kotlin — model, RecurrenceEngine, QuickAddParser, BackupCodec. NO Android
+            imports; this is what the JVM unit tests exercise. Keep it that way.
+data/       Room entities + DAOs, CadenceRepository, SeedData, BackupIo (SAF read/write)
 reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
 ui/         theme, shared components, one package per screen
 ```
@@ -73,6 +73,15 @@ ui/         theme, shared components, one package per screen
   calls `ReminderScheduler.sync(tasks)`, which schedules *or cancels* an alarm for every task.
   Alarms are inexact (`setWindow`) deliberately, so the app needs no exact-alarm permission.
 - **Seeding**: `seedIfEmpty()` fills a fresh install with sample data from `SeedData`.
+- **Backup is a published contract, the DB is not.** `domain/backup/BackupCodec.kt` writes
+  `{"format":"cadence.backup","version":1,…}` with ISO-8601 dates and recurrence as a nested
+  object — deliberately *not* the packed `RecurrenceCodec` column — because a future web app
+  reads these files. Unknown keys are ignored on read; a higher `version` is refused. Changing
+  a field means bumping `VERSION` and keeping the old shape readable. It uses
+  kotlinx.serialization (pure Kotlin, so the codec stays JVM-testable — `org.json` is stubbed
+  in unit tests). Importing **replaces** both tables via `BackupDao.replaceAll` in one
+  transaction, so ids come straight from the file and task→project links need no remapping;
+  tasks referencing a project the file lacks fall back to the Inbox.
 - Settings persist to `SharedPreferences` via `SettingsStore` (not DataStore), exposed as a
   `StateFlow`.
 

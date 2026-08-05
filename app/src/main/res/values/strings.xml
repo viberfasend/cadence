@@ -63,6 +63,10 @@
         <item quantity="one">%1$d task</item>
         <item quantity="other">%1$d tasks</item>
     </plurals>
+    <plurals name="project_count">
+        <item quantity="one">%1$d project</item>
+        <item quantity="other">%1$d projects</item>
+    </plurals>
 
     <!-- ── Recurrence ──────────────────────────────────────────────────────────────── -->
     <plurals name="unit_day">
@@ -263,6 +267,27 @@
     <!-- ── Pickers ─────────────────────────────────────────────────────────────────── -->
     <string name="picker_no_date">No date</string>
     <string name="picker_move_to">Move to</string>
+
+    <!-- ── Backup ──────────────────────────────────────────────────────────────────── -->
+    <string name="settings_data">Data</string>
+    <string name="settings_export">Export backup</string>
+    <string name="settings_export_supporting">Writes every task and project into a JSON file you pick. It stays on the device unless you save it somewhere that syncs.</string>
+    <string name="settings_import">Import backup</string>
+    <string name="settings_import_supporting">Reads a backup file back in, replacing everything currently in the app.</string>
+    <!-- Default name offered by the file picker; %1$s is the date, e.g. 2026-08-05. -->
+    <string name="backup_file_name">cadence-backup-%1$s.json</string>
+    <string name="backup_import_confirm_title">Replace all data?</string>
+    <string name="backup_import_confirm_text">Importing deletes every task and project on this device and puts the contents of the backup file in their place. This cannot be undone.</string>
+    <string name="backup_import_confirm_action">Replace</string>
+    <!-- "Exported 42 tasks and 6 projects." -->
+    <string name="backup_exported">Exported %1$s and %2$s.</string>
+    <string name="backup_imported">Imported %1$s and %2$s.</string>
+    <string name="backup_error_write">The backup could not be written. Pick another location and try again.</string>
+    <string name="backup_error_read">That file could not be read.</string>
+    <string name="backup_error_too_large">That file is too large to be a Cadence backup.</string>
+    <string name="backup_error_not_json">That file is not valid JSON.</string>
+    <string name="backup_error_not_a_backup">That file is not a Cadence backup.</string>
+    <string name="backup_error_newer_version">That backup was written by a newer version of Cadence.</string>
 
     <!-- ── Reminders ───────────────────────────────────────────────────────────────── -->
     <string name="reminder_channel_name">Task reminders</string>

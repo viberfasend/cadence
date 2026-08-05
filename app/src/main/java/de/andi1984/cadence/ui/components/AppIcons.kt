@@ -11,6 +11,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.EditCalendar
 import androidx.compose.material.icons.rounded.ErrorOutline
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Snooze
 import androidx.compose.material.icons.rounded.Today
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material.icons.rounded.UnfoldMore
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -43,6 +45,7 @@ object AppIcons {
     val Close: ImageVector = Icons.Rounded.Close
     val CreateNewFolder: ImageVector = Icons.Rounded.CreateNewFolder
     val Delete: ImageVector = Icons.Rounded.Delete
+    val Download: ImageVector = Icons.Rounded.Download
     val Edit: ImageVector = Icons.Rounded.Edit
     val EditCalendar: ImageVector = Icons.Rounded.EditCalendar
     val Error: ImageVector = Icons.Rounded.ErrorOutline
@@ -62,5 +65,6 @@ object AppIcons {
     val Sort: ImageVector = Icons.AutoMirrored.Rounded.Sort
     val Today: ImageVector = Icons.Rounded.Today
     val Tune: ImageVector = Icons.Rounded.Tune
+    val Upload: ImageVector = Icons.Rounded.Upload
     val UnfoldMore: ImageVector = Icons.Rounded.UnfoldMore
 }

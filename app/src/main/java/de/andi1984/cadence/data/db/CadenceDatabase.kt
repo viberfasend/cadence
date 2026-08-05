@@ -16,6 +16,8 @@ abstract class CadenceDatabase : RoomDatabase() {
 
     abstract fun projectDao(): ProjectDao
 
+    abstract fun backupDao(): BackupDao
+
     companion object {
         @Volatile
         private var instance: CadenceDatabase? = null

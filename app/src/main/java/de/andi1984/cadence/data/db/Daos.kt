@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -45,6 +46,9 @@ interface ProjectDao {
     @Query("SELECT * FROM projects ORDER BY sortOrder")
     fun observeAll(): Flow<List<ProjectEntity>>
 
+    @Query("SELECT * FROM projects ORDER BY sortOrder")
+    suspend fun getAll(): List<ProjectEntity>
+
     @Query("SELECT COUNT(*) FROM projects")
     suspend fun count(): Int
 
@@ -59,4 +63,33 @@ interface ProjectDao {
 
     @Query("DELETE FROM projects WHERE id = :id OR parentId = :id")
     suspend fun deleteWithChildren(id: Long)
+}
+
+/**
+ * Restoring a backup swaps both tables at once. An abstract class, not an interface, because
+ * Room only implements `@Transaction` around a method it can see the body of.
+ */
+@Dao
+abstract class BackupDao {
+
+    @Query("DELETE FROM tasks")
+    protected abstract suspend fun deleteAllTasks()
+
+    @Query("DELETE FROM projects")
+    protected abstract suspend fun deleteAllProjects()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    protected abstract suspend fun insertProjects(projects: List<ProjectEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    protected abstract suspend fun insertTasks(tasks: List<TaskEntity>)
+
+    /** All or nothing: a failed restore must not leave the app half-empty. */
+    @Transaction
+    open suspend fun replaceAll(projects: List<ProjectEntity>, tasks: List<TaskEntity>) {
+        deleteAllTasks()
+        deleteAllProjects()
+        insertProjects(projects)
+        insertTasks(tasks)
+    }
 }

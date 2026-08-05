@@ -1,0 +1,213 @@
+package de.andi1984.cadence.domain.backup
+
+import de.andi1984.cadence.domain.model.MonthlyMode
+import de.andi1984.cadence.domain.model.Priority
+import de.andi1984.cadence.domain.model.Project
+import de.andi1984.cadence.domain.model.RecurrenceMode
+import de.andi1984.cadence.domain.model.RecurrenceRule
+import de.andi1984.cadence.domain.model.RecurrenceUnit
+import de.andi1984.cadence.domain.model.Task
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+
+/** Everything the app owns, in one value: what an export writes and an import restores. */
+data class BackupSnapshot(
+    val projects: List<Project> = emptyList(),
+    val tasks: List<Task> = emptyList(),
+)
+
+/** Why a file could not be restored. The wording lives in `ui/format/BackupLabels.kt`. */
+enum class BackupError { NOT_JSON, NOT_A_BACKUP, NEWER_VERSION }
+
+sealed interface BackupReadResult {
+    data class Ok(val snapshot: BackupSnapshot) : BackupReadResult
+    data class Failed(val reason: BackupError) : BackupReadResult
+}
+
+/**
+ * The on-disk backup format. Unlike [de.andi1984.cadence.data.db.RecurrenceCodec] — which is a
+ * private storage detail — this is a published contract: a future web app reads these files, so
+ * dates are ISO-8601 strings and recurrence is a structured object rather than the packed
+ * `v1;key=value` column.
+ *
+ * Forwards compatibility: unknown keys are ignored, so a newer Cadence may add fields without
+ * breaking older readers. A higher [BackupDocument.version] is refused rather than guessed at.
+ */
+object BackupCodec {
+
+    const val FORMAT = "cadence.backup"
+    const val VERSION = 1
+
+    private val json = Json {
+        prettyPrint = true
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
+
+    fun encode(snapshot: BackupSnapshot, exportedAt: Instant): String =
+        json.encodeToString(
+            BackupDocument.serializer(),
+            BackupDocument(
+                exportedAt = exportedAt.toString(),
+                projects = snapshot.projects.map { it.toBackup() },
+                tasks = snapshot.tasks.map { it.toBackup() },
+            ),
+        )
+
+    fun decode(raw: String): BackupReadResult {
+        val document = runCatching { json.decodeFromString(BackupDocument.serializer(), raw) }
+            .getOrElse { return BackupReadResult.Failed(BackupError.NOT_JSON) }
+        if (document.format != FORMAT) return BackupReadResult.Failed(BackupError.NOT_A_BACKUP)
+        if (document.version > VERSION) return BackupReadResult.Failed(BackupError.NEWER_VERSION)
+
+        // Rows the database could never hold are dropped rather than failing the whole restore:
+        // a project needs a real id (tasks reference it) and a task needs a title.
+        val projects = document.projects.filter { it.id > 0L }.map { it.toDomain() }
+        val knownProjects = projects.map { it.id }.toSet()
+        val tasks = document.tasks
+            .filter { it.title.isNotBlank() }
+            .map { it.toDomain() }
+            .map { task ->
+                // A task pointing at a project that is not in the file lands in the Inbox
+                // instead of becoming invisible.
+                if (task.projectId != null && task.projectId !in knownProjects) {
+                    task.copy(projectId = null)
+                } else {
+                    task
+                }
+            }
+        return BackupReadResult.Ok(BackupSnapshot(projects = projects, tasks = tasks))
+    }
+}
+
+@Serializable
+internal data class BackupDocument(
+    val format: String = BackupCodec.FORMAT,
+    val version: Int = BackupCodec.VERSION,
+    val exportedAt: String? = null,
+    val projects: List<BackupProject> = emptyList(),
+    val tasks: List<BackupTask> = emptyList(),
+)
+
+@Serializable
+internal data class BackupProject(
+    val id: Long = 0L,
+    val name: String = "",
+    val colorHex: String = "#006A60",
+    val parentId: Long? = null,
+    val sortOrder: Int = 0,
+)
+
+@Serializable
+internal data class BackupTask(
+    val id: Long = 0L,
+    val title: String = "",
+    val notes: String? = null,
+    /** 1…4, matching [Priority.level]. */
+    val priority: Int = Priority.DEFAULT.level,
+    val projectId: Long? = null,
+    /** ISO local date, e.g. `2026-08-05`. */
+    val dueDate: String? = null,
+    /** ISO local time, e.g. `09:30`. */
+    val dueTime: String? = null,
+    val reminderTime: String? = null,
+    /** ISO instant, e.g. `2026-08-05T07:12:00Z`. */
+    val completedAt: String? = null,
+    val createdAt: String? = null,
+    val sortOrder: Int = 0,
+    val recurrence: BackupRecurrence? = null,
+)
+
+@Serializable
+internal data class BackupRecurrence(
+    val mode: String = RecurrenceMode.SCHEDULE.name,
+    val interval: Int = 1,
+    val unit: String = RecurrenceUnit.WEEK.name,
+    /** `MONDAY`, `THURSDAY`, … as in [DayOfWeek]. */
+    val daysOfWeek: List<String> = emptyList(),
+    val monthlyMode: String = MonthlyMode.DAY_OF_MONTH.name,
+    val dayOfMonth: Int? = null,
+    val nthWeek: Int? = null,
+    val nthDayOfWeek: String? = null,
+    val keepMissed: Boolean = true,
+)
+
+private fun Project.toBackup() = BackupProject(
+    id = id,
+    name = name,
+    colorHex = colorHex,
+    parentId = parentId,
+    sortOrder = sortOrder,
+)
+
+private fun BackupProject.toDomain() = Project(
+    id = id,
+    name = name,
+    colorHex = colorHex,
+    parentId = parentId?.takeIf { it > 0L },
+    sortOrder = sortOrder,
+)
+
+private fun Task.toBackup() = BackupTask(
+    id = id,
+    title = title,
+    notes = notes,
+    priority = priority.level,
+    projectId = projectId,
+    dueDate = dueDate?.toString(),
+    dueTime = dueTime?.toString(),
+    reminderTime = reminderTime?.toString(),
+    completedAt = completedAt?.toString(),
+    createdAt = createdAt.toString(),
+    sortOrder = sortOrder,
+    recurrence = recurrence?.toBackup(),
+)
+
+private fun BackupTask.toDomain() = Task(
+    id = id.coerceAtLeast(0L),
+    title = title,
+    notes = notes?.takeIf { it.isNotBlank() },
+    priority = Priority.fromLevel(priority),
+    projectId = projectId?.takeIf { it > 0L },
+    dueDate = dueDate.parseOrNull { LocalDate.parse(it) },
+    dueTime = dueTime.parseOrNull { LocalTime.parse(it) },
+    reminderTime = reminderTime.parseOrNull { LocalTime.parse(it) },
+    completedAt = completedAt.parseOrNull { Instant.parse(it) },
+    createdAt = createdAt.parseOrNull { Instant.parse(it) } ?: Instant.EPOCH,
+    sortOrder = sortOrder,
+    recurrence = recurrence?.toDomain(),
+)
+
+private fun RecurrenceRule.toBackup() = BackupRecurrence(
+    mode = mode.name,
+    interval = interval,
+    unit = unit.name,
+    daysOfWeek = daysOfWeek.sortedBy { it.value }.map { it.name },
+    monthlyMode = monthlyMode.name,
+    dayOfMonth = dayOfMonth,
+    nthWeek = nthWeek,
+    nthDayOfWeek = nthDayOfWeek?.name,
+    keepMissed = keepMissed,
+)
+
+private fun BackupRecurrence.toDomain() = RecurrenceRule(
+    mode = RecurrenceMode.entries.firstOrNull { it.name == mode } ?: RecurrenceMode.SCHEDULE,
+    interval = interval.coerceAtLeast(1),
+    unit = RecurrenceUnit.entries.firstOrNull { it.name == unit } ?: RecurrenceUnit.WEEK,
+    daysOfWeek = daysOfWeek.mapNotNull { name -> DayOfWeek.entries.firstOrNull { it.name == name } }
+        .toSet(),
+    monthlyMode = MonthlyMode.entries.firstOrNull { it.name == monthlyMode }
+        ?: MonthlyMode.DAY_OF_MONTH,
+    dayOfMonth = dayOfMonth,
+    nthWeek = nthWeek,
+    nthDayOfWeek = nthDayOfWeek?.let { name -> DayOfWeek.entries.firstOrNull { it.name == name } },
+    keepMissed = keepMissed,
+)
+
+/** A single unreadable date must not fail the whole restore — that field simply goes empty. */
+private fun <T> String?.parseOrNull(parse: (String) -> T): T? =
+    this?.takeIf { it.isNotBlank() }?.let { runCatching { parse(it) }.getOrNull() }
