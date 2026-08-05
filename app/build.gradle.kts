@@ -13,6 +13,14 @@ plugins {
 val releaseKeystorePath: String? = System.getenv("CADENCE_KEYSTORE")
 val hasReleaseKeystore = !releaseKeystorePath.isNullOrBlank() && file(releaseKeystorePath).exists()
 
+/**
+ * CI derives the version from the Conventional Commits since the last tag
+ * (`.github/scripts/next-version.sh`) and passes it in. A local build has no release to name,
+ * so it stays on the placeholder rather than pretending to be a shipped version.
+ */
+val cadenceVersionName: String = System.getenv("CADENCE_VERSION_NAME") ?: "0.0.0-dev"
+val cadenceVersionCode: Int = System.getenv("CADENCE_VERSION_CODE")?.toIntOrNull() ?: 1
+
 android {
     namespace = "de.andi1984.cadence"
     compileSdk = 35
@@ -21,8 +29,8 @@ android {
         applicationId = "de.andi1984.cadence"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = cadenceVersionCode
+        versionName = cadenceVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

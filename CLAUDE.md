@@ -118,12 +118,26 @@ worth knowing before adding a screen:
 
 ## CI / releases
 
-`.github/workflows/android.yml` runs tests then builds both APKs on every push to **any** branch.
-Non-tag pushes force-move the `latest` tag and republish the rolling release, so
-`releases/latest/download/cadence-debug.apk` always serves the newest build. Pushing a `v*` tag
-publishes a separate permanent release. Debug and release use different application IDs
-(`.debug` suffix) and install side by side. `versionCode`/`versionName` are still hardcoded at
-`1` / `1.0`.
+`.github/workflows/android.yml` runs tests then builds both APKs on every push to **any** branch
+and on pull requests. A push to `main` — i.e. a merged PR — additionally publishes a release.
+
+The version is **derived, never edited**. `.github/scripts/next-version.sh` reads the
+Conventional Commit subjects since the last `v*` tag: a `!` or a `BREAKING CHANGE:` footer bumps
+major, any `feat:` bumps minor, anything else bumps patch, so every merge ships a build. With no
+tag yet the first release is `1.0.0`. The script writes `version`/`version_code`/`notes` as step
+outputs; `app/build.gradle.kts` reads `CADENCE_VERSION_NAME`/`CADENCE_VERSION_CODE` from the
+environment and falls back to `0.0.0-dev` locally. `versionCode` is
+`major * 10000 + minor * 100 + patch`. Run the script locally to see what a merge would publish:
+
+```bash
+bash .github/scripts/next-version.sh    # prints the outputs when GITHUB_OUTPUT is unset
+```
+
+The release action creates the tag from the merge commit, so the next run measures from there.
+`releases/latest/download/cadence-debug.apk` still serves the newest build, now because each
+release is published with `make_latest`. Branch and PR runs only upload APK artifacts — the
+version they print is a preview of what merging would publish. Debug and release use different
+application IDs (`.debug` suffix) and install side by side.
 
 Release signing is optional: the four `CADENCE_*` env vars/secrets enable it, otherwise the
 release build is signed with the debug key (see the comment block in `app/build.gradle.kts`).

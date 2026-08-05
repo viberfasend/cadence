@@ -3,13 +3,13 @@ name: Android
 on:
   push:
     branches: ['**']
-    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a run on main mid-publish; superseded branch builds are fair game.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: write
@@ -24,7 +24,10 @@ jobs:
 
     steps:
       - name: Check out
+        # Full history and tags: the version is derived from the commits since the last release.
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -41,6 +44,11 @@ jobs:
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
 
+      # Runs on every branch too, where it is only a preview of what merging would publish.
+      - name: Work out the next version
+        id: version
+        run: bash .github/scripts/next-version.sh
+
       # Optional: set the CADENCE_KEYSTORE_BASE64 secret to sign the release APK with your own
       # key. Without it the release build falls back to the debug key and is still installable.
       - name: Decode release keystore
@@ -54,6 +62,9 @@ jobs:
           CADENCE_KEYSTORE_PASSWORD: ${{ secrets.CADENCE_KEYSTORE_PASSWORD }}
           CADENCE_KEY_ALIAS: ${{ secrets.CADENCE_KEY_ALIAS }}
           CADENCE_KEY_PASSWORD: ${{ secrets.CADENCE_KEY_PASSWORD }}
+          # Empty on a run with nothing to release, which leaves the placeholder version in place.
+          CADENCE_VERSION_NAME: ${{ steps.version.outputs.version }}
+          CADENCE_VERSION_CODE: ${{ steps.version.outputs.version_code }}
         run: ./gradlew assembleDebug assembleRelease --stacktrace
 
       # Fixed file names so the release download URL never changes between builds.
@@ -85,36 +96,26 @@ jobs:
           name: test-report
           path: app/build/reports/tests/
 
-      # Every branch push republishes the rolling "latest" release, so
-      # /releases/latest/download/cadence-debug.apk is always the newest build.
-      # The tag is force-moved first because updating a release does not move its tag.
-      - name: Move the rolling tag
-        if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/')
-        run: |
-          git tag -f latest "$GITHUB_SHA"
-          git push -f origin refs/tags/latest
-
-      - name: Publish rolling release
-        if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/')
+      # Merging to main publishes a release. The action creates the tag from this commit, so the
+      # next run derives its version from the commits that land after it.
+      - name: Publish release
+        if: >-
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
+          steps.version.outputs.skip == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest build
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Cadence ${{ steps.version.outputs.version }}
           make_latest: true
           body: |
-            Automatically published from `${{ github.ref_name }}` — commit ${{ github.sha }}.
+            ${{ steps.version.outputs.notes }}
 
             **Install `cadence-debug.apk`** — it is signed with the standard debug key and
             installs alongside a release build.
 
-            Permanent links, always pointing at the newest build:
+            Permanent links, always pointing at the newest release:
 
             - https://github.com/${{ github.repository }}/releases/latest/download/cadence-debug.apk
             - https://github.com/${{ github.repository }}/releases/latest/download/cadence-release.apk
-          files: dist/*.apk
-
-      - name: Publish tagged release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
           files: dist/*.apk
