@@ -23,7 +23,14 @@ The product rule the whole app is built on: **importance first, due date breaks 
 ```
 
 JDK 17, compileSdk/targetSdk 35, minSdk 26. No lint or format task is wired up.
-Instrumented tests have deps declared but no `androidTest` sources exist.
+
+```bash
+./gradlew connectedDebugAndroidTest   # needs a device; CI has no emulator
+```
+
+The only instrumented test is `QuickAddPatternsDeviceTest`: it compiles the quick-add grammar
+with the device's ICU regex engine, which the JVM tests cannot do (see Localisation below).
+Run it after touching `QuickAddPatterns` or a lexicon.
 
 ## Architecture
 
@@ -115,7 +122,9 @@ worth knowing before adding a screen:
 - Counts go through `<plurals>`, even where English and German happen to agree.
 - The quick-add parser (`domain/parse/`) keeps its keywords in `QuickAddLexicon`, not in the
   grammar: `QuickAddParser.parse` takes one and `QuickAddSheet` picks it with
-  `QuickAddLexicon.forLocale(currentLocale())`. Lexicons compose and English is always folded in,
+  `QuickAddLexicon.forLocale(currentLocale())`. Spelled-out counts are vocabulary too
+  (`numbers`: `three`, `third`, `drei`, `dritten` all read as 3), so anywhere the grammar takes
+  a digit it takes a word. Lexicons compose and English is always folded in,
   so `every 2 weeks` and `alle 2 Wochen` both parse in a German install. Weekday and month names
   are never listed — they come from `java.time` for the locale, so an unlisted language still
   reads `vendredi`. Adding a language means adding a lexicon, not touching the parser.

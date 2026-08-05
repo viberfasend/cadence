@@ -53,6 +53,12 @@ class QuickAddLexicon(
     val on: Set<String> = emptySet(),
     /** What follows the number in an ordinal: `st`/`nd`/`rd`/`th`, or `.` in German. */
     val ordinal: Set<String> = emptySet(),
+    /**
+     * Spelled-out counts, cardinal and ordinal alike, mapped to their value: `three` and
+     * `third` both read as 3, as do `drei` and `dritten`. Anywhere the grammar accepts a digit
+     * it accepts these, so `alle drei Tage` and `every 3rd monday` take the same path.
+     */
+    val numbers: Map<String, Int> = emptyMap(),
     val dayNames: Map<String, DayOfWeek> = emptyMap(),
     val monthNames: Map<String, Int> = emptyMap(),
 ) {
@@ -86,6 +92,7 @@ class QuickAddLexicon(
         and = and + other.and,
         on = on + other.on,
         ordinal = ordinal + other.ordinal,
+        numbers = numbers + other.numbers,
         dayNames = dayNames + other.dayNames,
         monthNames = monthNames + other.monthNames,
     )
@@ -136,6 +143,16 @@ class QuickAddLexicon(
             and = setOf("and"),
             on = setOf("on"),
             ordinal = setOf("st", "nd", "rd", "th"),
+            numbers = numberWords(
+                cardinals = listOf(
+                    "one", "two", "three", "four", "five", "six",
+                    "seven", "eight", "nine", "ten", "eleven", "twelve",
+                ),
+                ordinals = listOf(
+                    "first", "second", "third", "fourth", "fifth", "sixth",
+                    "seventh", "eighth", "ninth", "tenth", "eleventh", "twelfth",
+                ),
+            ),
         )
 
         private val germanWords = QuickAddLexicon(
@@ -187,6 +204,7 @@ class QuickAddLexicon(
             and = setOf("und"),
             on = setOf("am", "an"),
             ordinal = setOf("."),
+            numbers = germanNumberWords(),
         )
 
         /** The default: English keywords with English weekday and month names. */
@@ -209,6 +227,56 @@ class QuickAddLexicon(
                     Locale.GERMAN.language -> German
                     else -> English
                 } + namesOf(locale)
+            }
+        }
+
+        /** Cardinal and ordinal spellings of 1…n, both reading as the same value. */
+        private fun numberWords(cardinals: List<String>, ordinals: List<String>): Map<String, Int> =
+            buildMap {
+                cardinals.forEachIndexed { index, word -> put(word, index + 1) }
+                ordinals.forEachIndexed { index, word -> put(word, index + 1) }
+            }
+
+        /**
+         * German numbers decline, and the case depends on the sentence around them — "jeden
+         * zweiten Montag" but "jede zweite Woche" — so each ordinal stem is listed with every
+         * ending rather than guessing which one the user will type. Umlaut-free spellings are
+         * included for the same reason `taeglich` is.
+         */
+        private fun germanNumberWords(): Map<String, Int> = buildMap {
+            val cardinals = listOf(
+                listOf("ein", "eine", "einen", "einem", "einer"),
+                listOf("zwei"),
+                listOf("drei"),
+                listOf("vier"),
+                listOf("fünf", "fuenf"),
+                listOf("sechs"),
+                listOf("sieben"),
+                listOf("acht"),
+                listOf("neun"),
+                listOf("zehn"),
+                listOf("elf"),
+                listOf("zwölf", "zwoelf"),
+            )
+            val ordinalStems = listOf(
+                listOf("erst"),
+                listOf("zweit"),
+                listOf("dritt"),
+                listOf("viert"),
+                listOf("fünft", "fuenft"),
+                listOf("sechst"),
+                listOf("siebt", "siebent"),
+                listOf("acht"),
+                listOf("neunt"),
+                listOf("zehnt"),
+                listOf("elft"),
+                listOf("zwölft", "zwoelft"),
+            )
+            cardinals.forEachIndexed { index, forms -> forms.forEach { put(it, index + 1) } }
+            ordinalStems.forEachIndexed { index, stems ->
+                stems.forEach { stem ->
+                    listOf("e", "en", "es", "er", "em").forEach { put(stem + it, index + 1) }
+                }
             }
         }
 

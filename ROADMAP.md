@@ -5,13 +5,11 @@ these are candidate directions, not commitments. Order is rough priority, not a 
 
 ## Now
 
-- [ ] Nth-weekday and spelled-out numbers in quick-add (`jeden 2. Montag`, `every 2nd monday`,
-      `alle drei Tage`) — the lexicon reads digits and plain ordinals, not these
+- [ ] Merge on import, next to the current replace-everything restore (match on task id, keep
+      whichever row is newer)
 
 ## Next
 
-- [ ] Merge on import, next to the current replace-everything restore (match on task id, keep
-      whichever row is newer)
 - [ ] Carry settings and the app language in the backup file — today it holds tasks and projects
       only
 - [ ] Widgets (home screen: Today list, quick-add)
@@ -35,6 +33,9 @@ these are candidate directions, not commitments. Order is rough priority, not a 
 - [x] Accessibility pass (contrast, touch targets, font scaling)
 - [x] CI: rolling GitHub Release build on every push
 - [x] German translation of the full UI (`values-de/`, per-app language picker on Android 13+)
+- [x] Nth-weekday and spelled-out numbers in quick-add (`every 2nd monday`, `jeden letzten
+      Freitag`, `alle drei Tage`) — number words live in `QuickAddLexicon.numbers`, and an
+      `androidTest` now compiles the grammar under the device's ICU engine
 - [x] Search across tasks and notes
 - [x] Data backup/export — `domain/backup/BackupCodec.kt` writes a versioned JSON document
       (ISO dates, structured recurrence) through the Storage Access Framework; import replaces

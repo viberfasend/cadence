@@ -33,7 +33,8 @@ data class ParsedQuickAdd(
  * Recognised, in this order (so "every 1st" is a rule rather than a date):
  *  - `!p2` / `!2` — priority
  *  - `#Home` / `#Q3Launch` — project, matched against existing names
- *  - `every 2 weeks on thu`, `every 1st`, `daily`, `3 days after done` — recurrence
+ *  - `every 2 weeks on thu`, `every 1st`, `every 2nd monday`, `every last friday`, `daily`,
+ *    `3 days after done` — recurrence; counts may be spelled out (`every three days`)
  *  - `tomorrow`, `next friday`, `in 3 days`, `24.12.`, `24 Dec`, `2026-12-24` — due date
  *  - `at 17:00`, `17:00`, `9am` — due time
  *
@@ -41,6 +42,9 @@ data class ParsedQuickAdd(
  * "jeden Tag Frühstück zubereiten" once the German lexicon is passed in.
  */
 object QuickAddParser {
+
+    /** What [RecurrenceEngine.dateInMonth] treats as "the last one in the month". */
+    private const val LAST_IN_MONTH = 5
 
     fun parse(
         input: String,
@@ -129,20 +133,40 @@ object QuickAddParser {
             claim(match.range, TokenKind.RECURRENCE)
             return RecurrenceRule(
                 mode = RecurrenceMode.AFTER_COMPLETION,
-                interval = match.group("count")?.toIntOrNull()?.coerceAtLeast(1) ?: 1,
+                interval = lexicon.countOf(match.group("count"))?.coerceAtLeast(1) ?: 1,
                 unit = lexicon.unitOf(match.group("unit")),
             )
         }
 
-        // "every 1st", "jeden 15. des Monats"
+        // "every 2nd monday", "jeden zweiten Montag", "jeden letzten Freitag"
+        firstMatch(patterns.everyNthWeekday)?.let { match ->
+            claim(match.range, TokenKind.RECURRENCE)
+            // The engine reads an nth of 5 or more as "the last one in the month".
+            val nth = if (match.group("last") != null) {
+                LAST_IN_MONTH
+            } else {
+                (lexicon.countOf(match.group("nth") ?: match.group("nthWord")) ?: 1).coerceIn(1, 5)
+            }
+            return RecurrenceRule(
+                mode = RecurrenceMode.SCHEDULE,
+                interval = 1,
+                unit = RecurrenceUnit.MONTH,
+                monthlyMode = MonthlyMode.NTH_WEEKDAY,
+                nthWeek = nth,
+                nthDayOfWeek = lexicon.dayOf(match.group("dow")),
+            )
+        }
+
+        // "every 1st", "jeden 15. des Monats", "jeden ersten des Monats"
         firstMatch(patterns.everyOrdinal)?.let { match ->
             claim(match.range, TokenKind.RECURRENCE)
+            val day = lexicon.countOf(match.group("dom") ?: match.group("domWord")) ?: 1
             return RecurrenceRule(
                 mode = RecurrenceMode.SCHEDULE,
                 interval = 1,
                 unit = RecurrenceUnit.MONTH,
                 monthlyMode = MonthlyMode.DAY_OF_MONTH,
-                dayOfMonth = (match.group("dom")?.toIntOrNull() ?: 1).coerceIn(1, 31),
+                dayOfMonth = day.coerceIn(1, 31),
             )
         }
 
@@ -167,7 +191,7 @@ object QuickAddParser {
             claim(match.range, TokenKind.RECURRENCE)
             val interval = when {
                 match.group("doubled") != null -> 2
-                else -> match.group("count")?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                else -> lexicon.countOf(match.group("count"))?.coerceAtLeast(1) ?: 1
             }
             val dow = match.group("dow")?.let { lexicon.dayOf(it) }
             return RecurrenceRule(
@@ -226,7 +250,7 @@ object QuickAddParser {
         }
         firstMatch(patterns.within)?.let { match ->
             claim(match.range, TokenKind.DATE)
-            val amount = match.group("count")?.toLongOrNull() ?: return null
+            val amount = lexicon.countOf(match.group("count"))?.toLong() ?: return null
             return when (lexicon.unitOf(match.group("unit"))) {
                 RecurrenceUnit.DAY -> today.plusDays(amount)
                 RecurrenceUnit.WEEK -> today.plusWeeks(amount)
@@ -341,6 +365,12 @@ object QuickAddParser {
 
     /** Named groups read as null when the group did not take part in the match. */
     private fun MatchResult.group(name: String): String? = groups[name]?.value
+
+    /** Reads `3`, `3rd`, `3.`, `three` or `dritten` as 3. */
+    private fun QuickAddLexicon.countOf(word: String?): Int? {
+        val token = word?.lowercase()?.trim()?.trimEnd('.') ?: return null
+        return token.toIntOrNull() ?: numbers[token]
+    }
 
     private fun QuickAddLexicon.unitOf(word: String?): RecurrenceUnit =
         units[word?.lowercase()] ?: RecurrenceUnit.DAY
