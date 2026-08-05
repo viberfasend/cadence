@@ -60,6 +60,10 @@
         <item quantity="one">%1$d Aufgabe</item>
         <item quantity="other">%1$d Aufgaben</item>
     </plurals>
+    <plurals name="project_count">
+        <item quantity="one">%1$d Projekt</item>
+        <item quantity="other">%1$d Projekte</item>
+    </plurals>
 
     <!-- ── Wiederholung ────────────────────────────────────────────────────────────── -->
     <plurals name="unit_day">
@@ -251,6 +255,27 @@
     <!-- ── Auswahldialoge ──────────────────────────────────────────────────────────── -->
     <string name="picker_no_date">Kein Datum</string>
     <string name="picker_move_to">Verschieben nach</string>
+
+    <!-- ── Backup ──────────────────────────────────────────────────────────────────── -->
+    <string name="settings_data">Daten</string>
+    <string name="settings_export">Backup exportieren</string>
+    <string name="settings_export_supporting">Schreibt alle Aufgaben und Projekte in eine JSON-Datei deiner Wahl. Sie bleibt auf dem Gerät, solange du sie nicht an einem synchronisierten Ort ablegst.</string>
+    <string name="settings_import">Backup importieren</string>
+    <string name="settings_import_supporting">Liest eine Backup-Datei wieder ein und ersetzt dabei alles, was aktuell in der App steht.</string>
+    <!-- Vom Dateiauswahldialog vorgeschlagener Name; %1$s ist das Datum, z. B. 2026-08-05. -->
+    <string name="backup_file_name">cadence-backup-%1$s.json</string>
+    <string name="backup_import_confirm_title">Alle Daten ersetzen?</string>
+    <string name="backup_import_confirm_text">Beim Import werden alle Aufgaben und Projekte auf diesem Gerät gelöscht und durch den Inhalt der Backup-Datei ersetzt. Das lässt sich nicht rückgängig machen.</string>
+    <string name="backup_import_confirm_action">Ersetzen</string>
+    <!-- "42 Aufgaben und 6 Projekte exportiert." -->
+    <string name="backup_exported">%1$s und %2$s exportiert.</string>
+    <string name="backup_imported">%1$s und %2$s importiert.</string>
+    <string name="backup_error_write">Das Backup konnte nicht geschrieben werden. Wähle einen anderen Ort und versuche es erneut.</string>
+    <string name="backup_error_read">Diese Datei konnte nicht gelesen werden.</string>
+    <string name="backup_error_too_large">Diese Datei ist zu groß für ein Cadence-Backup.</string>
+    <string name="backup_error_not_json">Diese Datei ist kein gültiges JSON.</string>
+    <string name="backup_error_not_a_backup">Diese Datei ist kein Cadence-Backup.</string>
+    <string name="backup_error_newer_version">Dieses Backup stammt aus einer neueren Version von Cadence.</string>
 
     <!-- ── Erinnerungen ────────────────────────────────────────────────────────────── -->
     <string name="reminder_channel_name">Aufgaben-Erinnerungen</string>

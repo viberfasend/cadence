@@ -200,6 +200,9 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState) {
                         onThemeChange = viewModel::setTheme,
                         onDensityChange = viewModel::setDensity,
                         onShowCompletedChange = viewModel::setShowCompleted,
+                        onExport = viewModel::exportBackup,
+                        onImport = viewModel::importBackup,
+                        onClearBackupOutcome = viewModel::clearBackupOutcome,
                     )
                 }
                 composable(Routes.TRIAGE) {

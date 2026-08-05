@@ -1,5 +1,6 @@
 package de.andi1984.cadence.ui
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -7,6 +8,8 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import de.andi1984.cadence.CadenceApplication
 import de.andi1984.cadence.data.CadenceRepository
+import de.andi1984.cadence.data.backup.BackupIo
+import de.andi1984.cadence.data.backup.BackupOutcome
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceRule
@@ -19,6 +22,7 @@ import de.andi1984.cadence.ui.settings.Density
 import de.andi1984.cadence.ui.settings.SettingsStore
 import de.andi1984.cadence.ui.settings.SortMode
 import de.andi1984.cadence.ui.settings.ThemeChoice
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -31,6 +35,8 @@ data class CadenceUiState(
     val tasks: List<Task> = emptyList(),
     val projects: List<Project> = emptyList(),
     val settings: CadenceSettings = CadenceSettings(),
+    /** Result of the last export or import, shown once under the Settings buttons. */
+    val backupOutcome: BackupOutcome? = null,
 ) {
     fun project(id: Long?): Project? = id?.let { projectId -> projects.firstOrNull { it.id == projectId } }
 
@@ -52,14 +58,23 @@ class CadenceViewModel(
     private val repository: CadenceRepository,
     private val settingsStore: SettingsStore,
     private val reminderScheduler: ReminderScheduler,
+    private val backupIo: BackupIo,
 ) : ViewModel() {
+
+    private val backupOutcome = MutableStateFlow<BackupOutcome?>(null)
 
     val state: StateFlow<CadenceUiState> = combine(
         repository.tasks,
         repository.projects,
         settingsStore.state,
-    ) { tasks, projects, settings ->
-        CadenceUiState(tasks = tasks, projects = projects, settings = settings)
+        backupOutcome,
+    ) { tasks, projects, settings, backup ->
+        CadenceUiState(
+            tasks = tasks,
+            projects = projects,
+            settings = settings,
+            backupOutcome = backup,
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -149,6 +164,21 @@ class CadenceViewModel(
 
     fun setShowCompleted(show: Boolean) = settingsStore.setShowCompleted(show)
 
+    // ── Backup ─────────────────────────────────────────────────────────────────────
+
+    fun exportBackup(uri: Uri) = viewModelScope.launch {
+        backupOutcome.value = backupIo.export(uri)
+    }
+
+    /** Replaces every task and project with the file's contents; reminders resync themselves. */
+    fun importBackup(uri: Uri) = viewModelScope.launch {
+        backupOutcome.value = backupIo.import(uri)
+    }
+
+    fun clearBackupOutcome() {
+        backupOutcome.value = null
+    }
+
     companion object {
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
@@ -158,6 +188,7 @@ class CadenceViewModel(
                     repository = application.container.repository,
                     settingsStore = application.container.settingsStore,
                     reminderScheduler = application.container.reminderScheduler,
+                    backupIo = application.container.backupIo,
                 )
             }
         }

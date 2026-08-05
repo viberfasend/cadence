@@ -1,9 +1,11 @@
 package de.andi1984.cadence.data
 
+import de.andi1984.cadence.data.db.BackupDao
 import de.andi1984.cadence.data.db.ProjectDao
 import de.andi1984.cadence.data.db.TaskDao
 import de.andi1984.cadence.data.db.toDomain
 import de.andi1984.cadence.data.db.toEntity
+import de.andi1984.cadence.domain.backup.BackupSnapshot
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
@@ -15,6 +17,7 @@ import java.time.LocalDate
 class CadenceRepository(
     private val taskDao: TaskDao,
     private val projectDao: ProjectDao,
+    private val backupDao: BackupDao,
 ) {
 
     val tasks: Flow<List<Task>> = taskDao.observeAll().map { list -> list.map { it.toDomain() } }
@@ -90,6 +93,23 @@ class CadenceRepository(
         }
 
     suspend fun deleteProject(id: Long) = projectDao.deleteWithChildren(id)
+
+    // ── Backup ─────────────────────────────────────────────────────────────────────
+
+    /** One-shot read of everything, for an export. */
+    suspend fun snapshot(): BackupSnapshot = BackupSnapshot(
+        projects = projectDao.getAll().map { it.toDomain() },
+        tasks = taskDao.getAll().map { it.toDomain() },
+    )
+
+    /**
+     * Restores a backup by *replacing* both tables — importing is not a merge, so ids stay the
+     * ones in the file and task→project links survive without remapping.
+     */
+    suspend fun restore(snapshot: BackupSnapshot) = backupDao.replaceAll(
+        projects = snapshot.projects.map { it.toEntity() },
+        tasks = snapshot.tasks.map { it.toEntity() },
+    )
 
     /** Fills a fresh install with the sample data the design was drawn against. */
     suspend fun seedIfEmpty() {
