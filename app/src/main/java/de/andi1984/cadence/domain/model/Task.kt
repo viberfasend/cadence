@@ -10,6 +10,13 @@ data class Task(
     val notes: String? = null,
     val priority: Priority = Priority.DEFAULT,
     val projectId: Long? = null,
+    /**
+     * The task this one is a step of, or null for a task that stands on its own.
+     *
+     * Nesting is one level deep on purpose: a subtask never becomes a parent itself, so a
+     * checklist stays a checklist instead of turning into a second project tree.
+     */
+    val parentId: Long? = null,
     val dueDate: LocalDate? = null,
     val dueTime: LocalTime? = null,
     /** Time of day to remind, on the due day. */
@@ -23,8 +30,17 @@ data class Task(
 
     val isInbox: Boolean get() = projectId == null
 
+    val isSubtask: Boolean get() = parentId != null
+
     fun isOverdue(today: LocalDate): Boolean =
         !isDone && dueDate != null && dueDate.isBefore(today)
 
     fun isDueOn(day: LocalDate): Boolean = dueDate == day
+}
+
+/** How much of a task's checklist is finished — "2/5" on a row, a bar on the detail screen. */
+data class SubtaskProgress(val done: Int, val total: Int) {
+    val fraction: Float get() = if (total == 0) 0f else done.toFloat() / total
+
+    val isComplete: Boolean get() = total > 0 && done == total
 }

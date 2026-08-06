@@ -50,7 +50,7 @@ import de.andi1984.cadence.ui.components.SectionHeader
 import de.andi1984.cadence.ui.components.parseColor
 import java.time.LocalDate
 
-private val PROJECT_COLORS = listOf(
+private val PROJECT_COLOR_OPTIONS = listOf(
     "#006A60", "#3E6373", "#A1560A", "#7D5260", "#6F7976", "#BA1A1A",
 )
 
@@ -68,9 +68,9 @@ fun ProjectsScreen(
     var createOpen by remember { mutableStateOf(false) }
     val collapsed = remember { androidx.compose.runtime.mutableStateMapOf<Long, Boolean>() }
 
-    val inboxCount = state.tasks.count { it.isInbox && !it.isDone }
+    val inboxCount = state.inboxTasks().count { !it.isDone }
     val todayCount = state.tasks.count { !it.isDone && it.dueDate != null && !it.dueDate.isAfter(today) }
-    val recurringCount = state.tasks.count { !it.isDone && it.recurrence != null }
+    val recurringCount = state.rootTasks().count { !it.isDone && it.recurrence != null }
 
     Column(modifier = Modifier.fillMaxSize()) {
         de.andi1984.cadence.ui.components.ScreenHeader(
@@ -144,7 +144,7 @@ fun ProjectsScreen(
                 if (!isCollapsed) {
                     items(node.children.size, key = { "c-${node.children[it].id}" }) { index ->
                         val child = node.children[index]
-                        val childTasks = state.tasks.filter { it.projectId == child.id }
+                        val childTasks = state.rootTasks().filter { it.projectId == child.id }
                         SubprojectRow(
                             project = child,
                             count = childTasks.count { !it.isDone },
@@ -364,7 +364,7 @@ private fun NewProjectDialog(
     onCreate: (String, String, Long?) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
-    var color by remember { mutableStateOf(PROJECT_COLORS.first()) }
+    var color by remember { mutableStateOf(PROJECT_COLOR_OPTIONS.first()) }
     var parentId by remember { mutableStateOf<Long?>(null) }
 
     AlertDialog(
@@ -382,7 +382,7 @@ private fun NewProjectDialog(
                     singleLine = true,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PROJECT_COLORS.forEach { option ->
+                    PROJECT_COLOR_OPTIONS.forEach { option ->
                         Spacer(
                             modifier = Modifier
                                 .size(28.dp)

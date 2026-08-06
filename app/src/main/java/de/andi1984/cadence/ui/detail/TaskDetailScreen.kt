@@ -17,12 +17,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,10 +40,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Priority
+import de.andi1984.cadence.domain.model.SubtaskProgress
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.model.projectPath
 import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
@@ -74,6 +83,9 @@ fun TaskDetailScreen(
     onToggle: (Task) -> Unit,
     onDelete: (Task) -> Unit,
     onSnooze: (Task) -> Unit,
+    onOpenTask: (Task) -> Unit,
+    onAddSubtask: (Task, String) -> Unit,
+    onMoveToProject: (Task, Long?) -> Unit,
 ) {
     if (task == null) {
         EmptyState(
@@ -98,6 +110,8 @@ fun TaskDetailScreen(
     val overdue = task.isOverdue(today)
     val projectLabel = projectPath(state.project(task.projectId), state.projects)
         ?: stringResource(R.string.inbox_title)
+    val parent = state.parentOf(task)
+    val subtasks = state.subtasks(task.id)
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -142,6 +156,32 @@ fun TaskDetailScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
         ) {
+            if (parent != null) {
+                Row(
+                    modifier = Modifier
+                        .padding(bottom = 12.dp)
+                        .defaultMinSize(minHeight = 44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(scheme.surfaceContainerHigh)
+                        .clickable { onOpenTask(parent) }
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = AppIcons.ParentTask,
+                        contentDescription = stringResource(R.string.subtasks_open_parent),
+                        tint = scheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.subtasks_part_of, parent.title),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurface,
+                    )
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 18.dp),
                 verticalAlignment = Alignment.Top,
@@ -263,6 +303,18 @@ fun TaskDetailScreen(
                     highlighted = task.recurrence != null,
                     trailingIcon = AppIcons.Tune,
                     onClick = { recurrenceOpen = true },
+                )
+            }
+
+            // Only a top-level task gets a checklist: nesting stops after one level, so a
+            // subtask shows its parent instead of a card of its own.
+            if (!task.isSubtask) {
+                SubtaskCard(
+                    subtasks = subtasks,
+                    onToggle = onToggle,
+                    onOpen = onOpenTask,
+                    onDelete = onDelete,
+                    onAdd = { text -> onAddSubtask(task, text) },
                 )
             }
 
@@ -389,7 +441,8 @@ fun TaskDetailScreen(
             projects = state.projects,
             selectedId = task.projectId,
             onDismiss = { projectPickerOpen = false },
-            onPick = { onSave(task.copy(projectId = it)) },
+            // Not onSave: the subtasks follow their task into the new project.
+            onPick = { onMoveToProject(task, it) },
         )
     }
     if (recurrenceOpen) {
@@ -403,6 +456,204 @@ fun TaskDetailScreen(
                 recurrenceOpen = false
             },
         )
+    }
+}
+
+/**
+ * The checklist under a task: what is left, one row per step, and a field that keeps the focus
+ * so several steps can be typed in a row.
+ */
+@Composable
+private fun SubtaskCard(
+    subtasks: List<Task>,
+    onToggle: (Task) -> Unit,
+    onOpen: (Task) -> Unit,
+    onDelete: (Task) -> Unit,
+    onAdd: (String) -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val progress = SubtaskProgress(done = subtasks.count { it.isDone }, total = subtasks.size)
+    val spokenProgress =
+        stringResource(R.string.subtasks_progress_label, progress.done, progress.total)
+    var draft by remember { mutableStateOf("") }
+
+    fun submit() {
+        if (draft.isNotBlank()) {
+            onAdd(draft)
+            draft = ""
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(scheme.surfaceContainer)
+            .padding(vertical = 14.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = AppIcons.Checklist,
+                contentDescription = null,
+                tint = scheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                text = stringResource(R.string.subtasks_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = scheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            if (subtasks.isNotEmpty()) {
+                Text(
+                    text = stringResource(
+                        R.string.subtasks_progress,
+                        progress.done,
+                        progress.total,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (progress.isComplete) scheme.primary else scheme.onSurfaceVariant,
+                    modifier = Modifier.semantics {
+                        contentDescription = spokenProgress
+                    },
+                )
+            }
+        }
+
+        if (subtasks.isEmpty()) {
+            Text(
+                text = stringResource(R.string.subtasks_supporting),
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp),
+            )
+        } else {
+            LinearProgressIndicator(
+                progress = { progress.fraction },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 10.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+            )
+            Text(
+                text = stringResource(R.string.subtasks_completion_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+            )
+            subtasks.forEach { subtask ->
+                SubtaskRow(
+                    subtask = subtask,
+                    onToggle = { onToggle(subtask) },
+                    onOpen = { onOpen(subtask) },
+                    onDelete = { onDelete(subtask) },
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 4.dp, end = 8.dp, top = 4.dp)
+                .defaultMinSize(minHeight = 48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = AppIcons.Add,
+                    contentDescription = null,
+                    tint = scheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            BasicTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                textStyle = LocalTextStyle.current.copy(
+                    color = scheme.onSurface,
+                    fontSize = MaterialTheme.typography.bodyLarge.fontSize,
+                    lineHeight = MaterialTheme.typography.bodyLarge.lineHeight,
+                ),
+                cursorBrush = SolidColor(scheme.primary),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submit() }),
+                modifier = Modifier.weight(1f),
+                decorationBox = { inner ->
+                    if (draft.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.subtasks_add_placeholder),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = scheme.onSurfaceVariant,
+                        )
+                    }
+                    inner()
+                },
+            )
+            if (draft.isNotBlank()) {
+                IconButton(onClick = { submit() }) {
+                    Icon(
+                        imageVector = AppIcons.Check,
+                        contentDescription = stringResource(R.string.subtasks_add),
+                        tint = scheme.primary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubtaskRow(
+    subtask: Task,
+    onToggle: () -> Unit,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpen)
+            .defaultMinSize(minHeight = 48.dp)
+            .padding(start = 4.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CompletionCircle(
+            done = subtask.isDone,
+            accent = if (subtask.isDone) scheme.primary else scheme.outline,
+            size = 20.dp,
+            onToggle = onToggle,
+            stateLabel = if (subtask.isDone) {
+                stringResource(R.string.task_state_done)
+            } else {
+                stringResource(R.string.task_state_not_done)
+            },
+            title = subtask.title,
+        )
+        Text(
+            text = subtask.title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (subtask.isDone) scheme.onSurfaceVariant else scheme.onSurface,
+            textDecoration = if (subtask.isDone) TextDecoration.LineThrough else null,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onDelete) {
+            Icon(
+                imageVector = AppIcons.Close,
+                contentDescription = stringResource(R.string.subtasks_remove),
+                tint = scheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }
 

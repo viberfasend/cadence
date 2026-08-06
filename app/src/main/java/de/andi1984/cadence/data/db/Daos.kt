@@ -21,14 +21,14 @@ interface TaskDao {
     @Query("SELECT * FROM tasks")
     suspend fun getAll(): List<TaskEntity>
 
+    @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY sortOrder, id")
+    suspend fun subtasksOf(parentId: Long): List<TaskEntity>
+
     @Query("SELECT COUNT(*) FROM tasks")
     suspend fun count(): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(task: TaskEntity): Long
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAll(tasks: List<TaskEntity>)
 
     @Update
     suspend fun update(task: TaskEntity)
@@ -36,8 +36,9 @@ interface TaskDao {
     @Delete
     suspend fun delete(task: TaskEntity)
 
-    @Query("DELETE FROM tasks WHERE id = :id")
-    suspend fun deleteById(id: Long)
+    /** Deleting a task takes its subtasks with it — a step without its task has no meaning. */
+    @Query("DELETE FROM tasks WHERE id = :id OR parentId = :id")
+    suspend fun deleteWithSubtasks(id: Long)
 }
 
 @Dao

@@ -1,6 +1,8 @@
 package de.andi1984.cadence.data.db
 
 import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
@@ -9,7 +11,21 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 
-@Entity(tableName = "projects")
+@Entity(
+    tableName = "projects",
+    indices = [
+        Index(value = ["parentId"], name = "idx_projects_parent"),
+        Index(value = ["sortOrder"], name = "idx_projects_sort"),
+    ],
+    foreignKeys = [
+        ForeignKey(
+            entity = ProjectEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["parentId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
 data class ProjectEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val name: String,
@@ -18,13 +34,38 @@ data class ProjectEntity(
     val sortOrder: Int = 0,
 )
 
-@Entity(tableName = "tasks")
+@Entity(
+    tableName = "tasks",
+    indices = [
+        Index(value = ["projectId"], name = "idx_tasks_project"),
+        Index(value = ["parentId"], name = "idx_tasks_parent"),
+        Index(value = ["dueDate"], name = "idx_tasks_due"),
+        Index(value = ["completedAt"], name = "idx_tasks_completed"),
+        Index(value = ["sortOrder"], name = "idx_tasks_sort"),
+    ],
+    foreignKeys = [
+        ForeignKey(
+            entity = ProjectEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["projectId"],
+            onDelete = ForeignKey.SET_NULL,
+        ),
+        ForeignKey(
+            entity = TaskEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["parentId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
 data class TaskEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val title: String,
     val notes: String? = null,
     val priority: Int = Priority.DEFAULT.level,
     val projectId: Long? = null,
+    /** Id of the task this one is a step of, or null for a top-level task. */
+    val parentId: Long? = null,
     /** Epoch day, or null for "no due date". */
     val dueDate: Long? = null,
     /** Second of day, or null when the task is due on a day but not at a time. */
@@ -59,6 +100,7 @@ fun TaskEntity.toDomain(): Task = Task(
     notes = notes,
     priority = Priority.fromLevel(priority),
     projectId = projectId,
+    parentId = parentId,
     dueDate = dueDate?.let { LocalDate.ofEpochDay(it) },
     dueTime = dueTime?.let { LocalTime.ofSecondOfDay(it.toLong()) },
     reminderTime = reminderTime?.let { LocalTime.ofSecondOfDay(it.toLong()) },
@@ -74,6 +116,7 @@ fun Task.toEntity(): TaskEntity = TaskEntity(
     notes = notes,
     priority = priority.level,
     projectId = projectId,
+    parentId = parentId,
     dueDate = dueDate?.toEpochDay(),
     dueTime = dueTime?.toSecondOfDay(),
     reminderTime = reminderTime?.toSecondOfDay(),
