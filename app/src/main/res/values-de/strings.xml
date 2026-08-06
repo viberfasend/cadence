@@ -17,6 +17,8 @@
     <string name="action_more">Mehr</string>
     <string name="action_cancel">Abbrechen</string>
     <string name="action_create">Erstellen</string>
+    <string name="action_save">Speichern</string>
+    <string name="action_delete">Löschen</string>
     <string name="action_set">Übernehmen</string>
     <string name="action_clear">Löschen</string>
     <string name="action_expand">Aufklappen</string>
@@ -163,9 +165,39 @@
         <item quantity="one">%1$d überfällig</item>
         <item quantity="other">%1$d überfällig</item>
     </plurals>
+    <plurals name="projects_delete_includes_subprojects">
+        <item quantity="one">Damit wird auch %1$d Unterprojekt gelöscht.</item>
+        <item quantity="other">Damit werden auch %1$d Unterprojekte gelöscht.</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_toggle">
+        <item quantity="one">%1$d Aufgabe löschen</item>
+        <item quantity="other">%1$d Aufgaben löschen</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_gone">
+        <item quantity="one">Die Aufgabe ist für immer weg.</item>
+        <item quantity="other">Alle %1$d Aufgaben sind für immer weg.</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_kept">
+        <item quantity="one">Die Aufgabe wird in den Posteingang verschoben.</item>
+        <item quantity="other">Alle %1$d Aufgaben werden in den Posteingang verschoben.</item>
+    </plurals>
     <string name="projects_dialog_name">Name</string>
     <string name="projects_dialog_nest_under">Einordnen unter</string>
     <string name="projects_dialog_top_level">Oberste Ebene</string>
+    <string name="projects_dialog_color">Farbe</string>
+    <string name="projects_color_teal">Türkis</string>
+    <string name="projects_color_slate">Schiefer</string>
+    <string name="projects_color_amber">Bernstein</string>
+    <string name="projects_color_plum">Pflaume</string>
+    <string name="projects_color_sage">Salbei</string>
+    <string name="projects_color_red">Rot</string>
+    <string name="projects_edit">Projekt bearbeiten</string>
+    <string name="projects_new_subproject">Neues Unterprojekt</string>
+    <string name="projects_delete">Projekt löschen</string>
+    <string name="projects_actions">Aktionen für %1$s</string>
+    <string name="projects_delete_confirm_title">"%1$s" löschen?</string>
+    <string name="projects_delete_no_tasks">Dieses Projekt enthält keine Aufgaben.</string>
+    <string name="projects_delete_includes_subprojects">Damit werden auch %1$d Unterprojekt(e) gelöscht.</string>
     <string name="project_not_found_title">Projekt nicht gefunden</string>
     <string name="project_add_task">Aufgabe zum Projekt hinzufügen</string>
     <string name="project_empty_title">Noch keine Aufgaben</string>

@@ -17,6 +17,8 @@
     <string name="action_more">More</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_create">Create</string>
+    <string name="action_save">Save</string>
+    <string name="action_delete">Delete</string>
     <string name="action_set">Set</string>
     <string name="action_clear">Clear</string>
     <string name="action_expand">Expand</string>
@@ -174,9 +176,39 @@
         <item quantity="one">%1$d overdue</item>
         <item quantity="other">%1$d overdue</item>
     </plurals>
+    <plurals name="projects_delete_includes_subprojects">
+        <item quantity="one">This will also delete its %1$d subproject.</item>
+        <item quantity="other">This will also delete its %1$d subprojects.</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_toggle">
+        <item quantity="one">Delete its %1$d task</item>
+        <item quantity="other">Delete its %1$d tasks</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_gone">
+        <item quantity="one">The task will be gone forever.</item>
+        <item quantity="other">All %1$d tasks will be gone forever.</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_kept">
+        <item quantity="one">The task will move to the Inbox.</item>
+        <item quantity="other">All %1$d tasks will move to the Inbox.</item>
+    </plurals>
     <string name="projects_dialog_name">Name</string>
     <string name="projects_dialog_nest_under">Nest under</string>
     <string name="projects_dialog_top_level">Top level</string>
+    <string name="projects_dialog_color">Color</string>
+    <string name="projects_color_teal">Teal</string>
+    <string name="projects_color_slate">Slate</string>
+    <string name="projects_color_amber">Amber</string>
+    <string name="projects_color_plum">Plum</string>
+    <string name="projects_color_sage">Sage</string>
+    <string name="projects_color_red">Red</string>
+    <string name="projects_edit">Edit project</string>
+    <string name="projects_new_subproject">New subproject</string>
+    <string name="projects_delete">Delete project</string>
+    <string name="projects_actions">Actions for %1$s</string>
+    <string name="projects_delete_confirm_title">Delete "%1$s"?</string>
+    <string name="projects_delete_no_tasks">There are no tasks in this project.</string>
+    <string name="projects_delete_includes_subprojects">This will also delete its %1$d subproject(s).</string>
     <string name="project_not_found_title">Project not found</string>
     <string name="project_add_task">Add task to project</string>
     <string name="project_empty_title">No tasks here yet</string>
