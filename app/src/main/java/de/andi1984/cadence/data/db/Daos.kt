@@ -24,9 +24,6 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY sortOrder, id")
     suspend fun subtasksOf(parentId: Long): List<TaskEntity>
 
-    @Query("SELECT COUNT(*) FROM tasks")
-    suspend fun count(): Int
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(task: TaskEntity): Long
 
@@ -41,29 +38,53 @@ interface TaskDao {
     suspend fun deleteWithSubtasks(id: Long)
 }
 
+/**
+ * An abstract class, not an interface, so deleting a project can move or remove its tasks in the
+ * same transaction as the project rows themselves.
+ */
 @Dao
-interface ProjectDao {
+abstract class ProjectDao {
 
     @Query("SELECT * FROM projects ORDER BY sortOrder")
-    fun observeAll(): Flow<List<ProjectEntity>>
+    abstract fun observeAll(): Flow<List<ProjectEntity>>
 
     @Query("SELECT * FROM projects ORDER BY sortOrder")
-    suspend fun getAll(): List<ProjectEntity>
-
-    @Query("SELECT COUNT(*) FROM projects")
-    suspend fun count(): Int
+    abstract suspend fun getAll(): List<ProjectEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(project: ProjectEntity): Long
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAll(projects: List<ProjectEntity>)
+    abstract suspend fun insert(project: ProjectEntity): Long
 
     @Update
-    suspend fun update(project: ProjectEntity)
+    abstract suspend fun update(project: ProjectEntity)
+
+    /** Everything filed under the project, including its subprojects — nesting is one level. */
+    @Query(
+        "SELECT id FROM tasks " +
+            "WHERE projectId = :id OR projectId IN (SELECT id FROM projects WHERE parentId = :id)",
+    )
+    abstract suspend fun taskIdsIn(id: Long): List<Long>
+
+    @Query(
+        "UPDATE tasks SET projectId = NULL " +
+            "WHERE projectId = :id OR projectId IN (SELECT id FROM projects WHERE parentId = :id)",
+    )
+    protected abstract suspend fun moveTasksToInbox(id: Long)
+
+    @Query(
+        "DELETE FROM tasks " +
+            "WHERE projectId = :id OR projectId IN (SELECT id FROM projects WHERE parentId = :id)",
+    )
+    protected abstract suspend fun deleteTasksIn(id: Long)
 
     @Query("DELETE FROM projects WHERE id = :id OR parentId = :id")
-    suspend fun deleteWithChildren(id: Long)
+    protected abstract suspend fun deleteRows(id: Long)
+
+    /** The tasks are dealt with first, while the subproject rows still name their parent. */
+    @Transaction
+    open suspend fun deleteWithChildren(id: Long, deleteTasks: Boolean) {
+        if (deleteTasks) deleteTasksIn(id) else moveTasksToInbox(id)
+        deleteRows(id)
+    }
 }
 
 /**

@@ -95,16 +95,16 @@ data class CadenceUiState(
     fun parentOf(task: Task): Task? =
         task.parentId?.let { id -> tasks.firstOrNull { it.id == id } }
 
-    /** Tasks in a project, including everything filed under its subprojects. */
-    fun tasksIn(projectId: Long): List<Task> {
-        val childIds = projects.filter { it.parentId == projectId }.map { it.id }.toSet()
-        return rootTasks().filter { it.projectId == projectId || it.projectId in childIds }
-    }
-
     /** Subprojects of a project, in the order they were added. */
     fun subprojects(parentId: Long): List<Project> = projects
         .filter { it.parentId == parentId }
         .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+
+    /** Tasks in a project, including everything filed under its subprojects. */
+    fun tasksIn(projectId: Long): List<Task> {
+        val childIds = subprojects(projectId).map { it.id }.toSet()
+        return rootTasks().filter { it.projectId == projectId || it.projectId in childIds }
+    }
 
     /**
      * Projects that can be parents for a new project.
@@ -127,6 +127,7 @@ data class CadenceUiState(
             it.parentId == null && it.id != exclude.id && it.id !in descendants 
         }
     }
+
 }
 
 class CadenceViewModel(
@@ -281,7 +282,19 @@ class CadenceViewModel(
             return@launch
         }
         
-        val updatedProject = project.copy(name = name.trim(), colorHex = colorHex, parentId = parentId)
+        val moved = parentId != project.parentId
+        val order = if (moved) {
+            state.value.projects.count { it.parentId == parentId && it.id != project.id }
+        } else {
+            project.sortOrder
+        }
+        
+        val updatedProject = project.copy(
+            name = name.trim(), 
+            colorHex = colorHex, 
+            parentId = parentId,
+            sortOrder = order
+        )
         
         when (val result = repository.upsertProject(updatedProject)) {
             is RepositoryResult.Success -> {
@@ -296,7 +309,7 @@ class CadenceViewModel(
         }
     }
 
-    fun deleteProject(project: Project) = viewModelScope.launch {
+    fun deleteProject(project: Project, deleteTasks: Boolean = false) = viewModelScope.launch {
         val tasksInProject = state.value.tasksIn(project.id)
         
         // Cancel reminders for all tasks in the project
@@ -307,13 +320,14 @@ class CadenceViewModel(
         val deletedTasks = tasksInProject
         
         // Perform deletion
-        repository.deleteProject(project.id)
+        repository.deleteProject(project.id, deleteTasks)
         
         // Show snackbar with undo option
         showSnackbar(
             text = "Project and ${tasksInProject.size} task(s) deleted",
             undoAction = UndoAction.DeleteProject(deletedProject, deletedTasks)
         )
+    }
     }
 
     // ── Settings ───────────────────────────────────────────────────────────────────
