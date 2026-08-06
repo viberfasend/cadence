@@ -213,22 +213,6 @@
     <!-- Delete confirmation; %1$s is the project name. -->
     <string name="projects_delete_confirm_title">Delete “%1$s”?</string>
     <string name="projects_delete_no_tasks">The project is empty.</string>
-    <plurals name="projects_delete_includes_subprojects">
-        <item quantity="one">Its subproject goes with it.</item>
-        <item quantity="other">Its %1$d subprojects go with it.</item>
-    </plurals>
-    <plurals name="projects_delete_tasks_toggle">
-        <item quantity="one">Delete its task as well</item>
-        <item quantity="other">Delete its %1$d tasks as well</item>
-    </plurals>
-    <plurals name="projects_delete_tasks_kept">
-        <item quantity="one">The task moves to the Inbox.</item>
-        <item quantity="other">%1$d tasks move to the Inbox.</item>
-    </plurals>
-    <plurals name="projects_delete_tasks_gone">
-        <item quantity="one">The task is deleted for good.</item>
-        <item quantity="other">%1$d tasks are deleted for good.</item>
-    </plurals>
     <string name="project_not_found_title">Project not found</string>
     <string name="project_add_task">Add task to project</string>
     <string name="project_empty_title">No tasks here yet</string>
