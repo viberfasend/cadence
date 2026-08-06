@@ -205,6 +205,15 @@ fun TaskRow(
                     if (subtaskProgress != null) {
                         SubtaskChip(progress = subtaskProgress, tint = metaColor)
                     }
+                    // Show subtask indicator if this is a subtask and we have a parent title
+                    if (parentTitle != null && task.isSubtask) {
+                        Icon(
+                            imageVector = AppIcons.Checklist,
+                            contentDescription = "Subtask of $parentTitle",
+                            tint = scheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
                     PriorityBadge(
                         priority = task.priority,
                         labelColor = metaColor,

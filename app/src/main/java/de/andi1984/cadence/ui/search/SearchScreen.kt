@@ -105,14 +105,17 @@ fun SearchScreen(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             items(results, key = { it.id }) { task ->
+                val parentTask = state.parentOf(task)
                 TaskRow(
                     task = task,
                     projectLabel = state.projectLabel(task),
                     today = today,
                     onToggle = { onToggle(task) },
                     onClick = { onTaskClick(task) },
-                    parentTitle = state.parentOf(task)?.title,
+                    parentTitle = parentTask?.title,
                     subtaskProgress = state.subtaskProgress(task.id),
+                    // For subtasks in search, show the parent context more prominently
+                    showProject = parentTask != null, // Always show project for subtasks
                 )
             }
         }
