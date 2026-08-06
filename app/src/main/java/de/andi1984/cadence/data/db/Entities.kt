@@ -1,6 +1,8 @@
 package de.andi1984.cadence.data.db
 
 import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
@@ -9,7 +11,21 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 
-@Entity(tableName = "projects")
+@Entity(
+    tableName = "projects",
+    indices = [
+        Index(value = ["parentId"], name = "idx_projects_parent"),
+        Index(value = ["sortOrder"], name = "idx_projects_sort"),
+    ],
+    foreignKeys = [
+        ForeignKey(
+            entity = ProjectEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["parentId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
 data class ProjectEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val name: String,
@@ -18,7 +34,30 @@ data class ProjectEntity(
     val sortOrder: Int = 0,
 )
 
-@Entity(tableName = "tasks")
+@Entity(
+    tableName = "tasks",
+    indices = [
+        Index(value = ["projectId"], name = "idx_tasks_project"),
+        Index(value = ["parentId"], name = "idx_tasks_parent"),
+        Index(value = ["dueDate"], name = "idx_tasks_due"),
+        Index(value = ["completedAt"], name = "idx_tasks_completed"),
+        Index(value = ["sortOrder"], name = "idx_tasks_sort"),
+    ],
+    foreignKeys = [
+        ForeignKey(
+            entity = ProjectEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["projectId"],
+            onDelete = ForeignKey.SET_NULL,
+        ),
+        ForeignKey(
+            entity = TaskEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["parentId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
 data class TaskEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val title: String,

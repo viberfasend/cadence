@@ -14,9 +14,67 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
+/** Add indexes and foreign key constraints for performance and data integrity. */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Create temporary tables
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS projects_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                name TEXT NOT NULL,
+                colorHex TEXT NOT NULL,
+                parentId INTEGER,
+                sortOrder INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(parentId) REFERENCES projects_new(id) ON DELETE CASCADE
+            )
+        """)
+        
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS tasks_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                title TEXT NOT NULL,
+                notes TEXT,
+                priority INTEGER NOT NULL DEFAULT 1,
+                projectId INTEGER,
+                parentId INTEGER,
+                dueDate INTEGER,
+                dueTime INTEGER,
+                reminderTime INTEGER,
+                completedAt INTEGER,
+                createdAt INTEGER NOT NULL DEFAULT 0,
+                sortOrder INTEGER NOT NULL DEFAULT 0,
+                recurrence TEXT,
+                FOREIGN KEY(projectId) REFERENCES projects_new(id) ON DELETE SET NULL,
+                FOREIGN KEY(parentId) REFERENCES tasks_new(id) ON DELETE CASCADE
+            )
+        """)
+        
+        // Create indexes
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_projects_parent ON projects_new(parentId)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_projects_sort ON projects_new(sortOrder)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks_new(projectId)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks_new(parentId)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks_new(dueDate)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks_new(completedAt)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_tasks_sort ON tasks_new(sortOrder)")
+        
+        // Copy data from old tables
+        db.execSQL("INSERT INTO projects_new (id, name, colorHex, parentId, sortOrder) SELECT id, name, colorHex, parentId, sortOrder FROM projects")
+        db.execSQL("INSERT INTO tasks_new (id, title, notes, priority, projectId, parentId, dueDate, dueTime, reminderTime, completedAt, createdAt, sortOrder, recurrence) SELECT id, title, notes, priority, projectId, parentId, dueDate, dueTime, reminderTime, completedAt, createdAt, sortOrder, recurrence FROM tasks")
+        
+        // Drop old tables
+        db.execSQL("DROP TABLE projects")
+        db.execSQL("DROP TABLE tasks")
+        
+        // Rename new tables
+        db.execSQL("ALTER TABLE projects_new RENAME TO projects")
+        db.execSQL("ALTER TABLE tasks_new RENAME TO tasks")
+    }
+}
+
 @Database(
     entities = [TaskEntity::class, ProjectEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class CadenceDatabase : RoomDatabase() {
@@ -39,7 +97,7 @@ abstract class CadenceDatabase : RoomDatabase() {
             )
                 // Real migrations, no destructive fallback: an upgrade must not empty the app.
                 // Every future entity change needs its own Migration here.
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
                 .also { instance = it }
         }
