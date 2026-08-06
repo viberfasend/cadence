@@ -1,0 +1,62 @@
+# Mistral Vibe ignore file
+# Files and directories that Mistral Vibe should ignore
+
+# Build directories
+build/
+app/build/
+
+# IDE directories
+.idea/
+*.iml
+*.ipr
+
+# Local properties and secrets
+local.properties
+signing.properties
+*.keystore
+*.jks
+
+# Gradle cache
+gradle/
+.gradle/
+
+# Dependency directories
+lib/
+libs/
+
+# Generated files
+**/generated/
+**/R.java
+**/BuildConfig.java
+
+# Test results and reports
+**/test-results/
+**/reports/
+
+# Cache directories
+.cache/
+.cxx/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Version control
+.vibe/
