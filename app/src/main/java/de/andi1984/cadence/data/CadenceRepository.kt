@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 
 class CadenceRepository(
     private val taskDao: TaskDao,
@@ -41,11 +42,45 @@ class CadenceRepository(
         }
     }
 
-    suspend fun deleteTask(id: Long) = taskDao.deleteById(id)
+    suspend fun deleteTask(id: Long) = taskDao.deleteWithSubtasks(id)
+
+    suspend fun subtasksOf(parentId: Long): List<Task> =
+        taskDao.subtasksOf(parentId).map { it.toDomain() }
+
+    /**
+     * Adds a step under [parent].
+     *
+     * Nesting stays one level deep: adding a subtask while looking at a subtask files the new
+     * one next to it, under the same task, rather than starting a third level.
+     */
+    suspend fun addSubtask(parent: Task, title: String): Long {
+        val trimmed = title.trim()
+        if (trimmed.isEmpty()) return 0L
+        val parentId = parent.parentId ?: parent.id
+        return taskDao.insert(
+            Task(
+                title = trimmed,
+                projectId = parent.projectId,
+                parentId = parentId,
+                createdAt = Instant.now(),
+                sortOrder = taskDao.subtasksOf(parentId).size,
+            ).toEntity(),
+        )
+    }
+
+    /** A task and its steps live in the same project, so moving one moves the whole checklist. */
+    suspend fun moveToProject(task: Task, projectId: Long?) {
+        taskDao.update(task.copy(projectId = projectId).toEntity())
+        taskDao.subtasksOf(task.id).forEach { taskDao.update(it.copy(projectId = projectId)) }
+    }
 
     /**
      * Completing a recurring task keeps the finished instance in place — so it stays visible
      * in Today with its "Done 09:12" line — and inserts the next instance.
+     *
+     * Finishing a task also finishes whatever is still open beneath it, and a recurring task
+     * hands its checklist to the next occurrence unticked, with the subtask dates moved by the
+     * same span as the parent's.
      */
     suspend fun setCompleted(task: Task, completed: Boolean, today: LocalDate = LocalDate.now()) {
         if (!completed) {
@@ -54,9 +89,14 @@ class CadenceRepository(
         }
         val now = Instant.now()
         taskDao.update(task.copy(completedAt = now).toEntity())
+
+        val subtasks = subtasksOf(task.id)
+        subtasks.filter { !it.isDone }
+            .forEach { taskDao.update(it.copy(completedAt = now).toEntity()) }
+
         val rule = task.recurrence ?: return
         val nextDue = RecurrenceEngine.dueDateAfterCompletion(rule, task.dueDate, today)
-        taskDao.insert(
+        val nextId = taskDao.insert(
             task.copy(
                 id = 0L,
                 completedAt = null,
@@ -64,6 +104,18 @@ class CadenceRepository(
                 createdAt = now,
             ).toEntity(),
         )
+        val shift = task.dueDate?.let { ChronoUnit.DAYS.between(it, nextDue) } ?: 0L
+        subtasks.forEach { subtask ->
+            taskDao.insert(
+                subtask.copy(
+                    id = 0L,
+                    parentId = nextId,
+                    completedAt = null,
+                    dueDate = subtask.dueDate?.plusDays(shift),
+                    createdAt = now,
+                ).toEntity(),
+            )
+        }
     }
 
     /** Moves a task's due date by [days], used by snooze and the overdue triage action. */
@@ -127,8 +179,22 @@ class CadenceRepository(
             )
             projectIds[key] = id
         }
-        taskDao.insertAll(
-            SeedData.tasks(LocalDate.now(), projectIds).map { it.toEntity() },
-        )
+        // Inserted one by one rather than in bulk: a sample checklist needs the id its parent
+        // was actually given.
+        val checklists = SeedData.subtasks()
+        SeedData.tasks(LocalDate.now(), projectIds).forEach { task ->
+            val parentId = taskDao.insert(task.toEntity())
+            checklists[task.title]?.forEachIndexed { index, title ->
+                taskDao.insert(
+                    Task(
+                        title = title,
+                        projectId = task.projectId,
+                        parentId = parentId,
+                        createdAt = task.createdAt,
+                        sortOrder = index,
+                    ).toEntity(),
+                )
+            }
+        }
     }
 }

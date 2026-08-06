@@ -61,9 +61,10 @@ ui/         theme, shared components, one package per screen
 
 ### Persistence gotchas
 
-- Database version is **1** with `fallbackToDestructiveMigration()` and `exportSchema = false`.
-  Any entity change therefore **wipes user data** on upgrade. Adding a real migration means
-  bumping the version and dropping the destructive fallback.
+- Database version is **2** with `exportSchema = false` and **no destructive fallback** — the
+  migrations live next to the `@Database` class in `CadenceDatabase.kt`. Any entity change
+  therefore needs its own `Migration` and a version bump; without one the app crashes on open
+  rather than silently emptying itself.
 - `TaskEntity` stores dates as **epoch day** (`Long`) and times as **second of day** (`Int`);
   conversion to `LocalDate`/`LocalTime` happens in the `toDomain`/`toEntity` extensions in
   `data/db/Entities.kt`. Nothing outside that file should touch the raw numbers.
@@ -76,6 +77,15 @@ ui/         theme, shared components, one package per screen
 - **Completing a recurring task** (`CadenceRepository.setCompleted`) keeps the finished row in
   place — so it stays visible in Today — and *inserts a new row* for the next occurrence.
   Recurrence is modelled as a chain of rows, not one row with a moving date.
+- **Subtasks are tasks with a `parentId`**, nested exactly one level deep — `addSubtask` files a
+  step added under a subtask next to it rather than starting a third level. A parent and its
+  steps share a project (`moveToProject` moves both), deleting a task deletes its steps
+  (`deleteWithSubtasks`), and finishing a parent finishes whatever is still open beneath it. A
+  recurring parent hands its checklist to the next occurrence unticked, with the subtask due
+  dates shifted by the same span as the parent's. Which lists show them is a deliberate split:
+  the container views (Inbox, projects) use `CadenceUiState.rootTasks()` because the parent
+  already speaks for its steps there, while the date-driven views (Today, Upcoming, Search) show
+  a dated subtask in its own right, labelled with the parent's title.
 - **Reminders reconcile on every task emission**: the ViewModel collects `repository.tasks` and
   calls `ReminderScheduler.sync(tasks)`, which schedules *or cancels* an alarm for every task.
   Alarms are inexact (`setWindow`) deliberately, so the app needs no exact-alarm permission.
@@ -84,7 +94,11 @@ ui/         theme, shared components, one package per screen
   `{"format":"cadence.backup","version":1,…}` with ISO-8601 dates and recurrence as a nested
   object — deliberately *not* the packed `RecurrenceCodec` column — because a future web app
   reads these files. Unknown keys are ignored on read; a higher `version` is refused. Changing
-  a field means bumping `VERSION` and keeping the old shape readable. It uses
+  a field means bumping `VERSION` and keeping the old shape readable — but *adding* an optional
+  field (`parentId`) deliberately leaves `VERSION` alone, since a bump would make older installs
+  refuse the whole file over one key they can ignore. Links are repaired rather than trusted:
+  a task pointing at a missing project lands in the Inbox, and a subtask whose parent the file
+  lacks — or one in a chain or cycle — is set free by `normalisedParents`. It uses
   kotlinx.serialization (pure Kotlin, so the codec stays JVM-testable — `org.json` is stubbed
   in unit tests). Importing **replaces** both tables via `BackupDao.replaceAll` in one
   transaction, so ids come straight from the file and task→project links need no remapping;

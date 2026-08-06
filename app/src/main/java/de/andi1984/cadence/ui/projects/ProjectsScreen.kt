@@ -68,9 +68,9 @@ fun ProjectsScreen(
     var createOpen by remember { mutableStateOf(false) }
     val collapsed = remember { androidx.compose.runtime.mutableStateMapOf<Long, Boolean>() }
 
-    val inboxCount = state.tasks.count { it.isInbox && !it.isDone }
+    val inboxCount = state.inboxTasks().count { !it.isDone }
     val todayCount = state.tasks.count { !it.isDone && it.dueDate != null && !it.dueDate.isAfter(today) }
-    val recurringCount = state.tasks.count { !it.isDone && it.recurrence != null }
+    val recurringCount = state.rootTasks().count { !it.isDone && it.recurrence != null }
 
     Column(modifier = Modifier.fillMaxSize()) {
         de.andi1984.cadence.ui.components.ScreenHeader(
@@ -144,7 +144,7 @@ fun ProjectsScreen(
                 if (!isCollapsed) {
                     items(node.children.size, key = { "c-${node.children[it].id}" }) { index ->
                         val child = node.children[index]
-                        val childTasks = state.tasks.filter { it.projectId == child.id }
+                        val childTasks = state.rootTasks().filter { it.projectId == child.id }
                         SubprojectRow(
                             project = child,
                             count = childTasks.count { !it.isDone },

@@ -141,6 +141,64 @@ class BackupCodecTest {
     }
 
     @Test
+    fun `subtasks keep their parent through a round trip`() {
+        val step = Task(id = 4L, title = "Compare flights", parentId = 3L, createdAt = Instant.EPOCH)
+
+        val restored = roundTrip(
+            BackupSnapshot(projects = listOf(project), tasks = listOf(task, step)),
+        )
+
+        assertEquals(listOf(null, 3L), restored.tasks.map { it.parentId })
+    }
+
+    @Test
+    fun `a subtask whose parent is missing becomes a task of its own`() {
+        val orphan = Task(id = 4L, title = "Compare flights", parentId = 99L)
+
+        val restored = roundTrip(BackupSnapshot(tasks = listOf(orphan)))
+
+        assertNull(restored.tasks.single().parentId)
+    }
+
+    @Test
+    fun `a chain deeper than one level is flattened onto its root`() {
+        val json = """
+            {
+              "format": "cadence.backup",
+              "version": 1,
+              "tasks": [
+                {"id": 1, "title": "Move flat"},
+                {"id": 2, "title": "Pack", "parentId": 1},
+                {"id": 3, "title": "Pack the kitchen", "parentId": 2}
+              ]
+            }
+        """.trimIndent()
+
+        val restored = (BackupCodec.decode(json) as BackupReadResult.Ok).snapshot
+
+        assertEquals(listOf(null, 1L, 1L), restored.tasks.map { it.parentId })
+    }
+
+    @Test
+    fun `parents that point at each other are set free rather than imported as a cycle`() {
+        val json = """
+            {
+              "format": "cadence.backup",
+              "version": 1,
+              "tasks": [
+                {"id": 1, "title": "A", "parentId": 2},
+                {"id": 2, "title": "B", "parentId": 1},
+                {"id": 3, "title": "C", "parentId": 3}
+              ]
+            }
+        """.trimIndent()
+
+        val restored = (BackupCodec.decode(json) as BackupReadResult.Ok).snapshot
+
+        assertEquals(listOf(null, null, null), restored.tasks.map { it.parentId })
+    }
+
+    @Test
     fun `unknown keys are ignored so newer files still restore`() {
         val json = """
             {

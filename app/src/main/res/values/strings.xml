@@ -209,6 +209,20 @@
     <string name="task_due_at_picker">Due at</string>
     <string name="task_remind_at_picker">Remind at</string>
 
+    <!-- ── Subtasks ────────────────────────────────────────────────────────────────── -->
+    <string name="subtasks_title">Subtasks</string>
+    <!-- The "2/5" chip on a row and next to the checklist header. -->
+    <string name="subtasks_progress">%1$d/%2$d</string>
+    <string name="subtasks_progress_label">%1$d of %2$d subtasks done</string>
+    <string name="subtasks_supporting">Break this one down into steps.</string>
+    <string name="subtasks_add">Add subtask</string>
+    <string name="subtasks_add_placeholder">Add a step</string>
+    <string name="subtasks_remove">Remove subtask</string>
+    <!-- Shown on a subtask, above its own details. -->
+    <string name="subtasks_part_of">Part of %1$s</string>
+    <string name="subtasks_open_parent">Open the task this belongs to</string>
+    <string name="subtasks_completion_note">Finishing this task finishes its open subtasks.</string>
+
     <!-- ── Search ──────────────────────────────────────────────────────────────────── -->
     <string name="search_placeholder">Search tasks</string>
     <string name="search_title">Search</string>

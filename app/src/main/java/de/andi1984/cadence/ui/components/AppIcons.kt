@@ -7,6 +7,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CreateNewFolder
@@ -41,6 +42,7 @@ object AppIcons {
     val ArrowUpward: ImageVector = Icons.Rounded.ArrowUpward
     val CalendarMonth: ImageVector = Icons.Rounded.CalendarMonth
     val Check: ImageVector = Icons.Rounded.Check
+    val Checklist: ImageVector = Icons.Rounded.Checklist
     val ChevronRight: ImageVector = Icons.Rounded.ChevronRight
     val Close: ImageVector = Icons.Rounded.Close
     val CreateNewFolder: ImageVector = Icons.Rounded.CreateNewFolder
@@ -63,6 +65,9 @@ object AppIcons {
     val Settings: ImageVector = Icons.Rounded.Settings
     val Snooze: ImageVector = Icons.Rounded.Snooze
     val Sort: ImageVector = Icons.AutoMirrored.Rounded.Sort
+
+    /** Points from a subtask up to the task it belongs to. */
+    val ParentTask: ImageVector = Icons.Rounded.ArrowUpward
     val Today: ImageVector = Icons.Rounded.Today
     val Tune: ImageVector = Icons.Rounded.Tune
     val Upload: ImageVector = Icons.Rounded.Upload

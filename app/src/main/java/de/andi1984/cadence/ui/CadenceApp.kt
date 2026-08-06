@@ -84,7 +84,7 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState) {
         BottomDestination(Routes.PROJECTS, R.string.nav_projects, AppIcons.Folder),
     )
     val showChrome = currentRoute in destinations.map { it.route }
-    val inboxCount = state.tasks.count { it.isInbox && !it.isDone }
+    val inboxCount = state.inboxTasks().count { !it.isDone }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -227,9 +227,13 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState) {
                         onToggle = viewModel::toggleTask,
                         onDelete = {
                             viewModel.deleteTask(it)
-                            navController.popBackStack()
+                            // Removing a subtask keeps you on the task you were looking at.
+                            if (it.id == task?.id) navController.popBackStack()
                         },
                         onSnooze = { viewModel.snooze(it) },
+                        onOpenTask = { navController.navigate(Routes.task(it.id)) },
+                        onAddSubtask = viewModel::addSubtask,
+                        onMoveToProject = viewModel::setProject,
                     )
                 }
                 composable(Routes.PROJECT) { entry ->

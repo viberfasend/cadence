@@ -60,7 +60,7 @@ fun TriageScreen(
     onSetProject: (Task, Long?) -> Unit,
 ) {
     // The queue is captured once so editing a task does not reshuffle the run.
-    val queue = remember { state.tasks.filter { it.isInbox && !it.isDone }.map { it.id } }
+    val queue = remember { state.inboxTasks().filter { !it.isDone }.map { it.id } }
     var index by remember { mutableIntStateOf(0) }
     var datePickerOpen by remember { mutableStateOf(false) }
     var projectPickerOpen by remember { mutableStateOf(false) }

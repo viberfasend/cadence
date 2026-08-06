@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import de.andi1984.cadence.R
+import de.andi1984.cadence.domain.model.SubtaskProgress
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.format.compactDate
 import de.andi1984.cadence.ui.format.describeRecurrence
@@ -59,6 +60,10 @@ fun TaskRow(
     modifier: Modifier = Modifier,
     overdueStyle: Boolean = false,
     showProject: Boolean = true,
+    /** Title of the task this one is a step of — set in the date-driven lists, null elsewhere. */
+    parentTitle: String? = null,
+    /** "2/5" for a task with a checklist, null for one without. */
+    subtaskProgress: SubtaskProgress? = null,
 ) {
     val cadenceColors = LocalCadenceColors.current
     val density = LocalCadenceDensity.current
@@ -162,6 +167,16 @@ fun TaskRow(
                                 labelColor = metaColor,
                                 spineColor = if (overdue) cadenceColors.overdueAccent else null,
                             )
+                            if (subtaskProgress != null) {
+                                SubtaskChip(progress = subtaskProgress, tint = metaColor)
+                            }
+                            if (parentTitle != null) {
+                                MetaWithIcon(
+                                    icon = AppIcons.ParentTask,
+                                    label = parentTitle,
+                                    tint = metaColor,
+                                )
+                            }
                             if (showProject && projectLabel != null) {
                                 Text(
                                     text = projectLabel,
@@ -187,6 +202,9 @@ fun TaskRow(
                             modifier = Modifier.size(16.dp),
                         )
                     }
+                    if (subtaskProgress != null) {
+                        SubtaskChip(progress = subtaskProgress, tint = metaColor)
+                    }
                     PriorityBadge(
                         priority = task.priority,
                         labelColor = metaColor,
@@ -202,6 +220,55 @@ fun TaskRow(
                 }
             }
         }
+    }
+}
+
+/**
+ * "2/5" — never the bare bar alone, so the count reads the same to a screen reader as it does
+ * on screen.
+ */
+@Composable
+private fun SubtaskChip(progress: SubtaskProgress, tint: Color) {
+    val label = stringResource(R.string.subtasks_progress, progress.done, progress.total)
+    val spoken = stringResource(R.string.subtasks_progress_label, progress.done, progress.total)
+    Row(
+        modifier = Modifier.semantics { contentDescription = spoken },
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = AppIcons.Checklist,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = tint,
+        )
+    }
+}
+
+@Composable
+private fun MetaWithIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = tint,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

@@ -25,6 +25,8 @@ data class TaskEntity(
     val notes: String? = null,
     val priority: Int = Priority.DEFAULT.level,
     val projectId: Long? = null,
+    /** Id of the task this one is a step of, or null for a top-level task. */
+    val parentId: Long? = null,
     /** Epoch day, or null for "no due date". */
     val dueDate: Long? = null,
     /** Second of day, or null when the task is due on a day but not at a time. */
@@ -59,6 +61,7 @@ fun TaskEntity.toDomain(): Task = Task(
     notes = notes,
     priority = Priority.fromLevel(priority),
     projectId = projectId,
+    parentId = parentId,
     dueDate = dueDate?.let { LocalDate.ofEpochDay(it) },
     dueTime = dueTime?.let { LocalTime.ofSecondOfDay(it.toLong()) },
     reminderTime = reminderTime?.let { LocalTime.ofSecondOfDay(it.toLong()) },
@@ -74,6 +77,7 @@ fun Task.toEntity(): TaskEntity = TaskEntity(
     notes = notes,
     priority = priority.level,
     projectId = projectId,
+    parentId = parentId,
     dueDate = dueDate?.toEpochDay(),
     dueTime = dueTime?.toSecondOfDay(),
     reminderTime = reminderTime?.toSecondOfDay(),

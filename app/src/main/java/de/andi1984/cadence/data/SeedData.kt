@@ -34,6 +34,23 @@ object SeedData {
         "someday" to SeedProject("Someday", "#3E6373", sortOrder = 2),
     )
 
+    /**
+     * Sample checklists, keyed by the title of the task they hang under, so a fresh install
+     * shows what subtasks look like without needing ids the seed cannot know yet.
+     */
+    fun subtasks(): Map<String, List<String>> = mapOf(
+        "Book the summer holiday" to listOf(
+            "Agree on the dates",
+            "Compare flights",
+            "Book the flights",
+            "Find a place to stay",
+        ),
+        "Sign the lease addendum" to listOf(
+            "Read the changed clauses",
+            "Scan the signed copy",
+        ),
+    )
+
     fun tasks(today: LocalDate, projectIds: Map<String, Long>): List<Task> {
         val now = Instant.now()
         fun project(key: String): Long? = projectIds[key]

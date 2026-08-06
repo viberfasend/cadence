@@ -145,6 +145,8 @@ fun UpcomingScreen(
                         today = today,
                         onToggle = { onToggle(item.task) },
                         onClick = { onTaskClick(item.task) },
+                        parentTitle = state.parentOf(item.task)?.title,
+                        subtaskProgress = state.subtaskProgress(item.task.id),
                     )
                 }
             }

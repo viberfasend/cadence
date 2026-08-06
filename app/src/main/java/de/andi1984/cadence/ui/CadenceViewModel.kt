@@ -13,6 +13,7 @@ import de.andi1984.cadence.data.backup.BackupOutcome
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceRule
+import de.andi1984.cadence.domain.model.SubtaskProgress
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.model.projectPath
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
@@ -47,10 +48,40 @@ data class CadenceUiState(
 
     fun overdue(today: LocalDate): List<Task> = tasks.filter { it.isOverdue(today) }
 
+    /**
+     * Tasks that stand on their own.
+     *
+     * The lists that stand for a container — the Inbox, a project — show these, because the
+     * parent already speaks for its steps there. The date-driven views (Today, Upcoming, Search)
+     * deliberately do not filter: a subtask with its own due date is work for that day, and it
+     * carries its parent's title as context.
+     */
+    fun rootTasks(): List<Task> = tasks.filter { !it.isSubtask }
+
+    fun inboxTasks(): List<Task> = rootTasks().filter { it.isInbox }
+
+    /** The steps under a task, in the order they were added. */
+    fun subtasks(parentId: Long): List<Task> = tasks
+        .filter { it.parentId == parentId }
+        .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+
+    /** Null when a task has no checklist at all, so rows can leave the chip out entirely. */
+    fun subtaskProgress(parentId: Long): SubtaskProgress? {
+        val steps = subtasks(parentId)
+        return if (steps.isEmpty()) {
+            null
+        } else {
+            SubtaskProgress(done = steps.count { it.isDone }, total = steps.size)
+        }
+    }
+
+    fun parentOf(task: Task): Task? =
+        task.parentId?.let { id -> tasks.firstOrNull { it.id == id } }
+
     /** Tasks in a project, including everything filed under its subprojects. */
     fun tasksIn(projectId: Long): List<Task> {
         val childIds = projects.filter { it.parentId == projectId }.map { it.id }.toSet()
-        return tasks.filter { it.projectId == projectId || it.projectId in childIds }
+        return rootTasks().filter { it.projectId == projectId || it.projectId in childIds }
     }
 }
 
@@ -98,8 +129,15 @@ class CadenceViewModel(
     }
 
     fun deleteTask(task: Task) = viewModelScope.launch {
+        // The subtasks go with it, so their alarms have to go too — sync only sees rows that
+        // still exist.
+        state.value.subtasks(task.id).forEach { reminderScheduler.cancel(it.id) }
         reminderScheduler.cancel(task.id)
         repository.deleteTask(task.id)
+    }
+
+    fun addSubtask(parent: Task, title: String) = viewModelScope.launch {
+        repository.addSubtask(parent, title)
     }
 
     fun setPriority(task: Task, priority: Priority) = saveTask(task.copy(priority = priority))
@@ -114,7 +152,9 @@ class CadenceViewModel(
 
     fun setRecurrence(task: Task, rule: RecurrenceRule?) = saveTask(task.copy(recurrence = rule))
 
-    fun setProject(task: Task, projectId: Long?) = saveTask(task.copy(projectId = projectId))
+    fun setProject(task: Task, projectId: Long?) = viewModelScope.launch {
+        repository.moveToProject(task, projectId)
+    }
 
     fun snooze(task: Task, days: Long = 1L) = viewModelScope.launch {
         repository.shiftDueDate(task, days)

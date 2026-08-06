@@ -198,6 +198,18 @@
     <string name="task_due_at_picker">Fällig um</string>
     <string name="task_remind_at_picker">Erinnerung um</string>
 
+    <!-- ── Unteraufgaben ───────────────────────────────────────────────────────────── -->
+    <string name="subtasks_title">Unteraufgaben</string>
+    <string name="subtasks_progress">%1$d/%2$d</string>
+    <string name="subtasks_progress_label">%1$d von %2$d Unteraufgaben erledigt</string>
+    <string name="subtasks_supporting">Zerlege sie in einzelne Schritte.</string>
+    <string name="subtasks_add">Unteraufgabe hinzufügen</string>
+    <string name="subtasks_add_placeholder">Schritt hinzufügen</string>
+    <string name="subtasks_remove">Unteraufgabe entfernen</string>
+    <string name="subtasks_part_of">Teil von %1$s</string>
+    <string name="subtasks_open_parent">Zugehörige Aufgabe öffnen</string>
+    <string name="subtasks_completion_note">Wird diese Aufgabe erledigt, gelten auch ihre offenen Unteraufgaben als erledigt.</string>
+
     <!-- ── Suche ───────────────────────────────────────────────────────────────────── -->
     <string name="search_placeholder">Aufgaben durchsuchen</string>
     <string name="search_title">Suche</string>

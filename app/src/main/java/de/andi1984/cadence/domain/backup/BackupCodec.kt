@@ -36,6 +36,8 @@ sealed interface BackupReadResult {
  *
  * Forwards compatibility: unknown keys are ignored, so a newer Cadence may add fields without
  * breaking older readers. A higher [BackupDocument.version] is refused rather than guessed at.
+ * That is why a purely additive field — `parentId`, say — leaves [BackupCodec.VERSION] alone:
+ * bumping it would make older installs refuse the whole file over one key they can ignore.
  */
 object BackupCodec {
 
@@ -80,7 +82,31 @@ object BackupCodec {
                     task
                 }
             }
+            .normalisedParents()
         return BackupReadResult.Ok(BackupSnapshot(projects = projects, tasks = tasks))
+    }
+}
+
+/**
+ * Makes the `parentId` links safe to hand to the database.
+ *
+ * A subtask whose parent the file does not contain becomes a task of its own rather than
+ * disappearing, a chain deeper than the one level the app nests is flattened onto its root, and
+ * a task that points at itself — directly or around a cycle — is set free.
+ */
+private fun List<Task>.normalisedParents(): List<Task> {
+    if (none { it.parentId != null }) return this
+    val byId = filter { it.id > 0L }.associateBy { it.id }
+    return map { task ->
+        var parent = task.parentId?.takeIf { it > 0L }?.let(byId::get)
+        val seen = mutableSetOf(task.id)
+        while (true) {
+            val current = parent ?: break
+            if (!seen.add(current.id)) break
+            val grandParentId = current.parentId ?: break
+            parent = byId[grandParentId]
+        }
+        task.copy(parentId = parent?.id?.takeIf { it != task.id })
     }
 }
 
@@ -110,6 +136,8 @@ internal data class BackupTask(
     /** 1…4, matching [Priority.level]. */
     val priority: Int = Priority.DEFAULT.level,
     val projectId: Long? = null,
+    /** Id of the task this one is a subtask of, or null for a top-level task. */
+    val parentId: Long? = null,
     /** ISO local date, e.g. `2026-08-05`. */
     val dueDate: String? = null,
     /** ISO local time, e.g. `09:30`. */
@@ -158,6 +186,7 @@ private fun Task.toBackup() = BackupTask(
     notes = notes,
     priority = priority.level,
     projectId = projectId,
+    parentId = parentId,
     dueDate = dueDate?.toString(),
     dueTime = dueTime?.toString(),
     reminderTime = reminderTime?.toString(),
@@ -173,6 +202,7 @@ private fun BackupTask.toDomain() = Task(
     notes = notes?.takeIf { it.isNotBlank() },
     priority = Priority.fromLevel(priority),
     projectId = projectId?.takeIf { it > 0L },
+    parentId = parentId?.takeIf { it > 0L },
     dueDate = dueDate.parseOrNull { LocalDate.parse(it) },
     dueTime = dueTime.parseOrNull { LocalTime.parse(it) },
     reminderTime = reminderTime.parseOrNull { LocalTime.parse(it) },

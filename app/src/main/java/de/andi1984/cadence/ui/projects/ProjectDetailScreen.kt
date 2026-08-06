@@ -124,6 +124,7 @@ fun ProjectDetailScreen(
                         onToggle = { onToggle(task) },
                         onClick = { onTaskClick(task) },
                         overdueStyle = true,
+                        subtaskProgress = state.subtaskProgress(task.id),
                     )
                 }
             }
@@ -137,6 +138,7 @@ fun ProjectDetailScreen(
                         today = today,
                         onToggle = { onToggle(task) },
                         onClick = { onTaskClick(task) },
+                        subtaskProgress = state.subtaskProgress(task.id),
                     )
                 }
             }

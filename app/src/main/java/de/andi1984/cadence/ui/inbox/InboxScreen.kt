@@ -41,8 +41,9 @@ fun InboxScreen(
     onToggle: (Task) -> Unit,
     onTriage: () -> Unit,
 ) {
-    val inbox = state.tasks
-        .filter { it.isInbox && (state.settings.showCompleted || !it.isDone) }
+    // Root tasks only: a subtask of an Inbox task is already represented by its parent here.
+    val inbox = state.inboxTasks()
+        .filter { state.settings.showCompleted || !it.isDone }
         .sortedFor(state.settings.sortMode)
     val open = inbox.count { !it.isDone }
 
@@ -102,6 +103,7 @@ fun InboxScreen(
                     onToggle = { onToggle(task) },
                     onClick = { onTaskClick(task) },
                     showProject = false,
+                    subtaskProgress = state.subtaskProgress(task.id),
                 )
             }
         }
