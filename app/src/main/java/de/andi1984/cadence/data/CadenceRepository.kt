@@ -92,7 +92,18 @@ class CadenceRepository(
             project.id
         }
 
-    suspend fun deleteProject(id: Long) = projectDao.deleteWithChildren(id)
+    /**
+     * Removes a project and its subprojects. Their tasks either go with it or fall back to the
+     * Inbox — a project is a folder, not a container that owns the work.
+     *
+     * Returns the ids of the tasks that were deleted, so reminders for them can be cancelled —
+     * the scheduler's sync only ever sees the tasks that still exist.
+     */
+    suspend fun deleteProject(id: Long, deleteTasks: Boolean = false): List<Long> {
+        val affected = if (deleteTasks) projectDao.taskIdsIn(id) else emptyList()
+        projectDao.deleteWithChildren(id, deleteTasks)
+        return affected
+    }
 
     // ── Backup ─────────────────────────────────────────────────────────────────────
 
@@ -110,25 +121,4 @@ class CadenceRepository(
         projects = snapshot.projects.map { it.toEntity() },
         tasks = snapshot.tasks.map { it.toEntity() },
     )
-
-    /** Fills a fresh install with the sample data the design was drawn against. */
-    suspend fun seedIfEmpty() {
-        if (projectDao.count() > 0 || taskDao.count() > 0) return
-        val projectIds = mutableMapOf<String, Long>()
-        SeedData.projects().forEach { (key, project) ->
-            val parentId = project.parentKey?.let { projectIds[it] }
-            val id = projectDao.insert(
-                Project(
-                    name = project.name,
-                    colorHex = project.colorHex,
-                    parentId = parentId,
-                    sortOrder = project.sortOrder,
-                ).toEntity(),
-            )
-            projectIds[key] = id
-        }
-        taskDao.insertAll(
-            SeedData.tasks(LocalDate.now(), projectIds).map { it.toEntity() },
-        )
-    }
 }

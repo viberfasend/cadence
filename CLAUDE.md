@@ -54,7 +54,7 @@ composable state, not a route.
 ```
 domain/     pure Kotlin — model, RecurrenceEngine, QuickAddParser, BackupCodec. NO Android
             imports; this is what the JVM unit tests exercise. Keep it that way.
-data/       Room entities + DAOs, CadenceRepository, SeedData, BackupIo (SAF read/write)
+data/       Room entities + DAOs, CadenceRepository, BackupIo (SAF read/write)
 reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
 ui/         theme, shared components, one package per screen
 ```
@@ -79,7 +79,18 @@ ui/         theme, shared components, one package per screen
 - **Reminders reconcile on every task emission**: the ViewModel collects `repository.tasks` and
   calls `ReminderScheduler.sync(tasks)`, which schedules *or cancels* an alarm for every task.
   Alarms are inexact (`setWindow`) deliberately, so the app needs no exact-alarm permission.
-- **Seeding**: `seedIfEmpty()` fills a fresh install with sample data from `SeedData`.
+- **A fresh install starts empty.** There is no seeding: the first screen a new user sees is the
+  empty state, not sample content. Anything that needs a populated app (screenshots, a demo) is
+  built by importing a backup file, not by putting fixtures back into the app.
+- **Deleting a project never silently hides tasks.** `ProjectDao.deleteWithChildren` runs in one
+  transaction and either moves the affected tasks to the Inbox (`projectId = NULL`, the default)
+  or deletes them; without that, a task filed under a deleted project would keep a `projectId`
+  no project answers to and disappear from every list. The repository returns the ids of the
+  tasks it deleted so the ViewModel can cancel their alarms — `ReminderScheduler.sync` only ever
+  sees the tasks that still exist, so it cannot cancel one that is already gone.
+- **Projects nest exactly one level**, which the editor enforces rather than the model:
+  `CadenceUiState.nestingCandidates` returns nothing for a project that already has subprojects,
+  and the "Nest under" section is then left out of the dialog.
 - **Backup is a published contract, the DB is not.** `domain/backup/BackupCodec.kt` writes
   `{"format":"cadence.backup","version":1,…}` with ISO-8601 dates and recurrence as a nested
   object — deliberately *not* the packed `RecurrenceCodec` column — because a future web app

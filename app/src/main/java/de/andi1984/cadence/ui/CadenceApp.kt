@@ -181,6 +181,8 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState) {
                         onInbox = { navController.navigate(Routes.INBOX) },
                         onToday = { navController.navigate(Routes.TODAY) },
                         onCreateProject = viewModel::addProject,
+                        onEditProject = viewModel::editProject,
+                        onDeleteProject = viewModel::deleteProject,
                         onSettings = { navController.navigate(Routes.SETTINGS) },
                     )
                 }
@@ -240,11 +242,15 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState) {
                         today = today,
                         onBack = { navController.popBackStack() },
                         onTaskClick = { navController.navigate(Routes.task(it.id)) },
+                        onProjectClick = { navController.navigate(Routes.project(it.id)) },
                         onToggle = viewModel::toggleTask,
                         onAddTask = {
                             quickAddProjectId = projectId
                             quickAddOpen = true
                         },
+                        onCreateProject = viewModel::addProject,
+                        onEditProject = viewModel::editProject,
+                        onDeleteProject = viewModel::deleteProject,
                     )
                 }
             }

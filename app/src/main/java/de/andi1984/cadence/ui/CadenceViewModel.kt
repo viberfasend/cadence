@@ -47,10 +47,24 @@ data class CadenceUiState(
 
     fun overdue(today: LocalDate): List<Task> = tasks.filter { it.isOverdue(today) }
 
+    /** The subprojects filed under a project — nesting is one level, so these have none. */
+    fun subprojects(projectId: Long): List<Project> =
+        projects.filter { it.parentId == projectId }.sortedBy { it.sortOrder }
+
     /** Tasks in a project, including everything filed under its subprojects. */
     fun tasksIn(projectId: Long): List<Task> {
-        val childIds = projects.filter { it.parentId == projectId }.map { it.id }.toSet()
+        val childIds = subprojects(projectId).map { it.id }.toSet()
         return tasks.filter { it.projectId == projectId || it.projectId in childIds }
+    }
+
+    /**
+     * The projects a project may be nested under: every top-level one except itself, and only
+     * while it has no subprojects of its own.
+     */
+    fun nestingCandidates(project: Project?): List<Project> {
+        if (project != null && subprojects(project.id).isNotEmpty()) return emptyList()
+        return projects.filter { it.parentId == null && it.id != project?.id }
+            .sortedBy { it.sortOrder }
     }
 }
 
@@ -150,8 +164,36 @@ class CadenceViewModel(
         )
     }
 
-    fun deleteProject(project: Project) = viewModelScope.launch {
-        repository.deleteProject(project.id)
+    /**
+     * Renames, recolours or re-files an existing project. Moving it to a new parent puts it last
+     * among that parent's children, the same place a freshly created one would land.
+     */
+    fun editProject(project: Project, name: String, colorHex: String, parentId: Long?) =
+        viewModelScope.launch {
+            if (name.isBlank()) return@launch
+            val moved = parentId != project.parentId
+            val order = if (moved) {
+                state.value.projects.count { it.parentId == parentId && it.id != project.id }
+            } else {
+                project.sortOrder
+            }
+            repository.upsertProject(
+                project.copy(
+                    name = name.trim(),
+                    colorHex = colorHex,
+                    parentId = parentId,
+                    sortOrder = order,
+                ),
+            )
+        }
+
+    /**
+     * Deletes a project and its subprojects. [deleteTasks] decides whether the work goes with it
+     * or falls back to the Inbox.
+     */
+    fun deleteProject(project: Project, deleteTasks: Boolean = false) = viewModelScope.launch {
+        repository.deleteProject(project.id, deleteTasks)
+            .forEach { taskId -> reminderScheduler.cancel(taskId) }
     }
 
     // ── Settings ───────────────────────────────────────────────────────────────────

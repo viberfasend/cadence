@@ -17,6 +17,8 @@
     <string name="action_more">Mehr</string>
     <string name="action_cancel">Abbrechen</string>
     <string name="action_create">Erstellen</string>
+    <string name="action_save">Speichern</string>
+    <string name="action_delete">Löschen</string>
     <string name="action_set">Übernehmen</string>
     <string name="action_clear">Löschen</string>
     <string name="action_expand">Aufklappen</string>
@@ -153,7 +155,14 @@
     <string name="projects_title">Projekte</string>
     <string name="projects_section">Projekte</string>
     <string name="projects_new">Neues Projekt</string>
+    <string name="projects_new_subproject">Neues Unterprojekt</string>
+    <string name="projects_edit">Projekt bearbeiten</string>
+    <string name="projects_delete">Projekt löschen</string>
+    <!-- Beschreibung des Menüknopfs in einer Projektzeile; %1$s ist der Projektname. -->
+    <string name="projects_actions">Aktionen für %1$s</string>
     <string name="projects_quick_recurring">Wiederkehrend</string>
+    <string name="projects_empty_title">Noch keine Projekte</string>
+    <string name="projects_empty_supporting">Projekte bündeln, was zusammengehört. Alles, was du ohne Projekt erfasst, wartet im Eingang.</string>
     <plurals name="projects_subproject_count">
         <item quantity="one">%1$d Unterprojekt</item>
         <item quantity="other">%1$d Unterprojekte</item>
@@ -164,12 +173,40 @@
         <item quantity="other">%1$d überfällig</item>
     </plurals>
     <string name="projects_dialog_name">Name</string>
+    <string name="projects_dialog_color">Farbe</string>
     <string name="projects_dialog_nest_under">Einordnen unter</string>
     <string name="projects_dialog_top_level">Oberste Ebene</string>
+    <!-- Namen der Farbtupfer, damit die Auswahl nie allein über Farbe läuft. -->
+    <string name="projects_color_teal">Petrol</string>
+    <string name="projects_color_slate">Schiefer</string>
+    <string name="projects_color_amber">Bernstein</string>
+    <string name="projects_color_plum">Pflaume</string>
+    <string name="projects_color_sage">Salbei</string>
+    <string name="projects_color_red">Rot</string>
+    <!-- Löschbestätigung; %1$s ist der Projektname. -->
+    <string name="projects_delete_confirm_title">„%1$s“ löschen?</string>
+    <string name="projects_delete_no_tasks">Das Projekt ist leer.</string>
+    <plurals name="projects_delete_includes_subprojects">
+        <item quantity="one">Das Unterprojekt wird mitgelöscht.</item>
+        <item quantity="other">Die %1$d Unterprojekte werden mitgelöscht.</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_toggle">
+        <item quantity="one">Die Aufgabe ebenfalls löschen</item>
+        <item quantity="other">Die %1$d Aufgaben ebenfalls löschen</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_kept">
+        <item quantity="one">Die Aufgabe wandert in den Eingang.</item>
+        <item quantity="other">%1$d Aufgaben wandern in den Eingang.</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_gone">
+        <item quantity="one">Die Aufgabe wird endgültig gelöscht.</item>
+        <item quantity="other">%1$d Aufgaben werden endgültig gelöscht.</item>
+    </plurals>
     <string name="project_not_found_title">Projekt nicht gefunden</string>
     <string name="project_add_task">Aufgabe zum Projekt hinzufügen</string>
     <string name="project_empty_title">Noch keine Aufgaben</string>
     <string name="project_empty_supporting">Mit dem +-Knopf legst du eine direkt in %1$s an.</string>
+    <string name="project_section_subprojects">Unterprojekte</string>
     <string name="project_section_overdue">Überfällig</string>
     <string name="project_section_all">Alle Aufgaben</string>
 

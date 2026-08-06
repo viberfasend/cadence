@@ -17,6 +17,8 @@
     <string name="action_more">More</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_create">Create</string>
+    <string name="action_save">Save</string>
+    <string name="action_delete">Delete</string>
     <string name="action_set">Set</string>
     <string name="action_clear">Clear</string>
     <string name="action_expand">Expand</string>
@@ -164,7 +166,14 @@
     <string name="projects_title">Projects</string>
     <string name="projects_section">Projects</string>
     <string name="projects_new">New project</string>
+    <string name="projects_new_subproject">New subproject</string>
+    <string name="projects_edit">Edit project</string>
+    <string name="projects_delete">Delete project</string>
+    <!-- Content description of a project row's overflow button; %1$s is the project name. -->
+    <string name="projects_actions">Actions for %1$s</string>
     <string name="projects_quick_recurring">Recurring</string>
+    <string name="projects_empty_title">No projects yet</string>
+    <string name="projects_empty_supporting">Projects group work that belongs together. Anything you capture without one waits in the Inbox.</string>
     <plurals name="projects_subproject_count">
         <item quantity="one">%1$d subproject</item>
         <item quantity="other">%1$d subprojects</item>
@@ -175,12 +184,40 @@
         <item quantity="other">%1$d overdue</item>
     </plurals>
     <string name="projects_dialog_name">Name</string>
+    <string name="projects_dialog_color">Colour</string>
     <string name="projects_dialog_nest_under">Nest under</string>
     <string name="projects_dialog_top_level">Top level</string>
+    <!-- Swatch names, so the colour choice is never announced as colour alone. -->
+    <string name="projects_color_teal">Teal</string>
+    <string name="projects_color_slate">Slate</string>
+    <string name="projects_color_amber">Amber</string>
+    <string name="projects_color_plum">Plum</string>
+    <string name="projects_color_sage">Sage</string>
+    <string name="projects_color_red">Red</string>
+    <!-- Delete confirmation; %1$s is the project name. -->
+    <string name="projects_delete_confirm_title">Delete “%1$s”?</string>
+    <string name="projects_delete_no_tasks">The project is empty.</string>
+    <plurals name="projects_delete_includes_subprojects">
+        <item quantity="one">Its subproject goes with it.</item>
+        <item quantity="other">Its %1$d subprojects go with it.</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_toggle">
+        <item quantity="one">Delete its task as well</item>
+        <item quantity="other">Delete its %1$d tasks as well</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_kept">
+        <item quantity="one">The task moves to the Inbox.</item>
+        <item quantity="other">%1$d tasks move to the Inbox.</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_gone">
+        <item quantity="one">The task is deleted for good.</item>
+        <item quantity="other">%1$d tasks are deleted for good.</item>
+    </plurals>
     <string name="project_not_found_title">Project not found</string>
     <string name="project_add_task">Add task to project</string>
     <string name="project_empty_title">No tasks here yet</string>
     <string name="project_empty_supporting">Use the + button to add one straight to %1$s.</string>
+    <string name="project_section_subprojects">Subprojects</string>
     <string name="project_section_overdue">Overdue</string>
     <string name="project_section_all">All tasks</string>
 

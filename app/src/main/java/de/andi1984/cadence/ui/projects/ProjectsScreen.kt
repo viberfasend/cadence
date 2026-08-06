@@ -1,7 +1,6 @@
 package de.andi1984.cadence.ui.projects
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,26 +15,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -45,14 +42,11 @@ import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.toTree
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
+import de.andi1984.cadence.ui.components.EmptyState
 import de.andi1984.cadence.ui.components.ProjectSwatch
+import de.andi1984.cadence.ui.components.ScreenHeader
 import de.andi1984.cadence.ui.components.SectionHeader
-import de.andi1984.cadence.ui.components.parseColor
 import java.time.LocalDate
-
-private val PROJECT_COLORS = listOf(
-    "#006A60", "#3E6373", "#A1560A", "#7D5260", "#6F7976", "#BA1A1A",
-)
 
 @Composable
 fun ProjectsScreen(
@@ -62,21 +56,21 @@ fun ProjectsScreen(
     onInbox: () -> Unit,
     onToday: () -> Unit,
     onCreateProject: (String, String, Long?) -> Unit,
+    onEditProject: (Project, String, String, Long?) -> Unit,
+    onDeleteProject: (Project, Boolean) -> Unit,
     onSettings: () -> Unit,
 ) {
     val tree = state.projects.toTree()
-    var createOpen by remember { mutableStateOf(false) }
-    val collapsed = remember { androidx.compose.runtime.mutableStateMapOf<Long, Boolean>() }
+    var dialog by remember { mutableStateOf<ProjectDialogState?>(null) }
+    val collapsed = remember { mutableStateMapOf<Long, Boolean>() }
 
     val inboxCount = state.tasks.count { it.isInbox && !it.isDone }
     val todayCount = state.tasks.count { !it.isDone && it.dueDate != null && !it.dueDate.isAfter(today) }
     val recurringCount = state.tasks.count { !it.isDone && it.recurrence != null }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        de.andi1984.cadence.ui.components.ScreenHeader(
-            title = stringResource(R.string.projects_title),
-        ) {
-            IconButton(onClick = { createOpen = true }) {
+        ScreenHeader(title = stringResource(R.string.projects_title)) {
+            IconButton(onClick = { dialog = ProjectDialogState.Create(parentId = null) }) {
                 Icon(
                     AppIcons.CreateNewFolder,
                     contentDescription = stringResource(R.string.projects_new),
@@ -127,6 +121,24 @@ fun ProjectsScreen(
                 )
             }
 
+            if (tree.isEmpty()) {
+                item {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        EmptyState(
+                            title = stringResource(R.string.projects_empty_title),
+                            supporting = stringResource(R.string.projects_empty_supporting),
+                        )
+                        TextButton(
+                            onClick = { dialog = ProjectDialogState.Create(parentId = null) },
+                        ) {
+                            Icon(AppIcons.CreateNewFolder, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.projects_new))
+                        }
+                    }
+                }
+            }
+
             tree.forEach { node ->
                 val isCollapsed = collapsed[node.project.id] == true
                 item(key = "p-${node.project.id}") {
@@ -139,6 +151,18 @@ fun ProjectsScreen(
                         collapsed = isCollapsed,
                         onToggleExpand = { collapsed[node.project.id] = !isCollapsed },
                         onClick = { onProjectClick(node.project) },
+                        menu = {
+                            ProjectMenu(
+                                project = node.project,
+                                canAddSubproject = true,
+                                onEdit = { dialog = ProjectDialogState.Edit(node.project) },
+                                onAddSubproject = {
+                                    collapsed[node.project.id] = false
+                                    dialog = ProjectDialogState.Create(parentId = node.project.id)
+                                },
+                                onDelete = { dialog = ProjectDialogState.Delete(node.project) },
+                            )
+                        },
                     )
                 }
                 if (!isCollapsed) {
@@ -150,6 +174,15 @@ fun ProjectsScreen(
                             count = childTasks.count { !it.isDone },
                             overdue = childTasks.count { it.isOverdue(today) },
                             onClick = { onProjectClick(child) },
+                            menu = {
+                                ProjectMenu(
+                                    project = child,
+                                    canAddSubproject = false,
+                                    onEdit = { dialog = ProjectDialogState.Edit(child) },
+                                    onAddSubproject = {},
+                                    onDelete = { dialog = ProjectDialogState.Delete(child) },
+                                )
+                            },
                         )
                     }
                 }
@@ -157,16 +190,14 @@ fun ProjectsScreen(
         }
     }
 
-    if (createOpen) {
-        NewProjectDialog(
-            roots = state.projects.filter { it.parentId == null },
-            onDismiss = { createOpen = false },
-            onCreate = { name, color, parentId ->
-                onCreateProject(name, color, parentId)
-                createOpen = false
-            },
-        )
-    }
+    ProjectDialogs(
+        dialog = dialog,
+        state = state,
+        onDismiss = { dialog = null },
+        onCreateProject = onCreateProject,
+        onEditProject = onEditProject,
+        onDeleteProject = onDeleteProject,
+    )
 }
 
 private fun dueThisWeek(state: CadenceUiState, projectId: Long, today: LocalDate): Int =
@@ -201,7 +232,7 @@ private fun QuickRow(
             .fillMaxWidth()
             .height(56.dp)
             .clip(RoundedCornerShape(28.dp))
-            .background(if (highlighted) scheme.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent)
+            .background(if (highlighted) scheme.secondaryContainer else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -236,15 +267,14 @@ private fun ProjectRow(
     collapsed: Boolean,
     onToggleExpand: () -> Unit,
     onClick: () -> Unit,
+    menu: @Composable () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(60.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
-            .padding(end = 12.dp),
+            .clip(RoundedCornerShape(16.dp)),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -268,33 +298,44 @@ private fun ProjectRow(
                 )
             }
         }
-        ProjectSwatch(colorHex = project.colorHex, size = 12)
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = project.name,
-                style = MaterialTheme.typography.bodyLarge,
-                color = scheme.onSurface,
-            )
-            if (subtitle != null) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .height(60.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .clickable(onClick = onClick),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ProjectSwatch(colorHex = project.colorHex, size = 12)
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = subtitle,
+                    text = project.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = scheme.onSurface,
+                )
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (overdue > 0) {
+                Text(
+                    text = pluralStringResource(R.plurals.projects_overdue_count, overdue, overdue),
                     style = MaterialTheme.typography.bodySmall,
-                    color = scheme.onSurfaceVariant,
+                    color = scheme.error,
                 )
             }
-        }
-        if (overdue > 0) {
             Text(
-                text = pluralStringResource(R.plurals.projects_overdue_count, overdue, overdue),
-                style = MaterialTheme.typography.bodySmall,
-                color = scheme.error,
+                text = "$count",
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant,
             )
         }
-        Text(
-            text = "$count",
-            style = MaterialTheme.typography.bodyMedium,
-            color = scheme.onSurfaceVariant,
-        )
+        menu()
     }
 }
 
@@ -304,6 +345,7 @@ private fun SubprojectRow(
     count: Int,
     overdue: Int,
     onClick: () -> Unit,
+    menu: @Composable () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     Row(
@@ -354,84 +396,6 @@ private fun SubprojectRow(
                 color = scheme.onSurfaceVariant,
             )
         }
+        menu()
     }
-}
-
-@Composable
-private fun NewProjectDialog(
-    roots: List<Project>,
-    onDismiss: () -> Unit,
-    onCreate: (String, String, Long?) -> Unit,
-) {
-    var name by remember { mutableStateOf("") }
-    var color by remember { mutableStateOf(PROJECT_COLORS.first()) }
-    var parentId by remember { mutableStateOf<Long?>(null) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.projects_new)) },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text(stringResource(R.string.projects_dialog_name)) },
-                    singleLine = true,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PROJECT_COLORS.forEach { option ->
-                        Spacer(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(parseColor(option))
-                                .then(
-                                    if (option == color) {
-                                        Modifier.border(
-                                            2.dp,
-                                            MaterialTheme.colorScheme.onSurface,
-                                            CircleShape,
-                                        )
-                                    } else {
-                                        Modifier
-                                    },
-                                )
-                                .clickable { color = option },
-                        )
-                    }
-                }
-                Text(
-                    text = stringResource(R.string.projects_dialog_nest_under),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    de.andi1984.cadence.ui.components.CadenceChip(
-                        label = stringResource(R.string.projects_dialog_top_level),
-                        selected = parentId == null,
-                        onClick = { parentId = null },
-                    )
-                }
-                roots.forEach { root ->
-                    de.andi1984.cadence.ui.components.CadenceChip(
-                        label = root.name,
-                        selected = parentId == root.id,
-                        onClick = { parentId = root.id },
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onCreate(name, color, parentId) },
-                enabled = name.isNotBlank(),
-            ) { Text(stringResource(R.string.action_create)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
-        },
-    )
 }
