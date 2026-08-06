@@ -50,7 +50,7 @@ import de.andi1984.cadence.ui.components.SectionHeader
 import de.andi1984.cadence.ui.components.parseColor
 import java.time.LocalDate
 
-private val PROJECT_COLORS = listOf(
+private val PROJECT_COLOR_OPTIONS = listOf(
     "#006A60", "#3E6373", "#A1560A", "#7D5260", "#6F7976", "#BA1A1A",
 )
 
@@ -364,7 +364,7 @@ private fun NewProjectDialog(
     onCreate: (String, String, Long?) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
-    var color by remember { mutableStateOf(PROJECT_COLORS.first()) }
+    var color by remember { mutableStateOf(PROJECT_COLOR_OPTIONS.first()) }
     var parentId by remember { mutableStateOf<Long?>(null) }
 
     AlertDialog(
@@ -382,7 +382,7 @@ private fun NewProjectDialog(
                     singleLine = true,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PROJECT_COLORS.forEach { option ->
+                    PROJECT_COLOR_OPTIONS.forEach { option ->
                         Spacer(
                             modifier = Modifier
                                 .size(28.dp)
