@@ -15,6 +15,19 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
+/** Maximum number of subtasks allowed per parent task. */
+const val MAX_SUBTASKS_PER_PARENT = 100
+
+/** Maximum depth of project nesting allowed. */
+const val MAX_PROJECT_NESTING_DEPTH = 5
+
+/** Result of a repository operation that can fail. */
+sealed class RepositoryResult<out T> {
+    data class Success<T>(val data: T) : RepositoryResult<T>()
+    data class Error(val message: String, val cause: Throwable? = null) : RepositoryResult<Nothing>()
+    object ValidationError : RepositoryResult<Nothing>()
+}
+
 class CadenceRepository(
     private val taskDao: TaskDao,
     private val projectDao: ProjectDao,
@@ -53,19 +66,38 @@ class CadenceRepository(
      * Nesting stays one level deep: adding a subtask while looking at a subtask files the new
      * one next to it, under the same task, rather than starting a third level.
      */
-    suspend fun addSubtask(parent: Task, title: String): Long {
+    suspend fun addSubtask(parent: Task, title: String): RepositoryResult<Long> {
         val trimmed = title.trim()
-        if (trimmed.isEmpty()) return 0L
+        if (trimmed.isEmpty()) {
+            return RepositoryResult.ValidationError
+        }
+        
+        // Prevent circular references - a task cannot be its own parent
         val parentId = parent.parentId ?: parent.id
-        return taskDao.insert(
-            Task(
-                title = trimmed,
-                projectId = parent.projectId,
-                parentId = parentId,
-                createdAt = Instant.now(),
-                sortOrder = taskDao.subtasksOf(parentId).size,
-            ).toEntity(),
-        )
+        if (parentId == parent.id) {
+            return RepositoryResult.Error("Cannot create circular reference: task cannot be its own parent")
+        }
+        
+        // Check if we would exceed the maximum subtask limit
+        val currentSubtaskCount = taskDao.subtasksOf(parentId).size
+        if (currentSubtaskCount >= MAX_SUBTASKS_PER_PARENT) {
+            return RepositoryResult.Error("Maximum subtask limit ($MAX_SUBTASKS_PER_PARENT) reached for this parent")
+        }
+        
+        return try {
+            val newTaskId = taskDao.insert(
+                Task(
+                    title = trimmed,
+                    projectId = parent.projectId,
+                    parentId = parentId,
+                    createdAt = Instant.now(),
+                    sortOrder = currentSubtaskCount,
+                ).toEntity(),
+            )
+            RepositoryResult.Success(newTaskId)
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to add subtask", e)
+        }
     }
 
     /** A task and its steps live in the same project, so moving one moves the whole checklist. */
@@ -136,13 +168,74 @@ class CadenceRepository(
             .forEach { taskDao.update(it.copy(dueDate = today).toEntity()) }
     }
 
-    suspend fun upsertProject(project: Project): Long =
-        if (project.id == 0L) {
-            projectDao.insert(project.toEntity())
-        } else {
-            projectDao.update(project.toEntity())
-            project.id
+    /**
+     * Validates and upserts a project, checking for circular references and maximum nesting depth.
+     */
+    suspend fun upsertProject(project: Project): RepositoryResult<Long> {
+        // Validate project name
+        if (project.name.isBlank()) {
+            return RepositoryResult.ValidationError
         }
+        
+        // Validate nesting depth
+        if (project.parentId != null) {
+            val nestingDepth = getProjectNestingDepth(project.parentId)
+            if (nestingDepth >= MAX_PROJECT_NESTING_DEPTH) {
+                return RepositoryResult.Error("Maximum project nesting depth ($MAX_PROJECT_NESTING_DEPTH) reached")
+            }
+            
+            // Prevent circular references
+            if (wouldCreateCircularReference(project.id, project.parentId)) {
+                return RepositoryResult.Error("Cannot create circular reference: project cannot be its own ancestor")
+            }
+        }
+        
+        return try {
+            val id = if (project.id == 0L) {
+                projectDao.insert(project.toEntity())
+            } else {
+                projectDao.update(project.toEntity())
+                project.id
+            }
+            RepositoryResult.Success(id)
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to save project", e)
+        }
+    }
+
+    /**
+     * Calculates the nesting depth of a project by counting how many levels deep it is.
+     */
+    private suspend fun getProjectNestingDepth(projectId: Long): Int {
+        var depth = 0
+        var currentId: Long? = projectId
+        
+        while (currentId != null && currentId != 0L) {
+            val project = projectDao.getAll().firstOrNull { it.id == currentId } ?: break
+            currentId = project.parentId
+            depth++
+        }
+        
+        return depth
+    }
+
+    /**
+     * Checks if setting parentId for a project would create a circular reference.
+     */
+    private suspend fun wouldCreateCircularReference(projectId: Long, newParentId: Long?): Boolean {
+        if (newParentId == null || newParentId == 0L) return false
+        
+        var currentId: Long? = newParentId
+        while (currentId != null && currentId != 0L) {
+            if (currentId == projectId) {
+                return true // Circular reference detected
+            }
+            val project = projectDao.getAll().firstOrNull { it.id == currentId } ?: break
+            currentId = project.parentId
+        }
+        
+        return false
+    }
 
     suspend fun deleteProject(id: Long) = projectDao.deleteWithChildren(id)
 
