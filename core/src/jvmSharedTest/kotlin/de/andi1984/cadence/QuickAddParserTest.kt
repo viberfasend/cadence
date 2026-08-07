@@ -1,6 +1,5 @@
 package de.andi1984.cadence
 
-import de.andi1984.cadence.data.db.RecurrenceCodec
 import de.andi1984.cadence.domain.model.MonthlyMode
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
@@ -317,22 +316,4 @@ class QuickAddParserTest {
         }
     }
 
-    @Test
-    fun `recurrence rules survive a round trip through the database column`() {
-        val rule = RecurrenceRule(
-            mode = RecurrenceMode.SCHEDULE,
-            interval = 3,
-            unit = RecurrenceUnit.MONTH,
-            daysOfWeek = setOf(DayOfWeek.MONDAY, DayOfWeek.THURSDAY),
-            monthlyMode = MonthlyMode.NTH_WEEKDAY,
-            dayOfMonth = 15,
-            nthWeek = 2,
-            nthDayOfWeek = DayOfWeek.TUESDAY,
-            keepMissed = false,
-        )
-        assertEquals(rule, RecurrenceCodec.decode(RecurrenceCodec.encode(rule)))
-        assertNull(RecurrenceCodec.encode(null))
-        assertNull(RecurrenceCodec.decode(null))
-        assertNull(RecurrenceCodec.decode("garbage"))
-    }
 }

@@ -269,10 +269,12 @@ fun TaskDetailScreen(
                     title = task.dueDate
                         ?.let { stringResource(R.string.task_due, relativeDate(it, today)) }
                         ?: stringResource(R.string.task_no_due_date),
-                    supporting = when {
-                        task.dueDate == null -> stringResource(R.string.task_tap_to_schedule)
-                        overdue -> overdueByDays(task.dueDate, today)
-                        else -> formatDate(task.dueDate)
+                    supporting = task.dueDate.let { dueDate ->
+                        when {
+                            dueDate == null -> stringResource(R.string.task_tap_to_schedule)
+                            overdue -> overdueByDays(dueDate, today)
+                            else -> formatDate(dueDate)
+                        }
                     },
                     supportingColor = if (overdue) scheme.error else scheme.onSurfaceVariant,
                     trailingIcon = AppIcons.EditCalendar,

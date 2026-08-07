@@ -207,8 +207,9 @@ class CadenceRepository(
         }
         
         // Validate nesting depth
-        if (project.parentId != null) {
-            val nestingDepth = getProjectNestingDepth(project.parentId)
+        val parentId = project.parentId
+        if (parentId != null) {
+            val nestingDepth = getProjectNestingDepth(parentId)
             if (nestingDepth >= MAX_PROJECT_NESTING_DEPTH) {
                 return RepositoryResult.Error("Maximum project nesting depth ($MAX_PROJECT_NESTING_DEPTH) reached")
             }

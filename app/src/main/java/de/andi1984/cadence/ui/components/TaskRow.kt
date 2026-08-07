@@ -288,6 +288,7 @@ private fun DueChip(task: Task, today: LocalDate, overdue: Boolean) {
     val tint = if (overdue) cadenceColors.overdueAccent else scheme.onSurfaceVariant
 
     val due = task.dueDate
+    val dueTime = task.dueTime
     val recurrenceText = task.recurrence?.let { describeRecurrence(it) }
 
     // The third value is what the icon says out loud: it is decorative wherever the label
@@ -295,8 +296,8 @@ private fun DueChip(task: Task, today: LocalDate, overdue: Boolean) {
     // "this repeats".
     val (icon, label, spokenIcon) = when {
         overdue && due != null -> Triple(AppIcons.EventBusy, relativeDate(due, today), null)
-        due == today && task.dueTime != null ->
-            Triple(AppIcons.Schedule, formatTime(task.dueTime), null)
+        due == today && dueTime != null ->
+            Triple(AppIcons.Schedule, formatTime(dueTime), null)
         // A dated occurrence says *when* it is due, even though it repeats: the repeat icon
         // carries the "it comes back" half. Without the date two occurrences of the same task
         // read identically, which is how a duplicate used to hide in plain sight.
