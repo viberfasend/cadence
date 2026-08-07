@@ -200,5 +200,16 @@ release is published with `make_latest`. Branch and PR runs only upload APK arti
 version they print is a preview of what merging would publish. Debug and release use different
 application IDs (`.debug` suffix) and install side by side.
 
-Release signing is optional: the four `CADENCE_*` env vars/secrets enable it, otherwise the
-release build is signed with the debug key (see the comment block in `app/build.gradle.kts`).
+**The debug key is committed (`app/debug.keystore`) and must stay that way.** Android installs a
+build over an existing app only when both carry the same signing certificate, and AGP invents a
+fresh `~/.android/debug.keystore` wherever none exists — on a CI runner, that is every single
+run. Releases up to v1.1.2 therefore each had their own key and could not update one another;
+the phone just said "App not installed". Pinning the key is the fix, so don't move it back
+behind `.gitignore` or let the debug `signingConfig` fall back to AGP's default.
+`.github/scripts/check-signing.sh` runs in CI and fails the build if the debug APK's certificate
+stops matching the committed keystore.
+
+Release signing is optional on top of that: the four `CADENCE_*` env vars/secrets enable it,
+otherwise the release build is signed with the debug key too (see the comment block in
+`app/build.gradle.kts`) — which means an APK anyone can forge, acceptable only because the app
+ships as a GitHub link rather than through a store.

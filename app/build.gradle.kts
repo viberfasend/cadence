@@ -7,9 +7,24 @@ plugins {
 }
 
 /**
+ * Android refuses to install a build over an app signed by a different key — the installer
+ * just says "App not installed" — so the signing key has to be the *same* one every release,
+ * not merely a valid one.
+ *
+ * That is why `debug.keystore` is committed next to this file instead of being left to the
+ * Android Gradle plugin. AGP auto-creates `~/.android/debug.keystore` when none exists, with a
+ * fresh random key pair, and a CI runner starts with an empty home directory: every build got
+ * its own key, so no release could ever update the one before it. Checking the key in is what
+ * pins it. It carries the standard debug identity and password and is deliberately public —
+ * a debug key authenticates nothing.
+ */
+val debugKeystore = file("debug.keystore")
+
+/**
  * Release signing is optional. When the four CADENCE_* environment variables are present
  * (CI with secrets configured) the release build is signed with that key; otherwise it
- * falls back to the debug key so `assembleRelease` still produces an installable APK.
+ * falls back to the debug key so `assembleRelease` still produces an installable APK — which
+ * also means an unsigned-by-secret release build is only as private as the committed key.
  */
 val releaseKeystorePath: String? = System.getenv("CADENCE_KEYSTORE")
 val hasReleaseKeystore = !releaseKeystorePath.isNullOrBlank() && file(releaseKeystorePath).exists()
@@ -37,6 +52,16 @@ android {
     }
 
     signingConfigs {
+        getByName("debug") {
+            // Only override AGP's default when the key is actually there, so a stripped
+            // checkout still builds rather than failing on a missing file.
+            if (debugKeystore.exists()) {
+                storeFile = debugKeystore
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         if (hasReleaseKeystore) {
             create("release") {
                 storeFile = file(releaseKeystorePath!!)

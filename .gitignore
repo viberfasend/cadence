@@ -9,5 +9,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+# Release keys stay out of the repository — they arrive through the CADENCE_* secrets.
 *.keystore
 *.jks
+# …but the debug key is checked in on purpose: it is what makes one build installable
+# over the last one. See the signing comment in app/build.gradle.kts.
+!/app/debug.keystore
