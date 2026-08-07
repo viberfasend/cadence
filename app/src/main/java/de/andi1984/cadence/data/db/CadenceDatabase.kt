@@ -72,9 +72,23 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+/**
+ * Recurrence chain: `tasks.spawnedFromId` names the occurrence whose completion inserted a row.
+ *
+ * Added with `ALTER TABLE`, and without a `REFERENCES` clause on purpose — a self-referencing
+ * foreign key here would have to be matched exactly by the schema Room validates on open, and the
+ * link is allowed to go stale anyway.
+ */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE tasks ADD COLUMN spawnedFromId INTEGER")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_tasks_spawned_from ON tasks(spawnedFromId)")
+    }
+}
+
 @Database(
     entities = [TaskEntity::class, ProjectEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class CadenceDatabase : RoomDatabase() {
@@ -97,7 +111,7 @@ abstract class CadenceDatabase : RoomDatabase() {
             )
                 // Real migrations, no destructive fallback: an upgrade must not empty the app.
                 // Every future entity change needs its own Migration here.
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
                 .also { instance = it }
         }

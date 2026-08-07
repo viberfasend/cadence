@@ -39,6 +39,7 @@ data class ProjectEntity(
     indices = [
         Index(value = ["projectId"], name = "idx_tasks_project"),
         Index(value = ["parentId"], name = "idx_tasks_parent"),
+        Index(value = ["spawnedFromId"], name = "idx_tasks_spawned_from"),
         Index(value = ["dueDate"], name = "idx_tasks_due"),
         Index(value = ["completedAt"], name = "idx_tasks_completed"),
         Index(value = ["sortOrder"], name = "idx_tasks_sort"),
@@ -66,6 +67,14 @@ data class TaskEntity(
     val projectId: Long? = null,
     /** Id of the task this one is a step of, or null for a top-level task. */
     val parentId: Long? = null,
+    /**
+     * Id of the occurrence whose completion inserted this row.
+     *
+     * Deliberately not a foreign key: the row it names may be deleted long before this one, and
+     * a link that has gone stale is harmless — ids are never reused (`AUTOINCREMENT`), so it can
+     * only ever fail to match.
+     */
+    val spawnedFromId: Long? = null,
     /** Epoch day, or null for "no due date". */
     val dueDate: Long? = null,
     /** Second of day, or null when the task is due on a day but not at a time. */
@@ -101,6 +110,7 @@ fun TaskEntity.toDomain(): Task = Task(
     priority = Priority.fromLevel(priority),
     projectId = projectId,
     parentId = parentId,
+    spawnedFromId = spawnedFromId,
     dueDate = dueDate?.let { LocalDate.ofEpochDay(it) },
     dueTime = dueTime?.let { LocalTime.ofSecondOfDay(it.toLong()) },
     reminderTime = reminderTime?.let { LocalTime.ofSecondOfDay(it.toLong()) },
@@ -117,6 +127,7 @@ fun Task.toEntity(): TaskEntity = TaskEntity(
     priority = priority.level,
     projectId = projectId,
     parentId = parentId,
+    spawnedFromId = spawnedFromId,
     dueDate = dueDate?.toEpochDay(),
     dueTime = dueTime?.toSecondOfDay(),
     reminderTime = reminderTime?.toSecondOfDay(),

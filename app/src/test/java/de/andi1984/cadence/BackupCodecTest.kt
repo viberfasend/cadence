@@ -109,6 +109,25 @@ class BackupCodecTest {
     }
 
     @Test
+    fun `a recurrence chain keeps its links across a round trip`() {
+        val finished = task.copy(id = 40L, projectId = null)
+        val next = task.copy(id = 41L, projectId = null, completedAt = null, spawnedFromId = 40L)
+
+        val restored = roundTrip(BackupSnapshot(tasks = listOf(finished, next)))
+
+        assertEquals(listOf(null, 40L), restored.tasks.map { it.spawnedFromId })
+    }
+
+    @Test
+    fun `a recurrence link to an occurrence the file lacks is dropped`() {
+        val orphan = task.copy(projectId = null, spawnedFromId = 404L)
+
+        val restored = roundTrip(BackupSnapshot(tasks = listOf(orphan)))
+
+        assertNull(restored.tasks.single().spawnedFromId)
+    }
+
+    @Test
     fun `projects without a usable id and tasks without a title are dropped`() {
         val json = """
             {

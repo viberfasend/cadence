@@ -70,9 +70,9 @@ object BackupCodec {
         // a project needs a real id (tasks reference it) and a task needs a title.
         val projects = document.projects.filter { it.id > 0L }.map { it.toDomain() }
         val knownProjects = projects.map { it.id }.toSet()
-        val tasks = document.tasks
-            .filter { it.title.isNotBlank() }
-            .map { it.toDomain() }
+        val decoded = document.tasks.filter { it.title.isNotBlank() }.map { it.toDomain() }
+        val knownTasks = decoded.mapTo(mutableSetOf()) { it.id }
+        val tasks = decoded
             .map { task ->
                 // A task pointing at a project that is not in the file lands in the Inbox
                 // instead of becoming invisible.
@@ -81,6 +81,12 @@ object BackupCodec {
                 } else {
                     task
                 }
+            }
+            .map { task ->
+                // A recurrence link is only ever read as "does this row replace that one", so a
+                // link to an occurrence the file does not contain is simply dropped.
+                val replaces = task.spawnedFromId?.takeIf { it != task.id && it in knownTasks }
+                if (replaces != task.spawnedFromId) task.copy(spawnedFromId = replaces) else task
             }
             .normalisedParents()
         return BackupReadResult.Ok(BackupSnapshot(projects = projects, tasks = tasks))
@@ -138,6 +144,8 @@ internal data class BackupTask(
     val projectId: Long? = null,
     /** Id of the task this one is a subtask of, or null for a top-level task. */
     val parentId: Long? = null,
+    /** Id of the recurring occurrence this row replaces, or null. */
+    val spawnedFromId: Long? = null,
     /** ISO local date, e.g. `2026-08-05`. */
     val dueDate: String? = null,
     /** ISO local time, e.g. `09:30`. */
@@ -187,6 +195,7 @@ private fun Task.toBackup() = BackupTask(
     priority = priority.level,
     projectId = projectId,
     parentId = parentId,
+    spawnedFromId = spawnedFromId,
     dueDate = dueDate?.toString(),
     dueTime = dueTime?.toString(),
     reminderTime = reminderTime?.toString(),
@@ -203,6 +212,7 @@ private fun BackupTask.toDomain() = Task(
     priority = Priority.fromLevel(priority),
     projectId = projectId?.takeIf { it > 0L },
     parentId = parentId?.takeIf { it > 0L },
+    spawnedFromId = spawnedFromId?.takeIf { it > 0L },
     dueDate = dueDate.parseOrNull { LocalDate.parse(it) },
     dueTime = dueTime.parseOrNull { LocalTime.parse(it) },
     reminderTime = reminderTime.parseOrNull { LocalTime.parse(it) },

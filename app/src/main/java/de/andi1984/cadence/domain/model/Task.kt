@@ -17,6 +17,15 @@ data class Task(
      * checklist stays a checklist instead of turning into a second project tree.
      */
     val parentId: Long? = null,
+    /**
+     * The occurrence whose completion inserted this row, for a recurring task.
+     *
+     * Recurrence is a chain of rows, and this is the only link between two of them: it says
+     * which finished occurrence this one replaces. Reopening a completion uses it to take the
+     * row that completion created back out, and the lists that are not scoped to a day use it
+     * to tell a finished occurrence apart from one that is still the task's current state.
+     */
+    val spawnedFromId: Long? = null,
     val dueDate: LocalDate? = null,
     val dueTime: LocalTime? = null,
     /** Time of day to remind, on the due day. */
@@ -36,6 +45,24 @@ data class Task(
         !isDone && dueDate != null && dueDate.isBefore(today)
 
     fun isDueOn(day: LocalDate): Boolean = dueDate == day
+}
+
+/**
+ * Drops the occurrences a recurring task has already moved past.
+ *
+ * Completing a recurring task keeps the finished row — Today shows it as "Done 09:12" for the
+ * rest of the day — and inserts the next occurrence. A list that is not scoped to a day, the
+ * Inbox or a project, would therefore collect a struck-through copy of a daily task every single
+ * day and read as if the task existed many times over. In those lists the open successor speaks
+ * for the task and the occurrence it replaced is history.
+ *
+ * Only a *replaced* occurrence is dropped. The last one in a chain stays, so finishing a
+ * recurring task for the final time does not make it vanish without trace.
+ */
+fun List<Task>.withoutSupersededOccurrences(): List<Task> {
+    val replaced = mapNotNullTo(mutableSetOf()) { it.spawnedFromId }
+    if (replaced.isEmpty()) return this
+    return filterNot { it.isDone && it.id in replaced }
 }
 
 /** How much of a task's checklist is finished — "2/5" on a row, a bar on the detail screen. */
