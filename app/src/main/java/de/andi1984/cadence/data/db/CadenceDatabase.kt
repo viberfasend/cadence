@@ -100,6 +100,8 @@ abstract class CadenceDatabase : RoomDatabase() {
     abstract fun backupDao(): BackupDao
 
     companion object {
+        const val DATABASE_NAME = "cadence.db"
+
         @Volatile
         private var instance: CadenceDatabase? = null
 
@@ -107,7 +109,7 @@ abstract class CadenceDatabase : RoomDatabase() {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 CadenceDatabase::class.java,
-                "cadence.db",
+                DATABASE_NAME,
             )
                 // Real migrations, no destructive fallback: an upgrade must not empty the app.
                 // Every future entity change needs its own Migration here.

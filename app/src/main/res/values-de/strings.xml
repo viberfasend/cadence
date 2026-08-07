@@ -273,6 +273,9 @@
     <string name="settings_show_completed_supporting">Erledigtes bleibt für den Rest des Tages stehen</string>
     <string name="settings_about">Über die App</string>
     <string name="settings_about_text">Cadence sortiert zuerst nach Wichtigkeit und nutzt das Fälligkeitsdatum nur, um Gleichstände aufzulösen. Die Priorität erscheint immer als Balkenanzeige mit Beschriftung, nie allein über Farbe.</string>
+    <string name="settings_metadata_version">Version %1$s</string>
+    <string name="settings_metadata_counts">%1$s · %2$s</string>
+    <string name="settings_metadata_database_size">Datenbank: %1$s</string>
 
     <!-- ── Wiederholungs-Editor ────────────────────────────────────────────────────── -->
     <string name="repeat_title">Wiederholen</string>

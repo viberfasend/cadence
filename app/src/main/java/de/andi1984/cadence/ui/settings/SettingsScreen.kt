@@ -1,6 +1,7 @@
 package de.andi1984.cadence.ui.settings
 
 import android.net.Uri
+import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -29,9 +30,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.BuildConfig
 import de.andi1984.cadence.R
+import de.andi1984.cadence.data.db.CadenceDatabase
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.CadenceChip
@@ -149,7 +154,42 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            AppMetadata(state = state)
         }
+    }
+}
+
+/** Version, record counts and database size — diagnostic, not domain state, so it is read here. */
+@Composable
+private fun AppMetadata(state: CadenceUiState) {
+    val context = LocalContext.current
+    val databaseSize = remember(state.tasks.size, state.projects.size) {
+        Formatter.formatShortFileSize(context, context.getDatabasePath(CadenceDatabase.DATABASE_NAME).length())
+    }
+
+    Column(
+        modifier = Modifier.padding(top = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.settings_metadata_version, BuildConfig.VERSION_NAME),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = stringResource(
+                R.string.settings_metadata_counts,
+                pluralStringResource(R.plurals.task_count, state.tasks.size, state.tasks.size),
+                pluralStringResource(R.plurals.project_count, state.projects.size, state.projects.size),
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = stringResource(R.string.settings_metadata_database_size, databaseSize),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
