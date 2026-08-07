@@ -3,10 +3,22 @@
 Cadence is a local-first Android todo app (Kotlin, Compose, Room). No cloud, no account today —
 these are candidate directions, not commitments. Order is rough priority, not a release plan.
 
+Decisions large enough to outlive a single change are written down in [`docs/adr/`](docs/adr/).
+
 ## Now
 
-- [ ] Merge on import, next to the current replace-everything restore (match on task id, keep
-      whichever row is newer)
+- [ ] **Desktop app (Ubuntu/macOS/Windows) and multi-device sync** — planned in
+      [ADR 0001](docs/adr/0001-desktop-app-and-multi-device-sync.md). Moves the app to Kotlin
+      Multiplatform over a shared `:core`, swaps Room for SQLDelight and `java.time` for
+      `kotlinx-datetime`, replaces `Long` ids with UUIDv7, and turns sync into a folder of
+      per-device state files merged on read rather than a snapshot that replaces everything.
+      Phases 1–4 land invisibly, phase 5 is the first desktop build.
+      - [ ] 1 — `:core` KMP module on `kotlinx-datetime`
+      - [ ] 2 — UUIDv7 keys, `updatedAt`/`deletedAt`, SQLDelight schema
+      - [ ] 3 — `:ui` Compose Multiplatform module, strings to `composeResources`
+      - [ ] 4 — `:app-android` reduced to a shell
+      - [ ] 5 — `:app-desktop` with jpackage installers and a CI matrix
+      - [ ] 6 — backup format v2, merge engine, `SyncTransport`, per-device sync folder
 - [ ] A reminder opens Today, not the task it reminded you about — `ReminderReceiver` already puts
       `EXTRA_TASK_ID` into the content intent and nothing ever reads it
 - [ ] `android:allowBackup="true"` with no rules file, so Android auto-backup ships whatever ends up
@@ -34,8 +46,8 @@ these are candidate directions, not commitments. Order is rough priority, not a 
 
 ## Later / exploratory
 
-- [ ] Sync (e.g. via user-provided WebDAV/Nextcloud, or the future web app backend)
-- [ ] Web app companion (reads the backup format above)
+- [ ] WebDAV/Nextcloud as a second `SyncTransport`, next to the synced folder of ADR 0001
+- [ ] Web app companion — the wasm/js target `:core` is being shaped for (ADR 0001, phase 7)
 - [ ] Home screen calendar view (month grid)
 - [ ] Voice quick capture (Assistant-style) — the share-sheet half of this moved to **Next** above
 - [ ] Direct Share targets, so a project appears in the share sheet's top row. Deferred with the
