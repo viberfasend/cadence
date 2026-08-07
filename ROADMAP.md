@@ -4,57 +4,59 @@ Cadence is a local-first Android todo app (Kotlin, Compose, Room). No cloud, no 
 these are candidate directions, not commitments. Order is rough priority, not a release plan.
 
 Decisions large enough to outlive a single change are written down in [`docs/adr/`](docs/adr/).
+Each item below is tracked as a GitHub issue — grouped the same way by
+[milestone](../../milestones), and indexed in one place by the pinned
+[📍 Roadmap overview](../../issues/49) issue. This file is the human-readable summary; the issues
+carry the detail and the up-to-date checked/unchecked state.
 
 ## Now
 
-- [ ] **Desktop app (Ubuntu/macOS/Windows) and multi-device sync** — planned in
-      [ADR 0001](docs/adr/0001-desktop-app-and-multi-device-sync.md). Moves the app to Kotlin
-      Multiplatform over a shared `:core`, swaps Room for SQLDelight and `java.time` for
-      `kotlinx-datetime`, replaces `Long` ids with UUIDv7, and turns sync into a folder of
-      per-device state files merged on read rather than a snapshot that replaces everything.
-      Phases 1–4 land invisibly, phase 5 is the first desktop build.
-      - [ ] 1 — `:core` KMP module on `kotlinx-datetime`
-      - [ ] 2 — UUIDv7 keys, `updatedAt`/`deletedAt`, SQLDelight schema
-      - [ ] 3 — `:ui` Compose Multiplatform module, strings to `composeResources`
-      - [ ] 4 — `:app-android` reduced to a shell
-      - [ ] 5 — `:app-desktop` with jpackage installers and a CI matrix
-      - [ ] 6 — backup format v2, merge engine, `SyncTransport`, per-device sync folder
-- [ ] A reminder opens Today, not the task it reminded you about — `ReminderReceiver` already puts
-      `EXTRA_TASK_ID` into the content intent and nothing ever reads it
-- [ ] `android:allowBackup="true"` with no rules file, so Android auto-backup ships whatever ends up
-      in the app's storage. Fine today; a silent data-loss trap the moment anything large lands
-      there, because exceeding the 25 MB per-app ceiling stops the backup entirely
+- [ ] **Desktop app (Ubuntu/macOS/Windows) and multi-device sync** — [#28](../../issues/28),
+      tracking [ADR 0001](docs/adr/0001-desktop-app-and-multi-device-sync.md). Moves the app to
+      Kotlin Multiplatform over a shared `:core`, swaps Room for SQLDelight, replaces `Long` ids
+      with UUIDv7, and turns sync into a folder of per-device state files merged on read rather
+      than a snapshot that replaces everything. Phases 1–4 land invisibly, phase 5 is the first
+      desktop build.
+      - [x] 1 — `:core` KMP module ([#19](../../issues/19), [#20](../../issues/20))
+      - [ ] 2 — UUIDv7 keys, `updatedAt`/`deletedAt`, SQLDelight schema — [#23](../../issues/23)
+      - [ ] 3 — `:ui` Compose Multiplatform module, strings to `composeResources` —
+            [#24](../../issues/24)
+      - [ ] 4 — `:app-android` reduced to a shell — [#25](../../issues/25)
+      - [ ] 5 — `:app-desktop` with jpackage installers and a CI matrix — [#26](../../issues/26)
+      - [ ] 6 — backup format v2, merge engine, `SyncTransport`, per-device sync folder —
+            [#27](../../issues/27)
+- [ ] A reminder opens Today, not the task it reminded you about — [#29](../../issues/29)
+- [ ] `android:allowBackup="true"` with no rules file is a silent data-loss trap —
+      [#30](../../issues/30)
 
 ## Next
 
-- [ ] Carry settings and the app language in the backup file — today it holds tasks and projects
-      only
-- [ ] Widgets (home screen: Today list, quick-add)
-- [ ] Bulk actions in Triage/Projects (multi-select complete/move/delete)
-- [ ] Subtasks / checklists within a task
-- [ ] Tags in addition to Projects
-- [ ] Attachments — files and links per task, designed in
-      [`docs/attachments-and-share.md`](docs/attachments-and-share.md). Bytes are copied into
-      app-private storage and content-addressed by SHA-256 (free dedupe, and the shape a web
-      companion would want), because a share sheet's URI grant is one-shot and cannot be persisted.
-      Ships in three steps: storage and migration, the detail screen and a file viewer, then
-      attachment metadata in the backup plus a bundle export that carries the blobs
-- [ ] Receive from the Android share sheet — text, links, images and files, plus a text selection via
-      `PROCESS_TEXT`. A transparent share activity offers a new task prefilled through the existing
-      quick-add parser, with existing tasks ranked below it (an already-attached link is the
-      strongest signal). Same document as above
+- [ ] Carry settings and the app language in the backup file — [#38](../../issues/38)
+- [ ] Widgets (home screen: Today list, quick-add) — [#39](../../issues/39)
+- [ ] Bulk actions in Triage/Projects (multi-select complete/move/delete) —
+      [#40](../../issues/40)
+- [ ] Tags in addition to Projects — [#41](../../issues/41)
+- [ ] **Attachments and the Android share sheet** — [#31](../../issues/31), designed in
+      [`docs/attachments-and-share.md`](docs/attachments-and-share.md). Six phases, each shipping
+      on its own.
+      - [ ] 0 — pre-refactor — [#32](../../issues/32)
+      - [ ] 1 — storage, no UI — [#33](../../issues/33)
+      - [ ] 2 — attachments in the app — [#34](../../issues/34)
+      - [ ] 3 — share target (receive from the Android share sheet, `PROCESS_TEXT`) —
+            [#35](../../issues/35)
+      - [ ] 4 — bundle export — [#36](../../issues/36)
+      - [ ] 5 (Later) — shortcuts, deep link, outgoing share — [#37](../../issues/37)
 
 ## Later / exploratory
 
-- [ ] WebDAV/Nextcloud as a second `SyncTransport`, next to the synced folder of ADR 0001
-- [ ] Web app companion — the wasm/js target `:core` is being shaped for (ADR 0001, phase 7)
-- [ ] Home screen calendar view (month grid)
-- [ ] Voice quick capture (Assistant-style) — the share-sheet half of this moved to **Next** above
-- [ ] Direct Share targets, so a project appears in the share sheet's top row. Deferred with the
-      share work: the shortcut lifecycle spans every project create, rename and delete, survives a
-      backup restore, and is ranked by the OS in a way tests cannot reach
-- [ ] Additional locales beyond German
-- [ ] Tablet/foldable layout
+- [ ] WebDAV/Nextcloud as a second `SyncTransport`, next to the synced folder of ADR 0001 —
+      [#42](../../issues/42)
+- [ ] Web app companion — [#43](../../issues/43)
+- [ ] ADR 0001 phase 7 (optional) — wasm/js target for `:core` — [#44](../../issues/44)
+- [ ] Home screen calendar view (month grid) — [#45](../../issues/45)
+- [ ] Voice quick capture (Assistant-style) — [#46](../../issues/46)
+- [ ] Additional locales beyond German — [#47](../../issues/47)
+- [ ] Tablet/foldable layout — [#48](../../issues/48)
 
 ## Done
 
@@ -71,3 +73,5 @@ Decisions large enough to outlive a single change are written down in [`docs/adr
       both tables in one transaction. This is the format the future web app reads.
 - [x] German quick-add parsing (`heute`, `morgen`, `jeden 1.`, `alle 2 Wochen am Donnerstag`,
       `3 Tage nach Erledigung`) — keywords live in `QuickAddLexicon`, English stays understood
+- [x] Subtasks — a task with a `parentId`, nested one level deep (`CLAUDE.md`, "Subtasks are
+      tasks with a `parentId`")
