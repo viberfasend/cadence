@@ -70,6 +70,10 @@ fun ProjectDetailScreen(
         .sortedFor(state.settings.sortMode)
     val open = tasks.count { !it.isDone }
     val overdue = tasks.filter { it.isOverdue(today) }
+    var expandedIds by remember { mutableStateOf(emptySet<Long>()) }
+    fun toggleExpanded(id: Long) {
+        expandedIds = if (id in expandedIds) expandedIds - id else expandedIds + id
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -153,7 +157,11 @@ fun ProjectDetailScreen(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
-                items(overdue, key = { "o-${it.id}" }) { task ->
+                items(
+                    state.expandedRows(overdue, expandedIds),
+                    key = { if (it.isSubtaskRow) "o-sub-${it.task.id}" else "o-${it.task.id}" },
+                ) { row ->
+                    val task = row.task
                     TaskRow(
                         task = task,
                         projectLabel = state.projectLabel(task),
@@ -161,21 +169,39 @@ fun ProjectDetailScreen(
                         onToggle = { onToggle(task) },
                         onClick = { onTaskClick(task) },
                         overdueStyle = true,
-                        subtaskProgress = state.subtaskProgress(task.id),
+                        subtaskProgress = if (row.isSubtaskRow) null else state.subtaskProgress(task.id),
+                        expanded = task.id in expandedIds,
+                        onExpandToggle = if (!row.isSubtaskRow && state.subtaskProgress(task.id) != null) {
+                            { toggleExpanded(task.id) }
+                        } else {
+                            null
+                        },
+                        modifier = if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier,
                     )
                 }
             }
             val rest = tasks.filterNot { it.isOverdue(today) }
             if (rest.isNotEmpty()) {
                 item { SectionHeader(stringResource(R.string.project_section_all)) }
-                items(rest, key = { it.id }) { task ->
+                items(
+                    state.expandedRows(rest, expandedIds),
+                    key = { if (it.isSubtaskRow) "sub-${it.task.id}" else it.task.id },
+                ) { row ->
+                    val task = row.task
                     TaskRow(
                         task = task,
                         projectLabel = state.projectLabel(task),
                         today = today,
                         onToggle = { onToggle(task) },
                         onClick = { onTaskClick(task) },
-                        subtaskProgress = state.subtaskProgress(task.id),
+                        subtaskProgress = if (row.isSubtaskRow) null else state.subtaskProgress(task.id),
+                        expanded = task.id in expandedIds,
+                        onExpandToggle = if (!row.isSubtaskRow && state.subtaskProgress(task.id) != null) {
+                            { toggleExpanded(task.id) }
+                        } else {
+                            null
+                        },
+                        modifier = if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier,
                     )
                 }
             }
