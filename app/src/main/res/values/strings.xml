@@ -286,6 +286,9 @@
     <string name="settings_show_completed_supporting">Finished work stays in place for the rest of the day</string>
     <string name="settings_about">About</string>
     <string name="settings_about_text">Cadence orders work by importance first and uses the due date only to break ties. Priority is always shown as a segmented spine plus its label, never by colour alone.</string>
+    <string name="settings_metadata_version">Version %1$s</string>
+    <string name="settings_metadata_counts">%1$s · %2$s</string>
+    <string name="settings_metadata_database_size">Database: %1$s</string>
 
     <!-- ── Repeat editor ───────────────────────────────────────────────────────────── -->
     <string name="repeat_title">Repeat</string>
