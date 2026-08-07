@@ -59,7 +59,7 @@ fun UpcomingScreen(
     onToggle: (Task) -> Unit,
 ) {
     val upcoming = state.tasks
-        .filter { !it.isDone && it.dueDate != null && it.dueDate.isAfter(today) }
+        .filter { task -> !task.isDone && task.dueDate?.isAfter(today) == true }
         .sortedFor(state.settings.sortMode)
     val byDay = upcoming.groupBy { it.dueDate!! }.toSortedMap()
 

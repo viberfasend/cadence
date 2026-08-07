@@ -66,7 +66,9 @@ fun ProjectsScreen(
     val collapsed = remember { mutableStateMapOf<Long, Boolean>() }
 
     val inboxCount = state.inboxTasks().count { !it.isDone }
-    val todayCount = state.tasks.count { !it.isDone && it.dueDate != null && !it.dueDate.isAfter(today) }
+    val todayCount = state.tasks.count { task ->
+        !task.isDone && task.dueDate?.isAfter(today) == false
+    }
     val recurringCount = state.rootTasks().count { !it.isDone && it.recurrence != null }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -202,8 +204,8 @@ fun ProjectsScreen(
 }
 
 private fun dueThisWeek(state: CadenceUiState, projectId: Long, today: LocalDate): Int =
-    state.tasksIn(projectId).count {
-        !it.isDone && it.dueDate != null && !it.dueDate.isAfter(today.plusDays(7))
+    state.tasksIn(projectId).count { task ->
+        !task.isDone && task.dueDate?.isAfter(today.plusDays(7)) == false
     }
 
 @Composable

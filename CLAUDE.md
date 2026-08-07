@@ -5,7 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 Cadence — a local-first native Android todo app (Kotlin, Jetpack Compose, Material 3, Room).
-No cloud, no account, no analytics. Single module `:app`, package `de.andi1984.cadence`.
+No cloud, no account, no analytics. Package `de.andi1984.cadence` throughout.
+
+Two modules: `:core` (Kotlin Multiplatform, the domain layer) and `:app` (the Android app).
+A desktop app for Ubuntu/macOS/Windows is being built out of `:core` in the steps laid out in
+[`docs/adr/0001-desktop-app-and-multi-device-sync.md`](docs/adr/0001-desktop-app-and-multi-device-sync.md).
 
 The product rule the whole app is built on: **importance first, due date breaks ties**
 (`ui/TaskSorting.kt`). Recurrence supports both calendar rules and "n days after completion".
@@ -13,14 +17,20 @@ The product rule the whole app is built on: **importance first, due date breaks 
 ## Commands
 
 ```bash
-./gradlew testDebugUnitTest        # JVM unit tests (recurrence, quick-add, backup, repository)
+./gradlew testDebugUnitTest :core:jvmTest   # what CI runs — see below for why both
 ./gradlew assembleDebug            # app/build/outputs/apk/debug/app-debug.apk
 ./gradlew assembleRelease          # falls back to the debug key when no CADENCE_KEYSTORE is set
 
 # a single test class / method (method names are backticked sentences)
-./gradlew testDebugUnitTest --tests "de.andi1984.cadence.RecurrenceEngineTest"
-./gradlew testDebugUnitTest --tests "*RecurrenceEngineTest.monthly on a fixed day*"
+./gradlew :core:jvmTest --tests "de.andi1984.cadence.RecurrenceEngineTest"
+./gradlew :core:jvmTest --tests "*RecurrenceEngineTest.monthly on a fixed day*"
 ```
+
+`:core`'s tests are one source set compiled twice: `:core:jvmTest` is the desktop compilation and
+`:core:testDebugUnitTest` the Android one. `testDebugUnitTest` alone therefore misses nothing in
+`:core` today, but it also never exercises the JVM target the desktop app will be built on, so CI
+names both. `:app`'s own tests (repository, recurrence chain, `RecurrenceCodec`) are Android-only
+and run under `testDebugUnitTest`.
 
 JDK 17, compileSdk/targetSdk 35, minSdk 26. No lint or format task is wired up.
 
@@ -52,12 +62,25 @@ composable state, not a route.
 ### Layers
 
 ```
-domain/     pure Kotlin — model, RecurrenceEngine, QuickAddParser, BackupCodec. NO Android
-            imports; this is what the JVM unit tests exercise. Keep it that way.
-data/       Room entities + DAOs, CadenceRepository, BackupIo (SAF read/write)
-reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
-ui/         theme, shared components, one package per screen
+:core  domain/     pure Kotlin — model, RecurrenceEngine, QuickAddParser, BackupCodec. NO
+                   Android imports; this is what the JVM unit tests exercise. Keep it that way.
+:app   data/       Room entities + DAOs, CadenceRepository, BackupIo (SAF read/write)
+       reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
+       ui/         theme, shared components, one package per screen
 ```
+
+`:core` is a Kotlin Multiplatform module with an **android** and a **jvm** target, and all of its
+code lives in a hand-declared `jvmShared` source set that both targets depend on — not in
+`commonMain`. Both targets are the JVM, so `jvmShared` may use the JDK, which is why
+`RecurrenceEngine` still speaks `java.time` rather than `kotlinx-datetime`. `commonMain` stays
+empty on purpose; it starts earning its keep the day a browser target exists (ADR 0001, phase 7),
+and moving code there before that would buy a portability nothing needs at the price of
+rewriting every date in the app.
+
+Consequence worth knowing: **smart casts do not cross a module boundary.** `if (task.dueDate !=
+null) task.dueDate.isAfter(…)` compiled while everything was one module and does not now. Bind a
+local (`val due = task.dueDate`) or use `?.` — `task.dueDate?.isAfter(today) == true` — rather
+than reaching for `!!`.
 
 ### Persistence gotchas
 

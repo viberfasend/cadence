@@ -99,19 +99,22 @@ fun describeRecurrenceInline(rule: RecurrenceRule): String {
 }
 
 @Composable
-private fun scheduleQualifier(summary: RecurrenceSummary.Schedule): String? = when {
-    summary.daysOfWeek.isNotEmpty() -> {
-        // joinToString is not inline, so the locale is resolved before the lambda runs.
-        val locale = currentLocale()
-        val days = summary.daysOfWeek.joinToString(", ") {
-            it.getDisplayName(TextStyle.SHORT, locale)
+private fun scheduleQualifier(summary: RecurrenceSummary.Schedule): String? {
+    val monthly = summary.monthly
+    return when {
+        summary.daysOfWeek.isNotEmpty() -> {
+            // joinToString is not inline, so the locale is resolved before the lambda runs.
+            val locale = currentLocale()
+            val days = summary.daysOfWeek.joinToString(", ") {
+                it.getDisplayName(TextStyle.SHORT, locale)
+            }
+            stringResource(R.string.recurrence_on_days, days)
         }
-        stringResource(R.string.recurrence_on_days, days)
+
+        monthly != null -> monthlyPhraseText(monthly)
+
+        else -> null
     }
-
-    summary.monthly != null -> monthlyPhraseText(summary.monthly)
-
-    else -> null
 }
 
 @Composable

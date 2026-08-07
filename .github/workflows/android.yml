@@ -42,7 +42,10 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+        # :core is a Kotlin Multiplatform module: testDebugUnitTest is its Android variant,
+        # jvmTest the one the desktop app will rely on. Both run the same source set, and
+        # running only one would let the other rot.
+        run: ./gradlew testDebugUnitTest :core:jvmTest --stacktrace
 
       # Runs on every branch too, where it is only a preview of what merging would publish.
       - name: Work out the next version
