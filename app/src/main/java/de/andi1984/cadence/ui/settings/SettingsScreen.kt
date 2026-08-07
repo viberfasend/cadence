@@ -210,9 +210,12 @@ private fun AppMetadata(state: CadenceUiState) {
  * Export and import go through the Storage Access Framework, so the user names the file and the
  * app needs no storage permission. Import replaces everything, hence the confirmation dialog.
  *
- * The first successful export is also the only moment the app offers to keep that file up to
- * date by itself: until there is a file, the offer would have nothing to point at. Whatever the
- * answer, it is asked once — from then on the switch below is the way in and out.
+ * The first successful export *or* import is also a moment the app offers to keep that file up
+ * to date by itself: until there is a file, the offer would have nothing to point at, and a file
+ * just imported is exactly the file a user picking up automatic sync already trusts. Whatever
+ * the answer, it is asked once — from then on [AutoBackupSection] is the way in and out, and its
+ * own "Change file" action (not the switch) is what re-runs this same picker later, so a file
+ * that stops working is never a dead end.
  */
 @Composable
 private fun BackupControls(
@@ -227,10 +230,10 @@ private fun BackupControls(
     val autoBackup = state.settings.autoBackup
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
     var offerFor by remember { mutableStateOf<Uri?>(null) }
-    // The file the offer would be about, held back until the export has actually written it —
-    // offering to keep a file in sync that could not be written would be a lie.
+    // The file the offer would be about, held back until the export/import actually went
+    // through — offering to keep a file in sync that was never written or read would be a lie.
     var offerCandidate by remember { mutableStateOf<Uri?>(null) }
-    // Set when the picker was opened by the switch rather than by the export button: the file
+    // Set when the picker was opened to (re)point sync rather than for a plain export: the file
     // has to exist and hold the current data before sync starts writing to it.
     var enableAfterExport by remember { mutableStateOf(false) }
     val suggestedName = stringResource(R.string.backup_file_name, LocalDate.now().toString())
@@ -242,8 +245,8 @@ private fun BackupControls(
             enableAfterExport = false
             return@rememberLauncherForActivityResult
         }
-        // Switching sync on first means the export that follows is recorded as a sync, so the
-        // next launch knows this file as one of its own and leaves the data alone.
+        // Choosing or changing the sync file first means the export that follows is recorded as
+        // a sync, so the next launch knows this file as one of its own and leaves the data alone.
         if (enableAfterExport) {
             enableAfterExport = false
             onEnableAutoBackup(uri)
@@ -256,7 +259,7 @@ private fun BackupControls(
     LaunchedEffect(state.backupOutcome, offerCandidate) {
         val candidate = offerCandidate ?: return@LaunchedEffect
         when (state.backupOutcome) {
-            is BackupOutcome.Exported -> {
+            is BackupOutcome.Exported, is BackupOutcome.Imported -> {
                 offerFor = candidate
                 offerCandidate = null
             }
@@ -313,20 +316,21 @@ private fun BackupControls(
             )
         }
 
-        AutoBackupToggle(
+        AutoBackupSection(
             settings = autoBackup,
             failure = state.autoBackupFailure,
-            onCheckedChange = { checked ->
-                when {
-                    !checked -> onDisableAutoBackup()
+            onToggle = { checked ->
+                if (checked) {
                     // A file is already named: ticking the box again resumes it rather than
                     // sending the user back through the picker.
-                    autoBackup.fileUri != null -> onEnableAutoBackup(Uri.parse(autoBackup.fileUri))
-                    else -> {
-                        enableAfterExport = true
-                        exportLauncher.launch(suggestedName)
-                    }
+                    onEnableAutoBackup(Uri.parse(autoBackup.fileUri))
+                } else {
+                    onDisableAutoBackup()
                 }
+            },
+            onChooseFile = {
+                enableAfterExport = true
+                exportLauncher.launch(suggestedName)
             },
         )
     }
@@ -353,6 +357,7 @@ private fun BackupControls(
                 TextButton(
                     onClick = {
                         pendingImport = null
+                        if (!autoBackup.offered) offerCandidate = uri
                         onImport(uri)
                     },
                 ) {
@@ -369,64 +374,85 @@ private fun BackupControls(
 }
 
 /**
- * The switch that keeps automatic sync reversible: the feature can be given up and taken back
- * at any time, and turning it off leaves manual export and import exactly as they were.
+ * Automatic sync has exactly two controls, kept visibly distinct so neither is mistaken for the
+ * other: a button when there is no file yet, because picking one opens a whole system dialog and
+ * a switch should never do that invisibly, and a switch once there is one, because from then on
+ * the action really is just pause/resume. "Change file" stays reachable from both the normal and
+ * the failed state — nothing here used to let a broken or unwanted file be swapped out short of
+ * losing sync entirely, which was the sharp edge users actually hit.
  */
 @Composable
-private fun AutoBackupToggle(
+private fun AutoBackupSection(
     settings: AutoBackupSettings,
     failure: BackupFailure?,
-    onCheckedChange: (Boolean) -> Unit,
+    onToggle: (Boolean) -> Unit,
+    onChooseFile: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    Column(
+        modifier = Modifier.padding(top = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Switch(checked = settings.enabled, onCheckedChange = onCheckedChange)
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stringResource(R.string.settings_auto_backup),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = stringResource(R.string.settings_auto_backup_supporting),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-
-    if (settings.enabled) {
-        settings.fileUri?.let { uri ->
-            Text(
-                text = stringResource(R.string.settings_auto_backup_file, backupFileName(uri)),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        settings.lastSyncedAt?.let { at ->
-            Text(
-                text = stringResource(
-                    R.string.settings_auto_backup_last_synced,
-                    DateUtils.getRelativeTimeSpanString(at.toEpochMilli()).toString(),
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-
-    // Sync is invisible while it works, so it has to speak up when it stops — a file that was
-    // moved or deleted, or a switch that would not stay on because the file can no longer be
-    // reached. The message outlives the switch going back off, which is when it matters most.
-    failure?.let { reason ->
         Text(
-            text = stringResource(R.string.settings_auto_backup_failed, backupFailureText(reason)),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.error,
+            text = stringResource(R.string.settings_auto_backup),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
         )
+        Text(
+            text = stringResource(R.string.settings_auto_backup_supporting),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        if (settings.fileUri == null) {
+            OutlinedButton(onClick = onChooseFile, modifier = Modifier.padding(top = 6.dp)) {
+                Icon(AppIcons.Upload, contentDescription = null)
+                Text(
+                    text = stringResource(R.string.settings_auto_backup_choose),
+                    modifier = Modifier.padding(start = 10.dp),
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Switch(checked = settings.enabled, onCheckedChange = onToggle)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.settings_auto_backup_file, backupFileName(settings.fileUri)),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    settings.lastSyncedAt?.let { at ->
+                        Text(
+                            text = stringResource(
+                                R.string.settings_auto_backup_last_synced,
+                                DateUtils.getRelativeTimeSpanString(at.toEpochMilli()).toString(),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            TextButton(onClick = onChooseFile) {
+                Text(stringResource(R.string.settings_auto_backup_change))
+            }
+        }
+
+        // Sync is invisible while it works, so it has to speak up when it stops — a file that
+        // was moved or deleted, most likely. "Change file" is what actually gets someone unstuck.
+        failure?.let { reason ->
+            Text(
+                text = stringResource(R.string.settings_auto_backup_failed, backupFailureText(reason)),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+            TextButton(onClick = onChooseFile) {
+                Text(stringResource(R.string.settings_auto_backup_change))
+            }
+        }
     }
 }
 
