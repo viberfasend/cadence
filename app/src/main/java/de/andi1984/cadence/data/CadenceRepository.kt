@@ -119,25 +119,38 @@ class CadenceRepository(
      * tap that lands before the row re-composes. Closing the row is therefore left to
      * [TaskDao.completeIfOpen], and only the call that actually closed it goes on to schedule the
      * successor — otherwise two taps on one checkbox left two identical occurrences behind.
+     *
+     * Reopening undoes both halves: the row opens again *and* the occurrence its completion
+     * inserted is removed, so the task does not end up standing in the list twice.
+     *
+     * @return the ids of the tasks this call deleted, so their reminders can be cancelled —
+     *   [de.andi1984.cadence.reminders.ReminderScheduler.sync] only ever sees the tasks that
+     *   still exist, so it cannot cancel an alarm for one that is already gone.
      */
-    suspend fun setCompleted(task: Task, completed: Boolean, today: LocalDate = LocalDate.now()) {
+    suspend fun setCompleted(
+        task: Task,
+        completed: Boolean,
+        today: LocalDate = LocalDate.now(),
+    ): List<Long> {
         if (!completed) {
-            taskDao.reopenIfDone(task.id)
-            return
+            if (taskDao.reopenIfDone(task.id) == 0) return emptyList()
+            val successors = taskDao.openSuccessorsOf(task.id)
+            successors.forEach { taskDao.deleteWithSubtasks(it) }
+            return successors
         }
         val now = Instant.now()
-        if (taskDao.completeIfOpen(task.id, now.toEpochMilli()) == 0) return
+        if (taskDao.completeIfOpen(task.id, now.toEpochMilli()) == 0) return emptyList()
 
         // Read the row back rather than trust the snapshot: the rule, the due date and the
         // project may have been edited since the row was drawn, and the next occurrence
         // inherits all of them.
-        val current = taskDao.byId(task.id)?.toDomain() ?: return
+        val current = taskDao.byId(task.id)?.toDomain() ?: return emptyList()
 
         val subtasks = subtasksOf(current.id)
         subtasks.filter { !it.isDone }
             .forEach { taskDao.update(it.copy(completedAt = now).toEntity()) }
 
-        val rule = current.recurrence ?: return
+        val rule = current.recurrence ?: return emptyList()
         val nextDue = RecurrenceEngine.dueDateAfterCompletion(rule, current.dueDate, today)
         val nextId = taskDao.insert(
             current.copy(
@@ -145,6 +158,7 @@ class CadenceRepository(
                 completedAt = null,
                 dueDate = nextDue,
                 createdAt = now,
+                spawnedFromId = current.id,
             ).toEntity(),
         )
         val shift = current.dueDate?.let { ChronoUnit.DAYS.between(it, nextDue) } ?: 0L
@@ -156,9 +170,13 @@ class CadenceRepository(
                     completedAt = null,
                     dueDate = subtask.dueDate?.plusDays(shift),
                     createdAt = now,
+                    // The step belongs to the new occurrence, which already carries the link
+                    // back; only the parent rows form the chain.
+                    spawnedFromId = null,
                 ).toEntity(),
             )
         }
+        return emptyList()
     }
 
     /** Moves a task's due date by [days], used by snooze and the overdue triage action. */

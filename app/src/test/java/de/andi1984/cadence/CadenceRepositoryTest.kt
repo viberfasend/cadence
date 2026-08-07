@@ -141,6 +141,59 @@ class CadenceRepositoryTest {
     }
 
     @Test
+    fun `the successor records which occurrence it replaces`() = runTest {
+        val task = store(recurring())
+
+        repository.setCompleted(task, true, today)
+
+        val next = rowsTitled("Rat poison").map { it.toDomain() }.single { !it.isDone }
+        assertEquals(task.id, next.spawnedFromId)
+    }
+
+    @Test
+    fun `reopening a recurring task takes the occurrence it created with it`() = runTest {
+        val task = store(recurring())
+        repository.setCompleted(task, true, today)
+        val next = rowsTitled("Rat poison").single { it.completedAt == null }
+
+        val removed = repository.setCompleted(task, false, today)
+
+        assertEquals(listOf(next.id), removed)
+        val rows = rowsTitled("Rat poison")
+        assertEquals(1, rows.size)
+        assertEquals(task.id, rows.single().id)
+        assertNull(rows.single().completedAt)
+    }
+
+    @Test
+    fun `reopening leaves a successor that has itself been ticked off`() = runTest {
+        val first = store(recurring())
+        repository.setCompleted(first, true, today)
+        val second = rowsTitled("Rat poison").single { it.completedAt == null }.toDomain()
+        // The chain moved on: the second occurrence is done and has a successor of its own.
+        repository.setCompleted(second, true, LocalDate.of(2026, 8, 21))
+
+        val removed = repository.setCompleted(first, false, today)
+
+        assertTrue(removed.isEmpty())
+        assertEquals(3, rowsTitled("Rat poison").size)
+    }
+
+    @Test
+    fun `reopening a recurring task also removes the successor's checklist`() = runTest {
+        val parent = store(recurring())
+        store(Task(title = "Check the traps", parentId = parent.id))
+        repository.setCompleted(parent, true, today)
+
+        repository.setCompleted(parent, false, today)
+
+        // The handed-over copy is gone with its occurrence; the original step stays put.
+        val steps = rowsTitled("Check the traps")
+        assertEquals(1, steps.size)
+        assertEquals(parent.id, steps.single().parentId)
+    }
+
+    @Test
     fun `reopening clears the completion and reopening again is a no-op`() = runTest {
         val task = store(Task(title = "Call the vet"))
         repository.setCompleted(task, true, today)
@@ -212,6 +265,10 @@ private class FakeTaskDao : TaskDao {
         table.value = table.value + (id to task.copy(completedAt = null))
         return 1
     }
+
+    override suspend fun openSuccessorsOf(id: Long): List<Long> = rows()
+        .filter { it.spawnedFromId == id && it.completedAt == null }
+        .map { it.id }
 }
 
 /** Projects play no part in completing a task; these fakes only satisfy the constructor. */

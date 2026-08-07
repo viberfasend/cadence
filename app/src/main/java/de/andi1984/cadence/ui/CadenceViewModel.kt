@@ -17,6 +17,7 @@ import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.SubtaskProgress
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.model.projectPath
+import de.andi1984.cadence.domain.model.withoutSupersededOccurrences
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
 import de.andi1984.cadence.reminders.ReminderScheduler
 import de.andi1984.cadence.ui.settings.CadenceSettings
@@ -72,8 +73,14 @@ data class CadenceUiState(
      * parent already speaks for its steps there. The date-driven views (Today, Upcoming, Search)
      * deliberately do not filter: a subtask with its own due date is work for that day, and it
      * carries its parent's title as context.
+     *
+     * The same reasoning drops a recurring occurrence that has already been replaced: its
+     * successor speaks for it here. Only these undated lists need that — Today and Upcoming are
+     * scoped to a day, and Search is meant to reach history.
      */
-    fun rootTasks(): List<Task> = tasks.filter { !it.isSubtask }
+    fun rootTasks(): List<Task> = tasks
+        .withoutSupersededOccurrences()
+        .filter { !it.isSubtask }
 
     fun inboxTasks(): List<Task> = rootTasks().filter { it.isInbox }
 
@@ -169,7 +176,10 @@ class CadenceViewModel(
     // ── Tasks ──────────────────────────────────────────────────────────────────────
 
     fun toggleTask(task: Task) = viewModelScope.launch {
-        repository.setCompleted(task, !task.isDone)
+        // Reopening a recurring task takes the occurrence its completion inserted back out, and
+        // an alarm outlives the row it belongs to unless it is cancelled here — sync only ever
+        // sees the tasks that still exist.
+        repository.setCompleted(task, !task.isDone).forEach { reminderScheduler.cancel(it) }
     }
 
     fun saveTask(task: Task) = viewModelScope.launch {

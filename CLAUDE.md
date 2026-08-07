@@ -61,7 +61,7 @@ ui/         theme, shared components, one package per screen
 
 ### Persistence gotchas
 
-- Database version is **2** with `exportSchema = false` and **no destructive fallback** — the
+- Database version is **4** with `exportSchema = false` and **no destructive fallback** — the
   migrations live next to the `@Database` class in `CadenceDatabase.kt`. Any entity change
   therefore needs its own `Migration` and a version bump; without one the app crashes on open
   rather than silently emptying itself.
@@ -76,12 +76,24 @@ ui/         theme, shared components, one package per screen
 
 - **Completing a recurring task** (`CadenceRepository.setCompleted`) keeps the finished row in
   place — so it stays visible in Today — and *inserts a new row* for the next occurrence.
-  Recurrence is modelled as a chain of rows, not one row with a moving date. Because completing
-  writes a row rather than flipping a flag, it has to be idempotent: every caller passes a `Task`
-  the UI drew a row from, and a checkbox tapped twice hands back the same *open* snapshot both
-  times. `TaskDao.completeIfOpen` closes the row in SQL and reports whether this call is the one
-  that closed it, so only that call schedules the successor and the rest of the work reads the row
-  back instead of trusting the snapshot. Don't replace it with a plain `update`.
+  Recurrence is modelled as a chain of rows, not one row with a moving date, linked by
+  `spawnedFromId` — "this row replaces that finished occurrence". Everything below follows from
+  the chain being rows rather than a moving date, so a new list or a new completion path has to
+  answer the same three questions:
+  - **Completing must be idempotent.** Every caller passes a `Task` the UI drew a row from, and a
+    checkbox tapped twice hands back the same *open* snapshot both times.
+    `TaskDao.completeIfOpen` closes the row in SQL and reports whether this call is the one that
+    closed it, so only that call schedules the successor and the rest of the work reads the row
+    back instead of trusting the snapshot. Don't replace it with a plain `update`.
+  - **Reopening undoes both halves**: the row opens again and the occurrence that completion
+    inserted is deleted (`TaskDao.openSuccessorsOf`), or the task would stand in the list twice.
+    One that has itself been ticked off is left alone — the chain has moved on. `setCompleted`
+    returns the ids it deleted so the ViewModel can cancel their alarms.
+  - **Undated lists show a chain as one task.** `CadenceUiState.rootTasks` drops a completed
+    occurrence that has been replaced (`withoutSupersededOccurrences`), because the Inbox and a
+    project are not scoped to a day and a daily task would otherwise leave a struck-through copy
+    in them every day. Today and Upcoming filter by date and Search is meant to reach history, so
+    all three read `state.tasks` directly.
 - **Subtasks are tasks with a `parentId`**, nested exactly one level deep — `addSubtask` files a
   step added under a subtask next to it rather than starting a third level. A parent and its
   steps share a project (`moveToProject` moves both), deleting a task deletes its steps
@@ -111,9 +123,10 @@ ui/         theme, shared components, one package per screen
   object — deliberately *not* the packed `RecurrenceCodec` column — because a future web app
   reads these files. Unknown keys are ignored on read; a higher `version` is refused. Changing
   a field means bumping `VERSION` and keeping the old shape readable — but *adding* an optional
-  field (`parentId`) deliberately leaves `VERSION` alone, since a bump would make older installs
-  refuse the whole file over one key they can ignore. Links are repaired rather than trusted:
-  a task pointing at a missing project lands in the Inbox, and a subtask whose parent the file
+  field (`parentId`, `spawnedFromId`) deliberately leaves `VERSION` alone, since a bump would make
+  older installs refuse the whole file over one key they can ignore. Links are repaired rather
+  than trusted: a task pointing at a missing project lands in the Inbox, a recurrence link to an
+  occurrence the file lacks is dropped, and a subtask whose parent the file
   lacks — or one in a chain or cycle — is set free by `normalisedParents`. It uses
   kotlinx.serialization (pure Kotlin, so the codec stays JVM-testable — `org.json` is stubbed
   in unit tests). Importing **replaces** both tables via `BackupDao.replaceAll` in one

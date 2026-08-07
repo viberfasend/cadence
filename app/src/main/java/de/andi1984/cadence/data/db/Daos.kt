@@ -44,6 +44,15 @@ interface TaskDao {
     @Query("UPDATE tasks SET completedAt = NULL WHERE id = :id AND completedAt IS NOT NULL")
     suspend fun reopenIfDone(id: Long): Int
 
+    /**
+     * The occurrences [id]'s completion inserted that nobody has ticked off yet.
+     *
+     * A successor that has itself been completed is left out: the chain has moved past it, and
+     * reopening one link is not a reason to unravel the rest of it.
+     */
+    @Query("SELECT id FROM tasks WHERE spawnedFromId = :id AND completedAt IS NULL")
+    suspend fun openSuccessorsOf(id: Long): List<Long>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(task: TaskEntity): Long
 
