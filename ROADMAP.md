@@ -7,6 +7,11 @@ these are candidate directions, not commitments. Order is rough priority, not a 
 
 - [ ] Merge on import, next to the current replace-everything restore (match on task id, keep
       whichever row is newer)
+- [ ] A reminder opens Today, not the task it reminded you about — `ReminderReceiver` already puts
+      `EXTRA_TASK_ID` into the content intent and nothing ever reads it
+- [ ] `android:allowBackup="true"` with no rules file, so Android auto-backup ships whatever ends up
+      in the app's storage. Fine today; a silent data-loss trap the moment anything large lands
+      there, because exceeding the 25 MB per-app ceiling stops the backup entirely
 
 ## Next
 
@@ -16,14 +21,26 @@ these are candidate directions, not commitments. Order is rough priority, not a 
 - [ ] Bulk actions in Triage/Projects (multi-select complete/move/delete)
 - [ ] Subtasks / checklists within a task
 - [ ] Tags in addition to Projects
-- [ ] Attachments (photo/file per task)
+- [ ] Attachments — files and links per task, designed in
+      [`docs/attachments-and-share.md`](docs/attachments-and-share.md). Bytes are copied into
+      app-private storage and content-addressed by SHA-256 (free dedupe, and the shape a web
+      companion would want), because a share sheet's URI grant is one-shot and cannot be persisted.
+      Ships in three steps: storage and migration, the detail screen and a file viewer, then
+      attachment metadata in the backup plus a bundle export that carries the blobs
+- [ ] Receive from the Android share sheet — text, links, images and files, plus a text selection via
+      `PROCESS_TEXT`. A transparent share activity offers a new task prefilled through the existing
+      quick-add parser, with existing tasks ranked below it (an already-attached link is the
+      strongest signal). Same document as above
 
 ## Later / exploratory
 
 - [ ] Sync (e.g. via user-provided WebDAV/Nextcloud, or the future web app backend)
 - [ ] Web app companion (reads the backup format above)
 - [ ] Home screen calendar view (month grid)
-- [ ] Siri/Assistant-style quick capture (share sheet, voice)
+- [ ] Voice quick capture (Assistant-style) — the share-sheet half of this moved to **Next** above
+- [ ] Direct Share targets, so a project appears in the share sheet's top row. Deferred with the
+      share work: the shortcut lifecycle spans every project create, rename and delete, survives a
+      backup restore, and is ranked by the OS in a way tests cannot reach
 - [ ] Additional locales beyond German
 - [ ] Tablet/foldable layout
 
