@@ -332,6 +332,8 @@
     <!-- ── Automatischer Backup-Abgleich ───────────────────────────────────────────── -->
     <string name="settings_auto_backup">Backup aktuell halten</string>
     <string name="settings_auto_backup_supporting">Liest die Backup-Datei beim Öffnen von Cadence und schreibt sie nach jeder Änderung und beim Verlassen wieder.</string>
+    <string name="settings_auto_backup_choose">Sync-Datei auswählen</string>
+    <string name="settings_auto_backup_change">Datei ändern</string>
     <!-- %1$s ist der Dateiname, z. B. cadence-backup-2026-08-07.json. -->
     <string name="settings_auto_backup_file">Abgleich mit %1$s</string>
     <!-- %1$s ist eine relative Zeitangabe, z. B. „vor 5 Minuten“. -->

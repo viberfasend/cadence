@@ -133,11 +133,20 @@ ui/         theme, shared components, one package per screen
   transaction, so ids come straight from the file and task→project links need no remapping;
   tasks referencing a project the file lacks fall back to the Inbox.
 - **Automatic backup sync is opt-in, and asked exactly once.** The offer appears after the first
-  *successful* manual export (`SettingsScreen` holds the picked uri back until the outcome is
-  `Exported`), and `AutoBackupSettings.offered` makes sure a "not now" is never asked again — the
-  switch in Settings is the only way in and out from then on. Manual export and import stay
-  untouched whichever way it is answered. `AutoBackupSync` then writes the file on every change
-  (debounced 2s) and on `ON_STOP`, and reads it on `ON_START`. Three things are load-bearing:
+  *successful* manual export or import (`SettingsScreen` holds the picked uri back until the
+  outcome is `Exported`/`Imported`), and `AutoBackupSettings.offered` makes sure a "not now" is
+  never asked again — `AutoBackupSection` in Settings is the only way in and out from then on.
+  Manual export and import stay untouched whichever way it is answered. `AutoBackupSync` then
+  writes the file on every change (debounced 2s) and on `ON_STOP`, and reads it on `ON_START`.
+  Four things are load-bearing:
+  - **Choosing and changing the file are buttons, not the switch.** A switch that silently opens
+    a system file picker reads as broken, so `AutoBackupSection` only shows the switch once a
+    file is named — pause/resume is genuinely all it does then — and puts picking or re-picking
+    the file behind its own "Choose a file to sync" / "Change file" actions, both wired to the
+    same export-and-enable flow as the switch used to trigger. "Change file" is always visible
+    once a file exists, including next to the failure message, because a file that stopped
+    working (moved, deleted, permission revoked) used to be a dead end: resuming always replayed
+    the same broken uri, and nothing in the UI could point sync at a different file.
   - **It never reads back a file it wrote itself.** `AutoBackupPolicy.shouldImport` compares the
     file's `exportedAt` against `AutoBackupSettings.lastSyncedAt` — the timestamp of the last file
     this device wrote *or* imported — because an import replaces every row and re-reading our own

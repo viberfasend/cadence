@@ -346,6 +346,8 @@
     <!-- ── Automatic backup sync ───────────────────────────────────────────────────── -->
     <string name="settings_auto_backup">Keep the backup up to date</string>
     <string name="settings_auto_backup_supporting">Reads the backup file when Cadence opens, and writes it again after every change and when you leave.</string>
+    <string name="settings_auto_backup_choose">Choose a file to sync</string>
+    <string name="settings_auto_backup_change">Change file</string>
     <!-- %1$s is the file name, e.g. cadence-backup-2026-08-07.json. -->
     <string name="settings_auto_backup_file">Syncing with %1$s</string>
     <!-- %1$s is a relative time, e.g. "5 minutes ago". -->
