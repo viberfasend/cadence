@@ -75,6 +75,11 @@ jobs:
           cp app/build/outputs/apk/release/*.apk dist/cadence-release.apk
           ls -lh dist
 
+      # A build signed by a different key than the last release cannot be installed over it —
+      # the phone only says "App not installed". Catch that here rather than on a user's phone.
+      - name: Check signing key
+        run: bash .github/scripts/check-signing.sh dist/cadence-debug.apk dist/cadence-release.apk
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:

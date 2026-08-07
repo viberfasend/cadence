@@ -27,10 +27,23 @@ show artifacts.
 
 Pushing a `v*` tag publishes a separate, permanent versioned release with the same two APKs.
 
+### Updating over an older build
+
+Tap the same link again and install — the new build replaces the old one and keeps your tasks.
+
+If the installer answers **"App not installed"**, the build on the phone is older than v1.1.2:
+up to that release each build was signed with a throwaway key generated on the build machine,
+and Android will not install an app over one signed by a different key. Uninstall Cadence once
+and install again. **Export a backup first** (Settings → Backup) — uninstalling deletes the
+database — and import it afterwards. Every build since shares one key, so this is a one-time
+step.
+
 ### Signing the release build (optional)
 
-Without any configuration the release APK is signed with the standard debug key. To sign with
-your own key, add these repository secrets:
+Without any configuration the release APK is signed with the debug key committed at
+`app/debug.keystore`, which is public: anyone can build an APK that installs over it. That is
+fine for a build distributed as a link on GitHub, and it is what keeps updates working. To sign
+the release APK with a key only you hold, add these repository secrets:
 
 | Secret | Contents |
 | --- | --- |
