@@ -13,6 +13,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.andi1984.cadence.ui.CadenceApp
 import de.andi1984.cadence.ui.CadenceViewModel
@@ -29,6 +31,11 @@ class MainActivity : ComponentActivity() {
             val state by viewModel.state.collectAsState()
 
             RequestNotificationPermission()
+
+            // Automatic backup sync, when the user has switched it on, reads the file as the
+            // app comes up and writes it as the app leaves. Both are no-ops otherwise.
+            LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.onAppForegrounded() }
+            LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onAppBackgrounded() }
 
             CadenceTheme(
                 theme = state.settings.theme,
