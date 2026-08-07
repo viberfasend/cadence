@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="de.andi1984.cadence.BackupCodecTest" tests="17" skipped="0" failures="0" errors="0" timestamp="2026-08-07T20:43:34" hostname="gaming-pc-ubuntu" time="0.097">
+  <properties/>
+  <testcase name="completion-anchored recurrence survives a round trip" classname="de.andi1984.cadence.BackupCodecTest" time="0.075"/>
+  <testcase name="a recurrence chain keeps its links across a round trip" classname="de.andi1984.cadence.BackupCodecTest" time="0.004"/>
+  <testcase name="a full snapshot survives a round trip" classname="de.andi1984.cadence.BackupCodecTest" time="0.001"/>
+  <testcase name="dates are written as ISO strings a web app can read" classname="de.andi1984.cadence.BackupCodecTest" time="0.001"/>
+  <testcase name="parents that point at each other are set free rather than imported as a cycle" classname="de.andi1984.cadence.BackupCodecTest" time="0.0"/>
+  <testcase name="a recurrence link to an occurrence the file lacks is dropped" classname="de.andi1984.cadence.BackupCodecTest" time="0.001"/>
+  <testcase name="JSON from another app is refused" classname="de.andi1984.cadence.BackupCodecTest" time="0.001"/>
+  <testcase name="a chain deeper than one level is flattened onto its root" classname="de.andi1984.cadence.BackupCodecTest" time="0.001"/>
+  <testcase name="a subtask whose parent is missing becomes a task of its own" classname="de.andi1984.cadence.BackupCodecTest" time="0.0"/>
+  <testcase name="a backup from a newer version is refused rather than guessed at" classname="de.andi1984.cadence.BackupCodecTest" time="0.001"/>
+  <testcase name="an unreadable date empties that field instead of failing the import" classname="de.andi1984.cadence.BackupCodecTest" time="0.0"/>
+  <testcase name="a task without dates or recurrence survives a round trip" classname="de.andi1984.cadence.BackupCodecTest" time="0.001"/>
+  <testcase name="projects without a usable id and tasks without a title are dropped" classname="de.andi1984.cadence.BackupCodecTest" time="0.0"/>
+  <testcase name="text that is not JSON is refused" classname="de.andi1984.cadence.BackupCodecTest" time="0.001"/>
+  <testcase name="unknown keys are ignored so newer files still restore" classname="de.andi1984.cadence.BackupCodecTest" time="0.007"/>
+  <testcase name="subtasks keep their parent through a round trip" classname="de.andi1984.cadence.BackupCodecTest" time="0.002"/>
+  <testcase name="a task pointing at a missing project lands in the inbox" classname="de.andi1984.cadence.BackupCodecTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

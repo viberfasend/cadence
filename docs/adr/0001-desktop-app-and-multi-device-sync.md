@@ -75,12 +75,24 @@ Cost: the DAO-shaped code in `data/db/Daos.kt` is rewritten as `.sq` queries. Th
 `deleteWithChildren` in one transaction — translate directly, and their behaviour is what the
 existing unit tests pin down.
 
-### 3. `kotlinx-datetime` replaces `java.time`
+### 3. `java.time` stays until a browser target needs otherwise
 
-`commonMain` cannot see `java.*`. An intermediate source set shared by Android and JVM would
-work around that today and would have to be undone the moment a wasm target appears. Take the
-mechanical rewrite now: it is contained to `RecurrenceEngine` (the month arithmetic is the
-fiddly part), `Entities`, and the codec.
+`commonMain` cannot see `java.*`, so shared code either gives up `java.time` for
+`kotlinx-datetime` or is not in `commonMain`.
+
+Take the second. `:core` declares a `jvmShared` source set that both the Android and the JVM
+target depend on, and a source set whose targets are all JVM may use the JDK — verified in
+practice, not assumed. `commonMain` stays empty. Nothing about the desktop app needs a date
+library that runs in a browser, and opening the port with a rewrite of every date in the app
+would put the riskiest change first for a benefit no phase before 7 collects.
+
+`kotlinx-datetime` becomes necessary the day a wasm/js target does, and the rewrite is contained
+to `RecurrenceEngine` (the month arithmetic is the fiddly part), `Entities` and the codec — the
+same size then as now, because `jvmShared` is exactly the code that would have to move.
+
+The cost of deferring is that `commonMain` cannot be used in the meantime, which is the point:
+code that lands in `jvmShared` by default cannot silently acquire a JDK dependency that a later
+browser target would have to discover the hard way. It is already all of `:core`.
 
 Storage representation is unchanged: dates as epoch day (`Long`), times as second of day
 (`Int`), converted at the entity boundary and nowhere else.
@@ -248,14 +260,14 @@ Each phase ends on a green build. Phases 1–3 change nothing a user sees.
 
 | # | Work | Rough size |
 |---|---|---|
-| 1 | `:core` KMP module: model, recurrence, parser, sorting on `kotlinx-datetime`. Unit tests move with it. | 1.5k lines touched |
+| 1 | `:core` KMP module: model, recurrence, parser, backup codec in a `jvmShared` source set. Unit tests move with it. | 1.5k lines moved |
 | 2 | UUIDv7 keys, `updatedAt`/`deletedAt`, fresh SQLDelight schema, repository on top of it. Android app re-seeded. | 1.1k lines rewritten |
 | 3 | `:ui` Compose Multiplatform module: theme, components, formatters, screens, ViewModel; strings to `composeResources`. | 6.7k lines moved, mostly mechanical |
 | 4 | `:app-android` reduced to shell. | small |
 | 5 | `:app-desktop`: window, sidebar shell, storage, packaging, CI matrix. **First runnable desktop build.** | new |
 | 6 | Backup format v2, merge engine, `SyncTransport`, per-device sync folder on both platforms. | new |
 | 6b | Attachment blobs in the sync folder, once attachments themselves exist. | after `docs/attachments-and-share.md` |
-| 7 | Optional: wasm/js target for the web companion — the reason for decisions 2 and 3. | later |
+| 7 | Optional: wasm/js target for the web companion — SQLDelight's web driver, `kotlinx-datetime`, and `jvmShared` finally moving into `commonMain`. | later |
 
 `.github/scripts/next-version.sh` stays the single source of the version from phase 5 on, naming
 both the APK and the three desktop installers in one release.
@@ -277,7 +289,8 @@ both the APK and the three desktop installers in one release.
   silently discard what another device added. This is the actual point of the ADR; the desktop
   app is what forced the question.
 - Import becomes idempotent and safe to run twice.
-- One storage layer and one time library reach Android, desktop and eventually the browser.
+- One storage layer reaches Android, desktop and eventually the browser, and the one thing that
+  does not — `java.time` — is fenced into a single source set rather than spread through the app.
 - The domain rules exist once, tested once.
 
 ## Alternatives rejected

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="de.andi1984.cadence.RecurrenceEngineTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-08-07T20:40:25" hostname="gaming-pc-ubuntu" time="0.004">
+  <properties/>
+  <testcase name="after completion counts from the day it was finished[jvm]" classname="de.andi1984.cadence.RecurrenceEngineTest" time="0.001"/>
+  <testcase name="every two weeks keeps the weekday and skips a week[jvm]" classname="de.andi1984.cadence.RecurrenceEngineTest" time="0.0"/>
+  <testcase name="nth weekday of the month[jvm]" classname="de.andi1984.cadence.RecurrenceEngineTest" time="0.0"/>
+  <testcase name="monthly on a fixed day rolls into the next month[jvm]" classname="de.andi1984.cadence.RecurrenceEngineTest" time="0.0"/>
+  <testcase name="last day of month[jvm]" classname="de.andi1984.cadence.RecurrenceEngineTest" time="0.0"/>
+  <testcase name="summaries carry the pieces the wording needs[jvm]" classname="de.andi1984.cadence.RecurrenceEngineTest" time="0.001"/>
+  <testcase name="keeping missed instances leaves the series where it was[jvm]" classname="de.andi1984.cadence.RecurrenceEngineTest" time="0.0"/>
+  <testcase name="the preview returns three increasing dates[jvm]" classname="de.andi1984.cadence.RecurrenceEngineTest" time="0.0"/>
+  <testcase name="a day of month past the end of a short month is clamped[jvm]" classname="de.andi1984.cadence.RecurrenceEngineTest" time="0.0"/>
+  <testcase name="weekly summaries keep the selected days in order[jvm]" classname="de.andi1984.cadence.RecurrenceEngineTest" time="0.0"/>
+  <testcase name="dropping missed instances catches the series up[jvm]" classname="de.andi1984.cadence.RecurrenceEngineTest" time="0.0"/>
+  <testcase name="last weekday never lands on a weekend and is the last one in the month[jvm]" classname="de.andi1984.cadence.RecurrenceEngineTest" time="0.0"/>
+  <testcase name="weekly with several days picks the next one in the same week[jvm]" classname="de.andi1984.cadence.RecurrenceEngineTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

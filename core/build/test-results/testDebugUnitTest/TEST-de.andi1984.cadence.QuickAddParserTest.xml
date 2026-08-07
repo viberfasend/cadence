@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="de.andi1984.cadence.QuickAddParserTest" tests="25" skipped="0" failures="0" errors="0" timestamp="2026-08-07T20:43:35" hostname="gaming-pc-ubuntu" time="0.094">
+  <properties/>
+  <testcase name="every shipped lexicon compiles its patterns" classname="de.andi1984.cadence.QuickAddParserTest" time="0.06"/>
+  <testcase name="plain german text stays plain" classname="de.andi1984.cadence.QuickAddParserTest" time="0.001"/>
+  <testcase name="german after completion rules" classname="de.andi1984.cadence.QuickAddParserTest" time="0.005"/>
+  <testcase name="after completion rules are recognised" classname="de.andi1984.cadence.QuickAddParserTest" time="0.003"/>
+  <testcase name="nth weekday of the month" classname="de.andi1984.cadence.QuickAddParserTest" time="0.003"/>
+  <testcase name="german interval rules with a weekday" classname="de.andi1984.cadence.QuickAddParserTest" time="0.002"/>
+  <testcase name="every two weeks on a weekday" classname="de.andi1984.cadence.QuickAddParserTest" time="0.001"/>
+  <testcase name="english keeps working inside the german lexicon" classname="de.andi1984.cadence.QuickAddParserTest" time="0.002"/>
+  <testcase name="in n days" classname="de.andi1984.cadence.QuickAddParserTest" time="0.0"/>
+  <testcase name="spelled out counts in relative dates and completion rules" classname="de.andi1984.cadence.QuickAddParserTest" time="0.002"/>
+  <testcase name="relative dates and times" classname="de.andi1984.cadence.QuickAddParserTest" time="0.001"/>
+  <testcase name="a project written without spaces still matches" classname="de.andi1984.cadence.QuickAddParserTest" time="0.0"/>
+  <testcase name="last named weekday of the month" classname="de.andi1984.cadence.QuickAddParserTest" time="0.001"/>
+  <testcase name="a spelled out ordinal still needs the month to be a day-of-month rule" classname="de.andi1984.cadence.QuickAddParserTest" time="0.001"/>
+  <testcase name="german adverbs and last-day rules" classname="de.andi1984.cadence.QuickAddParserTest" time="0.001"/>
+  <testcase name="german dates" classname="de.andi1984.cadence.QuickAddParserTest" time="0.001"/>
+  <testcase name="german dates and times" classname="de.andi1984.cadence.QuickAddParserTest" time="0.002"/>
+  <testcase name="german recurrence needs no english keywords" classname="de.andi1984.cadence.QuickAddParserTest" time="0.0"/>
+  <testcase name="spelled out counts read like digits" classname="de.andi1984.cadence.QuickAddParserTest" time="0.001"/>
+  <testcase name="plain text stays plain" classname="de.andi1984.cadence.QuickAddParserTest" time="0.0"/>
+  <testcase name="every weekday name without an interval" classname="de.andi1984.cadence.QuickAddParserTest" time="0.004"/>
+  <testcase name="german ordinal rules" classname="de.andi1984.cadence.QuickAddParserTest" time="0.001"/>
+  <testcase name="the example from the design parses into four facts" classname="de.andi1984.cadence.QuickAddParserTest" time="0.0"/>
+  <testcase name="nth weekday spelled out and in german" classname="de.andi1984.cadence.QuickAddParserTest" time="0.001"/>
+  <testcase name="an unknown language still reads its own weekday names" classname="de.andi1984.cadence.QuickAddParserTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

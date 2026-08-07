@@ -1,0 +1,16 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /home/andreas/dev/todo/.claude/worktrees/auto-backup-sync/core/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest15484228336723596777.xml:2:13-83
+INJECTED from /home/andreas/dev/todo/.claude/worktrees/auto-backup-sync/core/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest15484228336723596777.xml:2:13-83
+	package
+		INJECTED from /home/andreas/dev/todo/.claude/worktrees/auto-backup-sync/core/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest15484228336723596777.xml
+	xmlns:android
+		ADDED from /home/andreas/dev/todo/.claude/worktrees/auto-backup-sync/core/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest15484228336723596777.xml:2:23-81
+uses-sdk
+INJECTED from /home/andreas/dev/todo/.claude/worktrees/auto-backup-sync/core/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest15484228336723596777.xml reason: use-sdk injection requested
+INJECTED from /home/andreas/dev/todo/.claude/worktrees/auto-backup-sync/core/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest15484228336723596777.xml
+INJECTED from /home/andreas/dev/todo/.claude/worktrees/auto-backup-sync/core/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest15484228336723596777.xml
+	android:targetSdkVersion
+		INJECTED from /home/andreas/dev/todo/.claude/worktrees/auto-backup-sync/core/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest15484228336723596777.xml
+	android:minSdkVersion
+		INJECTED from /home/andreas/dev/todo/.claude/worktrees/auto-backup-sync/core/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest15484228336723596777.xml

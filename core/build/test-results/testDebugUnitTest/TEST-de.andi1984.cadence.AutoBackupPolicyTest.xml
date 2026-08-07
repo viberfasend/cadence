@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="de.andi1984.cadence.AutoBackupPolicyTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-08-07T20:43:34" hostname="gaming-pc-ubuntu" time="0.009">
+  <properties/>
+  <testcase name="the app's own last export is not read back" classname="de.andi1984.cadence.AutoBackupPolicyTest" time="0.007"/>
+  <testcase name="a file without a usable timestamp cannot be ordered, so it is not imported" classname="de.andi1984.cadence.AutoBackupPolicyTest" time="0.001"/>
+  <testcase name="a file written after the last sync is read back" classname="de.andi1984.cadence.AutoBackupPolicyTest" time="0.0"/>
+  <testcase name="a file this device has never synced with is left alone" classname="de.andi1984.cadence.AutoBackupPolicyTest" time="0.0"/>
+  <testcase name="an older file never replaces what is on the device" classname="de.andi1984.cadence.AutoBackupPolicyTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
