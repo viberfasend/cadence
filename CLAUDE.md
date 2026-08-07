@@ -278,3 +278,18 @@ Release signing is optional on top of that: the four `CADENCE_*` env vars/secret
 otherwise the release build is signed with the debug key too (see the comment block in
 `app/build.gradle.kts`) — which means an APK anyone can forge, acceptable only because the app
 ships as a GitHub link rather than through a store.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Defaults (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`),
+unmapped. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `docs/adr/` at the repo root. See `docs/agents/domain.md`.
