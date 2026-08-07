@@ -246,6 +246,8 @@
     <string name="subtasks_part_of">Teil von %1$s</string>
     <string name="subtasks_open_parent">Zugehörige Aufgabe öffnen</string>
     <string name="subtasks_completion_note">Wird diese Aufgabe erledigt, gelten auch ihre offenen Unteraufgaben als erledigt.</string>
+    <string name="subtasks_expand">Unteraufgaben anzeigen</string>
+    <string name="subtasks_collapse">Unteraufgaben ausblenden</string>
 
     <!-- ── Suche ───────────────────────────────────────────────────────────────────── -->
     <string name="search_placeholder">Aufgaben durchsuchen</string>

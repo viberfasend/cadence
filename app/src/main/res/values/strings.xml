@@ -259,6 +259,9 @@
     <string name="subtasks_part_of">Part of %1$s</string>
     <string name="subtasks_open_parent">Open the task this belongs to</string>
     <string name="subtasks_completion_note">Finishing this task finishes its open subtasks.</string>
+    <!-- The chevron on a row that has a checklist, in the Inbox and project lists. -->
+    <string name="subtasks_expand">Show subtasks</string>
+    <string name="subtasks_collapse">Hide subtasks</string>
 
     <!-- ── Search ──────────────────────────────────────────────────────────────────── -->
     <string name="search_placeholder">Search tasks</string>

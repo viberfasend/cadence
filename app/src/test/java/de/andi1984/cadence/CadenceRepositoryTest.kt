@@ -1,6 +1,7 @@
 package de.andi1984.cadence
 
 import de.andi1984.cadence.data.CadenceRepository
+import de.andi1984.cadence.data.RepositoryResult
 import de.andi1984.cadence.data.db.BackupDao
 import de.andi1984.cadence.data.db.ProjectDao
 import de.andi1984.cadence.data.db.ProjectEntity
@@ -138,6 +139,29 @@ class CadenceRepositoryTest {
         val next = rowsTitled("Rat poison").map { it.toDomain() }.single { !it.isDone }
         assertEquals(next.id, handedOver.parentId)
         assertTrue(steps.single { it.isDone }.parentId == parent.id)
+    }
+
+    @Test
+    fun `adding a subtask to an ordinary top-level task succeeds`() = runTest {
+        val parent = store(Task(title = "Plan the trip"))
+
+        val result = repository.addSubtask(parent, "Book flights")
+
+        assertTrue(result is RepositoryResult.Success)
+        val step = rowsTitled("Book flights").single().toDomain()
+        assertEquals(parent.id, step.parentId)
+    }
+
+    @Test
+    fun `adding a subtask while viewing a subtask files it under the same parent`() = runTest {
+        val parent = store(Task(title = "Plan the trip"))
+        val firstStep = store(Task(title = "Book flights", parentId = parent.id))
+
+        val result = repository.addSubtask(firstStep, "Book hotel")
+
+        assertTrue(result is RepositoryResult.Success)
+        val secondStep = rowsTitled("Book hotel").single().toDomain()
+        assertEquals(parent.id, secondStep.parentId)
     }
 
     @Test

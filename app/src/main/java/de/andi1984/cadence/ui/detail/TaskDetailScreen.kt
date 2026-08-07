@@ -30,6 +30,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,8 +46,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Priority
@@ -65,6 +64,7 @@ import de.andi1984.cadence.ui.components.EmptyState
 import de.andi1984.cadence.ui.components.ProjectPickerDialog
 import de.andi1984.cadence.ui.components.ProjectSwatch
 import de.andi1984.cadence.ui.components.SegmentedRow
+import de.andi1984.cadence.ui.components.TaskRow
 import de.andi1984.cadence.ui.components.priorityColor
 import de.andi1984.cadence.ui.format.formatDate
 import de.andi1984.cadence.ui.format.formatTime
@@ -312,6 +312,7 @@ fun TaskDetailScreen(
             if (!task.isSubtask) {
                 SubtaskCard(
                     subtasks = subtasks,
+                    today = today,
                     onToggle = onToggle,
                     onOpen = onOpenTask,
                     onDelete = onDelete,
@@ -467,6 +468,7 @@ fun TaskDetailScreen(
 @Composable
 private fun SubtaskCard(
     subtasks: List<Task>,
+    today: LocalDate,
     onToggle: (Task) -> Unit,
     onOpen: (Task) -> Unit,
     onDelete: (Task) -> Unit,
@@ -549,12 +551,27 @@ private fun SubtaskCard(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
             )
             subtasks.forEach { subtask ->
-                SubtaskRow(
-                    subtask = subtask,
-                    onToggle = { onToggle(subtask) },
-                    onOpen = { onOpen(subtask) },
-                    onDelete = { onDelete(subtask) },
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // A subtask is a task like any other, so it gets the same row the rest of
+                    // the app uses — same checkbox, same priority spine, same due chip.
+                    TaskRow(
+                        task = subtask,
+                        projectLabel = null,
+                        today = today,
+                        onToggle = { onToggle(subtask) },
+                        onClick = { onOpen(subtask) },
+                        showProject = false,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = { onDelete(subtask) }) {
+                        Icon(
+                            imageVector = AppIcons.Close,
+                            contentDescription = stringResource(R.string.subtasks_remove),
+                            tint = scheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
             }
         }
 
@@ -598,62 +615,13 @@ private fun SubtaskCard(
                 },
             )
             if (draft.isNotBlank()) {
-                IconButton(onClick = { submit() }) {
-                    Icon(
-                        imageVector = AppIcons.Check,
-                        contentDescription = stringResource(R.string.subtasks_add),
-                        tint = scheme.primary,
-                    )
+                // A checkmark here would read as "mark done" right next to rows that use exactly
+                // that icon for exactly that — a text button says "submit" without borrowing a
+                // meaning that already belongs to something else on this screen.
+                TextButton(onClick = { submit() }) {
+                    Text(stringResource(R.string.subtasks_add))
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun SubtaskRow(
-    subtask: Task,
-    onToggle: () -> Unit,
-    onOpen: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    val scheme = MaterialTheme.colorScheme
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen)
-            .defaultMinSize(minHeight = 48.dp)
-            .padding(start = 4.dp, end = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CompletionCircle(
-            done = subtask.isDone,
-            accent = if (subtask.isDone) scheme.primary else scheme.outline,
-            size = 20.dp,
-            onToggle = onToggle,
-            stateLabel = if (subtask.isDone) {
-                stringResource(R.string.task_state_done)
-            } else {
-                stringResource(R.string.task_state_not_done)
-            },
-            title = subtask.title,
-        )
-        Text(
-            text = subtask.title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (subtask.isDone) scheme.onSurfaceVariant else scheme.onSurface,
-            textDecoration = if (subtask.isDone) TextDecoration.LineThrough else null,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(onClick = onDelete) {
-            Icon(
-                imageVector = AppIcons.Close,
-                contentDescription = stringResource(R.string.subtasks_remove),
-                tint = scheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
         }
     }
 }

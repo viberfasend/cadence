@@ -17,6 +17,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,11 +45,14 @@ fun InboxScreen(
     onToggle: (Task) -> Unit,
     onTriage: () -> Unit,
 ) {
-    // Root tasks only: a subtask of an Inbox task is already represented by its parent here.
+    // Root tasks only: a subtask of an Inbox task is folded into its parent's row unless the
+    // parent is expanded (see rows below).
     val inbox = state.inboxTasks()
         .filter { state.settings.showCompleted || !it.isDone }
         .sortedFor(state.settings.sortMode)
     val open = inbox.count { !it.isDone }
+    var expandedIds by remember { mutableStateOf(emptySet<Long>()) }
+    val rows = state.expandedRows(inbox, expandedIds)
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenHeader(
@@ -95,7 +102,8 @@ fun InboxScreen(
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            items(inbox, key = { it.id }) { task ->
+            items(rows, key = { if (it.isSubtaskRow) "sub-${it.task.id}" else it.task.id }) { row ->
+                val task = row.task
                 TaskRow(
                     task = task,
                     projectLabel = null,
@@ -103,7 +111,20 @@ fun InboxScreen(
                     onToggle = { onToggle(task) },
                     onClick = { onTaskClick(task) },
                     showProject = false,
-                    subtaskProgress = state.subtaskProgress(task.id),
+                    subtaskProgress = if (row.isSubtaskRow) null else state.subtaskProgress(task.id),
+                    expanded = task.id in expandedIds,
+                    onExpandToggle = if (!row.isSubtaskRow && state.subtaskProgress(task.id) != null) {
+                        {
+                            expandedIds = if (task.id in expandedIds) {
+                                expandedIds - task.id
+                            } else {
+                                expandedIds + task.id
+                            }
+                        }
+                    } else {
+                        null
+                    },
+                    modifier = if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier,
                 )
             }
         }

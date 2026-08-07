@@ -48,6 +48,9 @@ data class SnackbarMessage(
     val duration: Long = 5000L, // Default 5 seconds
 )
 
+/** A row in a task list — a root task, or a subtask shown inline beneath an expanded one. */
+data class TaskListRow(val task: Task, val isSubtaskRow: Boolean)
+
 data class CadenceUiState(
     val tasks: List<Task> = emptyList(),
     val projects: List<Project> = emptyList(),
@@ -101,6 +104,19 @@ data class CadenceUiState(
 
     fun parentOf(task: Task): Task? =
         task.parentId?.let { id -> tasks.firstOrNull { it.id == id } }
+
+    /**
+     * [roots] with the subtasks of any parent in [expandedIds] spliced in directly below it —
+     * the "show subtasks" toggle on a row in a container list (Inbox, a project). Container
+     * lists otherwise never show a subtask at all ([rootTasks] drops them), so this is the one
+     * place they become visible outside the task's own detail screen.
+     */
+    fun expandedRows(roots: List<Task>, expandedIds: Set<Long>): List<TaskListRow> =
+        roots.flatMap { task ->
+            val children = if (task.id in expandedIds) subtasks(task.id) else emptyList()
+            listOf(TaskListRow(task, isSubtaskRow = false)) +
+                children.map { TaskListRow(it, isSubtaskRow = true) }
+        }
 
     /** Subprojects of a project, in the order they were added. */
     fun subprojects(parentId: Long): List<Project> = projects
