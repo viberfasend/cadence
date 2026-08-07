@@ -132,6 +132,25 @@ ui/         theme, shared components, one package per screen
   in unit tests). Importing **replaces** both tables via `BackupDao.replaceAll` in one
   transaction, so ids come straight from the file and task→project links need no remapping;
   tasks referencing a project the file lacks fall back to the Inbox.
+- **Automatic backup sync is opt-in, and asked exactly once.** The offer appears after the first
+  *successful* manual export (`SettingsScreen` holds the picked uri back until the outcome is
+  `Exported`), and `AutoBackupSettings.offered` makes sure a "not now" is never asked again — the
+  switch in Settings is the only way in and out from then on. Manual export and import stay
+  untouched whichever way it is answered. `AutoBackupSync` then writes the file on every change
+  (debounced 2s) and on `ON_STOP`, and reads it on `ON_START`. Three things are load-bearing:
+  - **It never reads back a file it wrote itself.** `AutoBackupPolicy.shouldImport` compares the
+    file's `exportedAt` against `AutoBackupSettings.lastSyncedAt` — the timestamp of the last file
+    this device wrote *or* imported — because an import replaces every row and re-reading our own
+    export would undo everything added since. A device that has never synced with the file
+    (`lastSyncedAt == null`) refuses to import it; a foreign file only ever arrives through an
+    explicit manual import, which records the timestamp and lets every later open follow along.
+  - **The picker's uri grant dies with the process**, so the export contract is subclassed
+    (`PersistableCreateDocument`) to ask for a persistable one and `AutoBackupSync.enable` takes
+    it. If that fails the switch stays off and says why rather than promising a sync that stops
+    at the next restart.
+  - **It runs on an application-scoped coroutine** in `AppContainer`, not `viewModelScope`: the
+    write that starts as the user leaves has to outlive the screen it started from. A `Mutex`
+    serialises reads against writes.
 - Settings persist to `SharedPreferences` via `SettingsStore` (not DataStore), exposed as a
   `StateFlow`.
 

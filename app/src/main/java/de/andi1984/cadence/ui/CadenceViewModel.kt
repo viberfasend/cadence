@@ -9,6 +9,8 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import de.andi1984.cadence.CadenceApplication
 import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.data.RepositoryResult
+import de.andi1984.cadence.data.backup.AutoBackupSync
+import de.andi1984.cadence.data.backup.BackupFailure
 import de.andi1984.cadence.data.backup.BackupIo
 import de.andi1984.cadence.data.backup.BackupOutcome
 import de.andi1984.cadence.domain.model.Priority
@@ -54,6 +56,8 @@ data class CadenceUiState(
     val settings: CadenceSettings = CadenceSettings(),
     /** Result of the last export or import, shown once under the Settings buttons. */
     val backupOutcome: BackupOutcome? = null,
+    /** Why automatic sync last failed, or null while it is working. */
+    val autoBackupFailure: BackupFailure? = null,
     /** Current snackbar message to display, if any. */
     val snackbarMessage: SnackbarMessage? = null,
 ) {
@@ -142,23 +146,32 @@ class CadenceViewModel(
     private val settingsStore: SettingsStore,
     private val reminderScheduler: ReminderScheduler,
     private val backupIo: BackupIo,
+    private val autoBackupSync: AutoBackupSync,
 ) : ViewModel() {
 
     private val backupOutcome = MutableStateFlow<BackupOutcome?>(null)
     private val snackbarMessage = MutableStateFlow<SnackbarMessage?>(null)
 
+    /** Settings and the health of automatic sync always travel together into the Data section,
+     *  and `combine` takes five flows at most. */
+    private val settingsWithSync = combine(
+        settingsStore.state,
+        autoBackupSync.failure,
+    ) { settings, failure -> settings to failure }
+
     val state: StateFlow<CadenceUiState> = combine(
         repository.tasks,
         repository.projects,
-        settingsStore.state,
+        settingsWithSync,
         backupOutcome,
         snackbarMessage,
-    ) { tasks, projects, settings, backup, snackMessage ->
+    ) { tasks, projects, (settings, autoFailure), backup, snackMessage ->
         CadenceUiState(
             tasks = tasks,
             projects = projects,
             settings = settings,
             backupOutcome = backup,
+            autoBackupFailure = autoFailure,
             snackbarMessage = snackMessage,
         )
     }.stateIn(
@@ -352,17 +365,35 @@ class CadenceViewModel(
     // ── Backup ─────────────────────────────────────────────────────────────────────
 
     fun exportBackup(uri: Uri) = viewModelScope.launch {
-        backupOutcome.value = backupIo.export(uri)
+        val outcome = backupIo.export(uri)
+        backupOutcome.value = outcome
+        autoBackupSync.noteManualBackup(uri, outcome)
     }
 
     /** Replaces every task and project with the file's contents; reminders resync themselves. */
     fun importBackup(uri: Uri) = viewModelScope.launch {
-        backupOutcome.value = backupIo.import(uri)
+        val outcome = backupIo.import(uri)
+        backupOutcome.value = outcome
+        autoBackupSync.noteManualBackup(uri, outcome)
     }
 
     fun clearBackupOutcome() {
         backupOutcome.value = null
     }
+
+    // ── Automatic backup sync ──────────────────────────────────────────────────────
+
+    /** Turns sync on for the file the user just exported to, or picked from Settings. */
+    fun enableAutoBackup(uri: Uri) = autoBackupSync.enable(uri)
+
+    fun disableAutoBackup() = autoBackupSync.disable()
+
+    /** "Not now" — the offer is answered, and manual export and import carry on as before. */
+    fun declineAutoBackup() = autoBackupSync.declineOffer()
+
+    fun onAppForegrounded() = autoBackupSync.onAppForegrounded()
+
+    fun onAppBackgrounded() = autoBackupSync.onAppBackgrounded()
 
     /** Show a snackbar message with optional undo action. */
     fun showSnackbar(text: String, undoAction: UndoAction? = null, duration: Long = 5000L) {
@@ -427,6 +458,7 @@ class CadenceViewModel(
                     settingsStore = application.container.settingsStore,
                     reminderScheduler = application.container.reminderScheduler,
                     backupIo = application.container.backupIo,
+                    autoBackupSync = application.container.autoBackupSync,
                 )
             }
         }

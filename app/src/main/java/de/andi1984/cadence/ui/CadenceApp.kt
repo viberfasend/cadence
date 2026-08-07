@@ -205,6 +205,9 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState) {
                         onExport = viewModel::exportBackup,
                         onImport = viewModel::importBackup,
                         onClearBackupOutcome = viewModel::clearBackupOutcome,
+                        onEnableAutoBackup = viewModel::enableAutoBackup,
+                        onDisableAutoBackup = viewModel::disableAutoBackup,
+                        onDeclineAutoBackup = viewModel::declineAutoBackup,
                     )
                 }
                 composable(Routes.TRIAGE) {

@@ -16,17 +16,21 @@ fun backupOutcomeText(outcome: BackupOutcome): String = when (outcome) {
     is BackupOutcome.Imported ->
         stringResource(R.string.backup_imported, taskCount(outcome.tasks), projectCount(outcome.projects))
 
-    is BackupOutcome.Failed -> stringResource(
-        when (outcome.reason) {
-            BackupFailure.WRITE_FAILED -> R.string.backup_error_write
-            BackupFailure.READ_FAILED -> R.string.backup_error_read
-            BackupFailure.FILE_TOO_LARGE -> R.string.backup_error_too_large
-            BackupFailure.NOT_JSON -> R.string.backup_error_not_json
-            BackupFailure.NOT_A_BACKUP -> R.string.backup_error_not_a_backup
-            BackupFailure.NEWER_VERSION -> R.string.backup_error_newer_version
-        },
-    )
+    is BackupOutcome.Failed -> backupFailureText(outcome.reason)
 }
+
+/** The same sentences on their own, for the failure automatic sync reports in Settings. */
+@Composable
+fun backupFailureText(reason: BackupFailure): String = stringResource(
+    when (reason) {
+        BackupFailure.WRITE_FAILED -> R.string.backup_error_write
+        BackupFailure.READ_FAILED -> R.string.backup_error_read
+        BackupFailure.FILE_TOO_LARGE -> R.string.backup_error_too_large
+        BackupFailure.NOT_JSON -> R.string.backup_error_not_json
+        BackupFailure.NOT_A_BACKUP -> R.string.backup_error_not_a_backup
+        BackupFailure.NEWER_VERSION -> R.string.backup_error_newer_version
+    },
+)
 
 @Composable
 private fun taskCount(count: Int): String =

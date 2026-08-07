@@ -24,7 +24,16 @@ data class BackupSnapshot(
 enum class BackupError { NOT_JSON, NOT_A_BACKUP, NEWER_VERSION }
 
 sealed interface BackupReadResult {
-    data class Ok(val snapshot: BackupSnapshot) : BackupReadResult
+    /**
+     * [exportedAt] is what the file says about itself, or null when it carries no timestamp or
+     * an unreadable one. Automatic sync orders a file against the last one this device wrote
+     * with it; nothing else reads it.
+     */
+    data class Ok(
+        val snapshot: BackupSnapshot,
+        val exportedAt: Instant? = null,
+    ) : BackupReadResult
+
     data class Failed(val reason: BackupError) : BackupReadResult
 }
 
@@ -89,7 +98,10 @@ object BackupCodec {
                 if (replaces != task.spawnedFromId) task.copy(spawnedFromId = replaces) else task
             }
             .normalisedParents()
-        return BackupReadResult.Ok(BackupSnapshot(projects = projects, tasks = tasks))
+        return BackupReadResult.Ok(
+            snapshot = BackupSnapshot(projects = projects, tasks = tasks),
+            exportedAt = document.exportedAt.parseOrNull { Instant.parse(it) },
+        )
     }
 }
 

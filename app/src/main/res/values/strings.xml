@@ -343,6 +343,21 @@
     <string name="backup_error_not_a_backup">That file is not a Cadence backup.</string>
     <string name="backup_error_newer_version">That backup was written by a newer version of Cadence.</string>
 
+    <!-- ── Automatic backup sync ───────────────────────────────────────────────────── -->
+    <string name="settings_auto_backup">Keep the backup up to date</string>
+    <string name="settings_auto_backup_supporting">Reads the backup file when Cadence opens, and writes it again after every change and when you leave.</string>
+    <!-- %1$s is the file name, e.g. cadence-backup-2026-08-07.json. -->
+    <string name="settings_auto_backup_file">Syncing with %1$s</string>
+    <!-- %1$s is a relative time, e.g. "5 minutes ago". -->
+    <string name="settings_auto_backup_last_synced">Last synced %1$s</string>
+    <!-- %1$s is one of the backup_error_* sentences. -->
+    <string name="settings_auto_backup_failed">Automatic sync stopped. %1$s</string>
+    <string name="auto_backup_offer_title">Keep this backup up to date?</string>
+    <string name="auto_backup_offer_text">Cadence can look after this file for you: it reads it when the app opens, and writes it again after every change and when you leave. Put the file in a folder that syncs and your tasks follow you.</string>
+    <string name="auto_backup_offer_note">Opening the app then replaces its data with the file whenever the file is newer — so keep it to one device at a time. You can turn this off again in Settings, and export or import by hand whether it is on or off.</string>
+    <string name="auto_backup_offer_enable">Keep it up to date</string>
+    <string name="auto_backup_offer_decline">Not now</string>
+
     <!-- ── Reminders ───────────────────────────────────────────────────────────────── -->
     <string name="reminder_channel_name">Task reminders</string>
     <string name="reminder_channel_description">Reminders for tasks that are due</string>
