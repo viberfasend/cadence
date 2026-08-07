@@ -328,7 +328,6 @@ class CadenceViewModel(
             undoAction = UndoAction.DeleteProject(deletedProject, deletedTasks)
         )
     }
-    }
 
     // ── Settings ───────────────────────────────────────────────────────────────────
 
