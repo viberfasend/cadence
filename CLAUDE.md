@@ -29,8 +29,8 @@ The product rule the whole app is built on: **importance first, due date breaks 
 `:core`'s tests are one source set compiled twice: `:core:jvmTest` is the desktop compilation and
 `:core:testDebugUnitTest` the Android one. `testDebugUnitTest` alone therefore misses nothing in
 `:core` today, but it also never exercises the JVM target the desktop app will be built on, so CI
-names both. `:app`'s own tests (repository, recurrence chain, `RecurrenceCodec`) are Android-only
-and run under `testDebugUnitTest`.
+names both. `:app`'s only remaining unit test is `RecurrenceCodecTest`, which covers the packed
+storage column and runs under `testDebugUnitTest`.
 
 JDK 17, compileSdk/targetSdk 35, minSdk 26. No lint or format task is wired up.
 
@@ -64,10 +64,24 @@ composable state, not a route.
 ```
 :core  domain/     pure Kotlin — model, RecurrenceEngine, QuickAddParser, BackupCodec. NO
                    Android imports; this is what the JVM unit tests exercise. Keep it that way.
-:app   data/       Room entities + DAOs, CadenceRepository, BackupIo (SAF read/write)
+       data/       CadenceRepository, and the TaskStore/ProjectStore/BackupStore ports it needs
+:app   data/db/    Room entities + DAOs, and the RoomStores that implement those ports
+       data/backup/BackupIo (SAF read/write), AutoBackupSync
        reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
        ui/         theme, shared components, one package per screen
 ```
+
+**Storage is a port, not a layer.** `CadenceRepository` lives in `:core` because the completion
+and recurrence rules do, and it reaches storage through three interfaces in `data/Stores.kt` that
+speak `Task` and `Project` rather than rows and carry no database annotation. `:app` supplies
+`RoomTaskStore`/`RoomProjectStore`/`RoomBackupStore` (`room-runtime` is an Android artifact and
+stays on that side); the desktop app will supply its own. Every `toDomain`/`toEntity` in the app
+is now in `data/db/RoomStores.kt` and `data/db/Entities.kt` — nowhere else.
+
+`TaskStore.completeIfOpen` and `reopenIfDone` return whether *this* call changed the row, and an
+implementation must decide that inside the store — in SQL, in a lock, in whatever it has — never
+against the `Task` it was handed. That is the whole idempotency guarantee; see the completion
+notes below.
 
 `:core` is a Kotlin Multiplatform module with an **android** and a **jvm** target, and all of its
 code lives in a hand-declared `jvmShared` source set that both targets depend on — not in
@@ -105,11 +119,11 @@ than reaching for `!!`.
   answer the same three questions:
   - **Completing must be idempotent.** Every caller passes a `Task` the UI drew a row from, and a
     checkbox tapped twice hands back the same *open* snapshot both times.
-    `TaskDao.completeIfOpen` closes the row in SQL and reports whether this call is the one that
+    `TaskStore.completeIfOpen` closes the row in SQL and reports whether this call is the one that
     closed it, so only that call schedules the successor and the rest of the work reads the row
     back instead of trusting the snapshot. Don't replace it with a plain `update`.
   - **Reopening undoes both halves**: the row opens again and the occurrence that completion
-    inserted is deleted (`TaskDao.openSuccessorsOf`), or the task would stand in the list twice.
+    inserted is deleted (`TaskStore.openSuccessorsOf`), or the task would stand in the list twice.
     One that has itself been ticked off is left alone — the chain has moved on. `setCompleted`
     returns the ids it deleted so the ViewModel can cancel their alarms.
   - **Undated lists show a chain as one task.** `CadenceUiState.rootTasks` drops a completed
@@ -132,7 +146,7 @@ than reaching for `!!`.
 - **A fresh install starts empty.** There is no seeding: the first screen a new user sees is the
   empty state, not sample content. Anything that needs a populated app (screenshots, a demo) is
   built by importing a backup file, not by putting fixtures back into the app.
-- **Deleting a project never silently hides tasks.** `ProjectDao.deleteWithChildren` runs in one
+- **Deleting a project never silently hides tasks.** `ProjectStore.deleteWithChildren` runs in one
   transaction and either moves the affected tasks to the Inbox (`projectId = NULL`, the default)
   or deletes them; without that, a task filed under a deleted project would keep a `projectId`
   no project answers to and disappear from every list. The repository returns the ids of the
@@ -152,7 +166,7 @@ than reaching for `!!`.
   occurrence the file lacks is dropped, and a subtask whose parent the file
   lacks — or one in a chain or cycle — is set free by `normalisedParents`. It uses
   kotlinx.serialization (pure Kotlin, so the codec stays JVM-testable — `org.json` is stubbed
-  in unit tests). Importing **replaces** both tables via `BackupDao.replaceAll` in one
+  in unit tests). Importing **replaces** both tables via `BackupStore.replaceAll` in one
   transaction, so ids come straight from the file and task→project links need no remapping;
   tasks referencing a project the file lacks fall back to the Inbox.
 - **Automatic backup sync is opt-in, and asked exactly once.** The offer appears after the first

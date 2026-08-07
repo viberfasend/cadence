@@ -6,6 +6,9 @@ import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.data.backup.AutoBackupSync
 import de.andi1984.cadence.data.backup.BackupIo
 import de.andi1984.cadence.data.db.CadenceDatabase
+import de.andi1984.cadence.data.db.RoomBackupStore
+import de.andi1984.cadence.data.db.RoomProjectStore
+import de.andi1984.cadence.data.db.RoomTaskStore
 import de.andi1984.cadence.reminders.ReminderScheduler
 import de.andi1984.cadence.ui.settings.SettingsStore
 import kotlinx.coroutines.CoroutineScope
@@ -18,9 +21,9 @@ class AppContainer(context: Context) {
     private val database = CadenceDatabase.get(context)
 
     val repository = CadenceRepository(
-        taskDao = database.taskDao(),
-        projectDao = database.projectDao(),
-        backupDao = database.backupDao(),
+        taskStore = RoomTaskStore(database.taskDao()),
+        projectStore = RoomProjectStore(database.projectDao()),
+        backupStore = RoomBackupStore(database.backupDao()),
     )
 
     val backupIo = BackupIo(context, repository)

@@ -1,7 +1,6 @@
 package de.andi1984.cadence.data.db
 
 import androidx.room.Dao
-import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -58,9 +57,6 @@ interface TaskDao {
 
     @Update
     suspend fun update(task: TaskEntity)
-
-    @Delete
-    suspend fun delete(task: TaskEntity)
 
     /** Deleting a task takes its subtasks with it — a step without its task has no meaning. */
     @Query("DELETE FROM tasks WHERE id = :id OR parentId = :id")
