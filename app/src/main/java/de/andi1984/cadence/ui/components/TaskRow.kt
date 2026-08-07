@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -18,11 +19,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -64,6 +67,10 @@ fun TaskRow(
     parentTitle: String? = null,
     /** "2/5" for a task with a checklist, null for one without. */
     subtaskProgress: SubtaskProgress? = null,
+    /** Whether this row's subtasks are currently shown inline below it. */
+    expanded: Boolean = false,
+    /** Set only where a row can reveal its subtasks inline — renders the expand toggle. */
+    onExpandToggle: (() -> Unit)? = null,
 ) {
     val cadenceColors = LocalCadenceColors.current
     val density = LocalCadenceDensity.current
@@ -205,11 +212,14 @@ fun TaskRow(
                     if (subtaskProgress != null) {
                         SubtaskChip(progress = subtaskProgress, tint = metaColor)
                     }
-                    // Show subtask indicator if this is a subtask and we have a parent title
+                    // "Belongs to a parent" — same icon and meaning as the pill on the task's own
+                    // detail screen. Deliberately not AppIcons.Checklist: that icon already means
+                    // "this task has subtasks" on the chip above, and reusing it here for the
+                    // opposite relationship (this task IS a subtask) read as the same badge twice.
                     if (parentTitle != null && task.isSubtask) {
                         Icon(
-                            imageVector = AppIcons.Checklist,
-                            contentDescription = "Subtask of $parentTitle",
+                            imageVector = AppIcons.ParentTask,
+                            contentDescription = stringResource(R.string.subtasks_part_of, parentTitle),
                             tint = scheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp),
                         )
@@ -229,6 +239,40 @@ fun TaskRow(
                 }
             }
         }
+
+        if (onExpandToggle != null) {
+            ExpandToggle(expanded = expanded, onToggle = onExpandToggle)
+        }
+    }
+}
+
+/** Reveals or hides a task's subtasks inline below it — a 44dp target of its own, apart from the checkbox. */
+@Composable
+private fun ExpandToggle(expanded: Boolean, onToggle: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val rotation by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        label = "subtask-expand-rotation",
+    )
+    val label = stringResource(
+        if (expanded) R.string.subtasks_collapse else R.string.subtasks_expand,
+    )
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .clickable(role = Role.Button, onClick = onToggle)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = AppIcons.ExpandMore,
+            contentDescription = null,
+            tint = scheme.onSurfaceVariant,
+            modifier = Modifier
+                .size(20.dp)
+                .graphicsLayer(rotationZ = rotation),
+        )
     }
 }
 

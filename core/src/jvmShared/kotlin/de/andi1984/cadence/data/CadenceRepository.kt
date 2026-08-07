@@ -63,13 +63,11 @@ class CadenceRepository(
         if (trimmed.isEmpty()) {
             return RepositoryResult.ValidationError
         }
-        
-        // Prevent circular references - a task cannot be its own parent
+
+        // Nesting stops after one level: adding a subtask while looking at a subtask files the
+        // new one under the same grandparent, next to the one being viewed.
         val parentId = parent.parentId ?: parent.id
-        if (parentId == parent.id) {
-            return RepositoryResult.Error("Cannot create circular reference: task cannot be its own parent")
-        }
-        
+
         // Check if we would exceed the maximum subtask limit
         val currentSubtaskCount = taskStore.subtasksOf(parentId).size
         if (currentSubtaskCount >= MAX_SUBTASKS_PER_PARENT) {
