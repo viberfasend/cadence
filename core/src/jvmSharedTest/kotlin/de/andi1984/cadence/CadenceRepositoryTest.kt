@@ -1,14 +1,11 @@
 package de.andi1984.cadence
 
+import de.andi1984.cadence.data.BackupStore
 import de.andi1984.cadence.data.CadenceRepository
-import de.andi1984.cadence.data.db.BackupDao
-import de.andi1984.cadence.data.db.ProjectDao
-import de.andi1984.cadence.data.db.ProjectEntity
-import de.andi1984.cadence.data.db.TaskDao
-import de.andi1984.cadence.data.db.TaskEntity
-import de.andi1984.cadence.data.db.toDomain
-import de.andi1984.cadence.data.db.toEntity
+import de.andi1984.cadence.data.ProjectStore
+import de.andi1984.cadence.data.TaskStore
 import de.andi1984.cadence.domain.model.Priority
+import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Task
@@ -21,6 +18,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 import java.time.LocalDate
 
 /**
@@ -33,15 +31,12 @@ class CadenceRepositoryTest {
     private val fortnightly = RecurrenceRule(interval = 2, unit = RecurrenceUnit.WEEK)
     private val today = LocalDate.of(2026, 8, 7)
 
-    private val taskDao = FakeTaskDao()
-    private val repository = CadenceRepository(taskDao, FakeProjectDao(), FakeBackupDao())
+    private val taskStore = FakeTaskStore()
+    private val repository = CadenceRepository(taskStore, FakeProjectStore(), FakeBackupStore())
 
-    private fun store(task: Task): Task {
-        val id = taskDao.put(task.toEntity())
-        return taskDao.row(id).toDomain()
-    }
+    private fun store(task: Task): Task = taskStore.row(taskStore.put(task))
 
-    private fun rowsTitled(title: String) = taskDao.rows().filter { it.title == title }
+    private fun rowsTitled(title: String) = taskStore.rows().filter { it.title == title }
 
     /** The task from the bug report: fortnightly, in the Inbox, due today. */
     private fun recurring(
@@ -55,7 +50,7 @@ class CadenceRepositoryTest {
 
         repository.setCompleted(task, true, today)
 
-        val rows = rowsTitled("Rat poison").map { it.toDomain() }
+        val rows = rowsTitled("Rat poison")
         assertEquals(2, rows.size)
         val done = rows.single { it.isDone }
         val next = rows.single { !it.isDone }
@@ -73,7 +68,7 @@ class CadenceRepositoryTest {
         repository.setCompleted(task, true, today)
         repository.setCompleted(task, true, today)
 
-        val rows = rowsTitled("Rat poison").map { it.toDomain() }
+        val rows = rowsTitled("Rat poison")
         assertEquals(2, rows.size)
         assertEquals(1, rows.count { !it.isDone })
     }
@@ -87,7 +82,7 @@ class CadenceRepositoryTest {
 
         val rows = rowsTitled("Call the vet")
         assertEquals(1, rows.size)
-        assertTrue(rows.single().toDomain().isDone)
+        assertTrue(rows.single().isDone)
     }
 
     @Test
@@ -107,11 +102,11 @@ class CadenceRepositoryTest {
         val drawn = store(recurring(due = LocalDate.of(2026, 8, 1), priority = Priority.P3))
         // The detail screen moved the task while the list still showed the old row.
         val edited = drawn.copy(priority = Priority.P1, dueDate = LocalDate.of(2026, 8, 5))
-        taskDao.put(edited.toEntity())
+        taskStore.put(edited)
 
         repository.setCompleted(drawn, true, today)
 
-        val next = rowsTitled("Rat poison").map { it.toDomain() }.single { !it.isDone }
+        val next = rowsTitled("Rat poison").single { !it.isDone }
         assertEquals(LocalDate.of(2026, 8, 19), next.dueDate)
         assertEquals(Priority.P1, next.priority)
     }
@@ -130,12 +125,12 @@ class CadenceRepositoryTest {
         repository.setCompleted(parent, true, today)
         repository.setCompleted(parent, true, today)
 
-        val steps = rowsTitled("Check the traps").map { it.toDomain() }
+        val steps = rowsTitled("Check the traps")
         assertEquals(2, steps.size)
         val handedOver = steps.single { !it.isDone }
         assertEquals(LocalDate.of(2026, 8, 20), handedOver.dueDate)
         // The step went with the new occurrence, not with the one that was just finished.
-        val next = rowsTitled("Rat poison").map { it.toDomain() }.single { !it.isDone }
+        val next = rowsTitled("Rat poison").single { !it.isDone }
         assertEquals(next.id, handedOver.parentId)
         assertTrue(steps.single { it.isDone }.parentId == parent.id)
     }
@@ -146,7 +141,7 @@ class CadenceRepositoryTest {
 
         repository.setCompleted(task, true, today)
 
-        val next = rowsTitled("Rat poison").map { it.toDomain() }.single { !it.isDone }
+        val next = rowsTitled("Rat poison").single { !it.isDone }
         assertEquals(task.id, next.spawnedFromId)
     }
 
@@ -169,7 +164,7 @@ class CadenceRepositoryTest {
     fun `reopening leaves a successor that has itself been ticked off`() = runTest {
         val first = store(recurring())
         repository.setCompleted(first, true, today)
-        val second = rowsTitled("Rat poison").single { it.completedAt == null }.toDomain()
+        val second = rowsTitled("Rat poison").single { it.completedAt == null }
         // The chain moved on: the second occurrence is done and has a successor of its own.
         repository.setCompleted(second, true, LocalDate.of(2026, 8, 21))
 
@@ -197,7 +192,7 @@ class CadenceRepositoryTest {
     fun `reopening clears the completion and reopening again is a no-op`() = runTest {
         val task = store(Task(title = "Call the vet"))
         repository.setCompleted(task, true, today)
-        val done = rowsTitled("Call the vet").single().toDomain()
+        val done = rowsTitled("Call the vet").single()
 
         repository.setCompleted(done, false, today)
         repository.setCompleted(done, false, today)
@@ -205,54 +200,50 @@ class CadenceRepositoryTest {
         val rows = rowsTitled("Call the vet")
         assertEquals(1, rows.size)
         assertNull(rows.single().completedAt)
-        assertFalse(rows.single().toDomain().isDone)
+        assertFalse(rows.single().isDone)
     }
 }
 
-/** An in-memory stand-in for the generated DAO, with SQLite's semantics for the guarded writes. */
-private class FakeTaskDao : TaskDao {
+/** An in-memory [TaskStore] with SQLite's semantics for the guarded writes. */
+private class FakeTaskStore : TaskStore {
 
-    private val table = MutableStateFlow<Map<Long, TaskEntity>>(emptyMap())
+    private val table = MutableStateFlow<Map<Long, Task>>(emptyMap())
     private var nextId = 1L
 
-    /** Inserts or replaces, the way `OnConflictStrategy.REPLACE` does. */
-    fun put(task: TaskEntity): Long {
+    /** Inserts a task with no id and replaces one that has it, as [TaskStore.insert] promises. */
+    fun put(task: Task): Long {
         val id = if (task.id == 0L) nextId++ else task.id
         table.value = table.value + (id to task.copy(id = id))
         return id
     }
 
-    fun row(id: Long): TaskEntity = table.value[id] ?: error("no task with id $id")
+    fun row(id: Long): Task = table.value[id] ?: error("no task with id $id")
 
-    fun rows(): List<TaskEntity> = table.value.values.toList()
+    fun rows(): List<Task> = table.value.values.toList()
 
-    override fun observeAll(): Flow<List<TaskEntity>> = table.map { it.values.toList() }
+    override fun observeAll(): Flow<List<Task>> = table.map { it.values.toList() }
 
-    override fun observeById(id: Long): Flow<TaskEntity?> = table.map { it[id] }
+    override fun observeById(id: Long): Flow<Task?> = table.map { it[id] }
 
-    override suspend fun getAll(): List<TaskEntity> = rows()
+    override suspend fun getAll(): List<Task> = rows()
 
-    override suspend fun byId(id: Long): TaskEntity? = table.value[id]
+    override suspend fun byId(id: Long): Task? = table.value[id]
 
-    override suspend fun subtasksOf(parentId: Long): List<TaskEntity> = rows()
+    override suspend fun subtasksOf(parentId: Long): List<Task> = rows()
         .filter { it.parentId == parentId }
         .sortedWith(compareBy({ it.sortOrder }, { it.id }))
 
-    override suspend fun insert(task: TaskEntity): Long = put(task)
+    override suspend fun insert(task: Task): Long = put(task)
 
-    override suspend fun update(task: TaskEntity) {
+    override suspend fun update(task: Task) {
         if (table.value.containsKey(task.id)) table.value = table.value + (task.id to task)
-    }
-
-    override suspend fun delete(task: TaskEntity) {
-        table.value = table.value - task.id
     }
 
     override suspend fun deleteWithSubtasks(id: Long) {
         table.value = table.value.filterValues { it.id != id && it.parentId != id }
     }
 
-    override suspend fun completeIfOpen(id: Long, completedAt: Long): Int {
+    override suspend fun completeIfOpen(id: Long, completedAt: Instant): Int {
         val task = table.value[id] ?: return 0
         if (task.completedAt != null) return 0
         table.value = table.value + (id to task.copy(completedAt = completedAt))
@@ -272,32 +263,22 @@ private class FakeTaskDao : TaskDao {
 }
 
 /** Projects play no part in completing a task; these fakes only satisfy the constructor. */
-private class FakeProjectDao : ProjectDao() {
+private class FakeProjectStore : ProjectStore {
 
-    override fun observeAll(): Flow<List<ProjectEntity>> = MutableStateFlow(emptyList())
+    override fun observeAll(): Flow<List<Project>> = MutableStateFlow(emptyList())
 
-    override suspend fun getAll(): List<ProjectEntity> = emptyList()
+    override suspend fun getAll(): List<Project> = emptyList()
 
-    override suspend fun insert(project: ProjectEntity): Long = project.id
+    override suspend fun insert(project: Project): Long = project.id
 
-    override suspend fun update(project: ProjectEntity) = Unit
+    override suspend fun update(project: Project) = Unit
 
     override suspend fun taskIdsIn(id: Long): List<Long> = emptyList()
 
-    override suspend fun moveTasksToInbox(id: Long) = Unit
-
-    override suspend fun deleteTasksIn(id: Long) = Unit
-
-    override suspend fun deleteRows(id: Long) = Unit
+    override suspend fun deleteWithChildren(id: Long, deleteTasks: Boolean) = Unit
 }
 
-private class FakeBackupDao : BackupDao() {
+private class FakeBackupStore : BackupStore {
 
-    override suspend fun deleteAllTasks() = Unit
-
-    override suspend fun deleteAllProjects() = Unit
-
-    override suspend fun insertProjects(projects: List<ProjectEntity>) = Unit
-
-    override suspend fun insertTasks(tasks: List<TaskEntity>) = Unit
+    override suspend fun replaceAll(projects: List<Project>, tasks: List<Task>) = Unit
 }

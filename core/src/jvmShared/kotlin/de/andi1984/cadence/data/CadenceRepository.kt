@@ -1,16 +1,10 @@
 package de.andi1984.cadence.data
 
-import de.andi1984.cadence.data.db.BackupDao
-import de.andi1984.cadence.data.db.ProjectDao
-import de.andi1984.cadence.data.db.TaskDao
-import de.andi1984.cadence.data.db.toDomain
-import de.andi1984.cadence.data.db.toEntity
 import de.andi1984.cadence.domain.backup.BackupSnapshot
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -29,17 +23,16 @@ sealed class RepositoryResult<out T> {
 }
 
 class CadenceRepository(
-    private val taskDao: TaskDao,
-    private val projectDao: ProjectDao,
-    private val backupDao: BackupDao,
+    private val taskStore: TaskStore,
+    private val projectStore: ProjectStore,
+    private val backupStore: BackupStore,
 ) {
 
-    val tasks: Flow<List<Task>> = taskDao.observeAll().map { list -> list.map { it.toDomain() } }
+    val tasks: Flow<List<Task>> = taskStore.observeAll()
 
-    val projects: Flow<List<Project>> =
-        projectDao.observeAll().map { list -> list.map { it.toDomain() } }
+    val projects: Flow<List<Project>> = projectStore.observeAll()
 
-    fun task(id: Long): Flow<Task?> = taskDao.observeById(id).map { it?.toDomain() }
+    fun task(id: Long): Flow<Task?> = taskStore.observeById(id)
 
     suspend fun upsertTask(task: Task): Long {
         val stamped = if (task.createdAt == Instant.EPOCH) {
@@ -48,17 +41,16 @@ class CadenceRepository(
             task
         }
         return if (stamped.id == 0L) {
-            taskDao.insert(stamped.toEntity())
+            taskStore.insert(stamped)
         } else {
-            taskDao.update(stamped.toEntity())
+            taskStore.update(stamped)
             stamped.id
         }
     }
 
-    suspend fun deleteTask(id: Long) = taskDao.deleteWithSubtasks(id)
+    suspend fun deleteTask(id: Long) = taskStore.deleteWithSubtasks(id)
 
-    suspend fun subtasksOf(parentId: Long): List<Task> =
-        taskDao.subtasksOf(parentId).map { it.toDomain() }
+    suspend fun subtasksOf(parentId: Long): List<Task> = taskStore.subtasksOf(parentId)
 
     /**
      * Adds a step under [parent].
@@ -79,20 +71,20 @@ class CadenceRepository(
         }
         
         // Check if we would exceed the maximum subtask limit
-        val currentSubtaskCount = taskDao.subtasksOf(parentId).size
+        val currentSubtaskCount = taskStore.subtasksOf(parentId).size
         if (currentSubtaskCount >= MAX_SUBTASKS_PER_PARENT) {
             return RepositoryResult.Error("Maximum subtask limit ($MAX_SUBTASKS_PER_PARENT) reached for this parent")
         }
-        
+
         return try {
-            val newTaskId = taskDao.insert(
+            val newTaskId = taskStore.insert(
                 Task(
                     title = trimmed,
                     projectId = parent.projectId,
                     parentId = parentId,
                     createdAt = Instant.now(),
                     sortOrder = currentSubtaskCount,
-                ).toEntity(),
+                ),
             )
             RepositoryResult.Success(newTaskId)
         } catch (e: Exception) {
@@ -102,8 +94,8 @@ class CadenceRepository(
 
     /** A task and its steps live in the same project, so moving one moves the whole checklist. */
     suspend fun moveToProject(task: Task, projectId: Long?) {
-        taskDao.update(task.copy(projectId = projectId).toEntity())
-        taskDao.subtasksOf(task.id).forEach { taskDao.update(it.copy(projectId = projectId)) }
+        taskStore.update(task.copy(projectId = projectId))
+        taskStore.subtasksOf(task.id).forEach { taskStore.update(it.copy(projectId = projectId)) }
     }
 
     /**
@@ -117,7 +109,7 @@ class CadenceRepository(
      * Completing is idempotent, which matters precisely because it has that side effect: [task]
      * is a snapshot the UI drew a row from, and the same open snapshot is handed back by every
      * tap that lands before the row re-composes. Closing the row is therefore left to
-     * [TaskDao.completeIfOpen], and only the call that actually closed it goes on to schedule the
+     * [TaskStore.completeIfOpen], and only the call that actually closed it goes on to schedule the
      * successor — otherwise two taps on one checkbox left two identical occurrences behind.
      *
      * Reopening undoes both halves: the row opens again *and* the occurrence its completion
@@ -133,37 +125,36 @@ class CadenceRepository(
         today: LocalDate = LocalDate.now(),
     ): List<Long> {
         if (!completed) {
-            if (taskDao.reopenIfDone(task.id) == 0) return emptyList()
-            val successors = taskDao.openSuccessorsOf(task.id)
-            successors.forEach { taskDao.deleteWithSubtasks(it) }
+            if (taskStore.reopenIfDone(task.id) == 0) return emptyList()
+            val successors = taskStore.openSuccessorsOf(task.id)
+            successors.forEach { taskStore.deleteWithSubtasks(it) }
             return successors
         }
         val now = Instant.now()
-        if (taskDao.completeIfOpen(task.id, now.toEpochMilli()) == 0) return emptyList()
+        if (taskStore.completeIfOpen(task.id, now) == 0) return emptyList()
 
         // Read the row back rather than trust the snapshot: the rule, the due date and the
         // project may have been edited since the row was drawn, and the next occurrence
         // inherits all of them.
-        val current = taskDao.byId(task.id)?.toDomain() ?: return emptyList()
+        val current = taskStore.byId(task.id) ?: return emptyList()
 
         val subtasks = subtasksOf(current.id)
-        subtasks.filter { !it.isDone }
-            .forEach { taskDao.update(it.copy(completedAt = now).toEntity()) }
+        subtasks.filter { !it.isDone }.forEach { taskStore.update(it.copy(completedAt = now)) }
 
         val rule = current.recurrence ?: return emptyList()
         val nextDue = RecurrenceEngine.dueDateAfterCompletion(rule, current.dueDate, today)
-        val nextId = taskDao.insert(
+        val nextId = taskStore.insert(
             current.copy(
                 id = 0L,
                 completedAt = null,
                 dueDate = nextDue,
                 createdAt = now,
                 spawnedFromId = current.id,
-            ).toEntity(),
+            ),
         )
         val shift = current.dueDate?.let { ChronoUnit.DAYS.between(it, nextDue) } ?: 0L
         subtasks.forEach { subtask ->
-            taskDao.insert(
+            taskStore.insert(
                 subtask.copy(
                     id = 0L,
                     parentId = nextId,
@@ -173,7 +164,7 @@ class CadenceRepository(
                     // The step belongs to the new occurrence, which already carries the link
                     // back; only the parent rows form the chain.
                     spawnedFromId = null,
-                ).toEntity(),
+                ),
             )
         }
         return emptyList()
@@ -182,19 +173,18 @@ class CadenceRepository(
     /** Moves a task's due date by [days], used by snooze and the overdue triage action. */
     suspend fun shiftDueDate(task: Task, days: Long, from: LocalDate = LocalDate.now()) {
         val base = task.dueDate?.takeIf { it.isAfter(from) } ?: from
-        taskDao.update(task.copy(dueDate = base.plusDays(days)).toEntity())
+        taskStore.update(task.copy(dueDate = base.plusDays(days)))
     }
 
     suspend fun setDueDate(task: Task, dueDate: LocalDate?) {
-        taskDao.update(task.copy(dueDate = dueDate).toEntity())
+        taskStore.update(task.copy(dueDate = dueDate))
     }
 
     /** "Reschedule all" on the overdue block: everything overdue lands on today. */
     suspend fun rescheduleOverdueToToday(today: LocalDate = LocalDate.now()) {
-        taskDao.getAll()
-            .map { it.toDomain() }
+        taskStore.getAll()
             .filter { it.isOverdue(today) }
-            .forEach { taskDao.update(it.copy(dueDate = today).toEntity()) }
+            .forEach { taskStore.update(it.copy(dueDate = today)) }
     }
 
     /**
@@ -222,9 +212,9 @@ class CadenceRepository(
         
         return try {
             val id = if (project.id == 0L) {
-                projectDao.insert(project.toEntity())
+                projectStore.insert(project)
             } else {
-                projectDao.update(project.toEntity())
+                projectStore.update(project)
                 project.id
             }
             RepositoryResult.Success(id)
@@ -241,7 +231,7 @@ class CadenceRepository(
         var currentId: Long? = projectId
         
         while (currentId != null && currentId != 0L) {
-            val project = projectDao.getAll().firstOrNull { it.id == currentId } ?: break
+            val project = projectStore.getAll().firstOrNull { it.id == currentId } ?: break
             currentId = project.parentId
             depth++
         }
@@ -260,7 +250,7 @@ class CadenceRepository(
             if (currentId == projectId) {
                 return true // Circular reference detected
             }
-            val project = projectDao.getAll().firstOrNull { it.id == currentId } ?: break
+            val project = projectStore.getAll().firstOrNull { it.id == currentId } ?: break
             currentId = project.parentId
         }
         
@@ -275,8 +265,8 @@ class CadenceRepository(
      * the scheduler's sync only ever sees the tasks that still exist.
      */
     suspend fun deleteProject(id: Long, deleteTasks: Boolean = false): List<Long> {
-        val affected = if (deleteTasks) projectDao.taskIdsIn(id) else emptyList()
-        projectDao.deleteWithChildren(id, deleteTasks)
+        val affected = if (deleteTasks) projectStore.taskIdsIn(id) else emptyList()
+        projectStore.deleteWithChildren(id, deleteTasks)
         return affected
     }
 
@@ -284,17 +274,17 @@ class CadenceRepository(
 
     /** One-shot read of everything, for an export. */
     suspend fun snapshot(): BackupSnapshot = BackupSnapshot(
-        projects = projectDao.getAll().map { it.toDomain() },
-        tasks = taskDao.getAll().map { it.toDomain() },
+        projects = projectStore.getAll(),
+        tasks = taskStore.getAll(),
     )
 
     /**
      * Restores a backup by *replacing* both tables — importing is not a merge, so ids stay the
      * ones in the file and task→project links survive without remapping.
      */
-    suspend fun restore(snapshot: BackupSnapshot) = backupDao.replaceAll(
-        projects = snapshot.projects.map { it.toEntity() },
-        tasks = snapshot.tasks.map { it.toEntity() },
+    suspend fun restore(snapshot: BackupSnapshot) = backupStore.replaceAll(
+        projects = snapshot.projects,
+        tasks = snapshot.tasks,
     )
 }
 

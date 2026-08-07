@@ -31,9 +31,13 @@ kotlin {
 
         jvmShared.dependencies {
             implementation(libs.kotlinx.serialization.json)
+            // api, not implementation: the store ports hand back Flow, so anything implementing
+            // one — the Android app today, the desktop app next — needs the type on its path.
+            api(libs.kotlinx.coroutines.core)
         }
         jvmSharedTest.dependencies {
             implementation(libs.test.junit)
+            implementation(libs.kotlinx.coroutines.test)
             implementation(kotlin("test"))
         }
     }
