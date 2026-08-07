@@ -21,8 +21,28 @@ interface TaskDao {
     @Query("SELECT * FROM tasks")
     suspend fun getAll(): List<TaskEntity>
 
+    @Query("SELECT * FROM tasks WHERE id = :id")
+    suspend fun byId(id: Long): TaskEntity?
+
     @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY sortOrder, id")
     suspend fun subtasksOf(parentId: Long): List<TaskEntity>
+
+    /**
+     * Closes a task only if it is still open, and reports whether this call is the one that did it.
+     *
+     * The check has to happen in SQL rather than against the caller's [TaskEntity], because that
+     * is a snapshot: a checkbox tapped twice before its row re-composes hands out the same open
+     * task twice. Completing a recurring task inserts its next occurrence, so a completion that
+     * runs twice leaves a duplicate behind — this is the guard that makes it run once.
+     *
+     * @return 1 when the row was open and is now done, 0 when it was already done or is gone.
+     */
+    @Query("UPDATE tasks SET completedAt = :completedAt WHERE id = :id AND completedAt IS NULL")
+    suspend fun completeIfOpen(id: Long, completedAt: Long): Int
+
+    /** The mirror of [completeIfOpen]: reopens a done task, and reports 0 if it was open. */
+    @Query("UPDATE tasks SET completedAt = NULL WHERE id = :id AND completedAt IS NOT NULL")
+    suspend fun reopenIfDone(id: Long): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(task: TaskEntity): Long

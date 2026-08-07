@@ -13,7 +13,7 @@ The product rule the whole app is built on: **importance first, due date breaks 
 ## Commands
 
 ```bash
-./gradlew testDebugUnitTest        # JVM unit tests (recurrence engine + quick-add parser)
+./gradlew testDebugUnitTest        # JVM unit tests (recurrence, quick-add, backup, repository)
 ./gradlew assembleDebug            # app/build/outputs/apk/debug/app-debug.apk
 ./gradlew assembleRelease          # falls back to the debug key when no CADENCE_KEYSTORE is set
 
@@ -76,7 +76,12 @@ ui/         theme, shared components, one package per screen
 
 - **Completing a recurring task** (`CadenceRepository.setCompleted`) keeps the finished row in
   place — so it stays visible in Today — and *inserts a new row* for the next occurrence.
-  Recurrence is modelled as a chain of rows, not one row with a moving date.
+  Recurrence is modelled as a chain of rows, not one row with a moving date. Because completing
+  writes a row rather than flipping a flag, it has to be idempotent: every caller passes a `Task`
+  the UI drew a row from, and a checkbox tapped twice hands back the same *open* snapshot both
+  times. `TaskDao.completeIfOpen` closes the row in SQL and reports whether this call is the one
+  that closed it, so only that call schedules the successor and the rest of the work reads the row
+  back instead of trusting the snapshot. Don't replace it with a plain `update`.
 - **Subtasks are tasks with a `parentId`**, nested exactly one level deep — `addSubtask` files a
   step added under a subtask next to it rather than starting a third level. A parent and its
   steps share a project (`moveToProject` moves both), deleting a task deletes its steps

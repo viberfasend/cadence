@@ -287,14 +287,23 @@ private fun DueChip(task: Task, today: LocalDate, overdue: Boolean) {
     val scheme = MaterialTheme.colorScheme
     val tint = if (overdue) cadenceColors.overdueAccent else scheme.onSurfaceVariant
 
-    val recurrence = task.recurrence
     val due = task.dueDate
+    val recurrenceText = task.recurrence?.let { describeRecurrence(it) }
 
-    val (icon, label) = when {
-        overdue && due != null -> AppIcons.EventBusy to relativeDate(due, today)
-        due == today && task.dueTime != null -> AppIcons.Schedule to formatTime(task.dueTime)
-        recurrence != null -> AppIcons.EventRepeat to describeRecurrence(recurrence)
-        due != null -> AppIcons.Event to relativeDate(due, today)
+    // The third value is what the icon says out loud: it is decorative wherever the label
+    // already carries the whole story, and speaks up where it is the only thing left saying
+    // "this repeats".
+    val (icon, label, spokenIcon) = when {
+        overdue && due != null -> Triple(AppIcons.EventBusy, relativeDate(due, today), null)
+        due == today && task.dueTime != null ->
+            Triple(AppIcons.Schedule, formatTime(task.dueTime), null)
+        // A dated occurrence says *when* it is due, even though it repeats: the repeat icon
+        // carries the "it comes back" half. Without the date two occurrences of the same task
+        // read identically, which is how a duplicate used to hide in plain sight.
+        recurrenceText != null && due != null ->
+            Triple(AppIcons.EventRepeat, relativeDate(due, today), recurrenceText)
+        recurrenceText != null -> Triple(AppIcons.EventRepeat, recurrenceText, null)
+        due != null -> Triple(AppIcons.Event, relativeDate(due, today), null)
         else -> return
     }
 
@@ -304,7 +313,7 @@ private fun DueChip(task: Task, today: LocalDate, overdue: Boolean) {
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = null,
+            contentDescription = spokenIcon,
             tint = tint,
             modifier = Modifier.size(16.dp),
         )

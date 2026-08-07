@@ -113,30 +113,41 @@ class CadenceRepository(
      * Finishing a task also finishes whatever is still open beneath it, and a recurring task
      * hands its checklist to the next occurrence unticked, with the subtask dates moved by the
      * same span as the parent's.
+     *
+     * Completing is idempotent, which matters precisely because it has that side effect: [task]
+     * is a snapshot the UI drew a row from, and the same open snapshot is handed back by every
+     * tap that lands before the row re-composes. Closing the row is therefore left to
+     * [TaskDao.completeIfOpen], and only the call that actually closed it goes on to schedule the
+     * successor — otherwise two taps on one checkbox left two identical occurrences behind.
      */
     suspend fun setCompleted(task: Task, completed: Boolean, today: LocalDate = LocalDate.now()) {
         if (!completed) {
-            taskDao.update(task.copy(completedAt = null).toEntity())
+            taskDao.reopenIfDone(task.id)
             return
         }
         val now = Instant.now()
-        taskDao.update(task.copy(completedAt = now).toEntity())
+        if (taskDao.completeIfOpen(task.id, now.toEpochMilli()) == 0) return
 
-        val subtasks = subtasksOf(task.id)
+        // Read the row back rather than trust the snapshot: the rule, the due date and the
+        // project may have been edited since the row was drawn, and the next occurrence
+        // inherits all of them.
+        val current = taskDao.byId(task.id)?.toDomain() ?: return
+
+        val subtasks = subtasksOf(current.id)
         subtasks.filter { !it.isDone }
             .forEach { taskDao.update(it.copy(completedAt = now).toEntity()) }
 
-        val rule = task.recurrence ?: return
-        val nextDue = RecurrenceEngine.dueDateAfterCompletion(rule, task.dueDate, today)
+        val rule = current.recurrence ?: return
+        val nextDue = RecurrenceEngine.dueDateAfterCompletion(rule, current.dueDate, today)
         val nextId = taskDao.insert(
-            task.copy(
+            current.copy(
                 id = 0L,
                 completedAt = null,
                 dueDate = nextDue,
                 createdAt = now,
             ).toEntity(),
         )
-        val shift = task.dueDate?.let { ChronoUnit.DAYS.between(it, nextDue) } ?: 0L
+        val shift = current.dueDate?.let { ChronoUnit.DAYS.between(it, nextDue) } ?: 0L
         subtasks.forEach { subtask ->
             taskDao.insert(
                 subtask.copy(
