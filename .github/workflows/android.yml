@@ -5,12 +5,6 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
-    inputs:
-      release:
-        description: 'Create a release (true to publish)'
-        required: true
-        default: 'false'
-        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -134,25 +128,3 @@ jobs:
         with:
           name: test-report
           path: app-android/build/reports/tests/
-
-      # Manual release via workflow_dispatch with release=true input
-      - name: Publish release
-        if: >-
-          github.event_name == 'workflow_dispatch' && inputs.release == 'true' &&
-          steps.version.outputs.skip == 'false'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Cadence ${{ steps.version.outputs.version }}
-          make_latest: true
-          body: |
-            ${{ steps.version.outputs.notes }}
-
-            **Install `cadence-debug.apk`** — it is signed with the standard debug key and
-            installs alongside a release build.
-
-            Permanent links, always pointing at the newest release:
-
-            - https://github.com/${{ github.repository }}/releases/latest/download/cadence-debug.apk
-            - https://github.com/${{ github.repository }}/releases/latest/download/cadence-release.apk
-          files: dist/*.apk
