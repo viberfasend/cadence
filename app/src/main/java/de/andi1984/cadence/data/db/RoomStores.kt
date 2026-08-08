@@ -1,8 +1,10 @@
 package de.andi1984.cadence.data.db
 
+import de.andi1984.cadence.data.AttachmentStore
 import de.andi1984.cadence.data.BackupStore
 import de.andi1984.cadence.data.ProjectStore
 import de.andi1984.cadence.data.TaskStore
+import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.flow.Flow
@@ -68,4 +70,29 @@ class RoomBackupStore(private val dao: BackupDao) : BackupStore {
         projects = projects.map { it.toEntity() },
         tasks = tasks.map { it.toEntity() },
     )
+}
+
+class RoomAttachmentStore(private val dao: AttachmentDao) : AttachmentStore {
+
+    override fun observeAll(): Flow<List<Attachment>> =
+        dao.observeAll().map { rows -> rows.map { it.toDomain() } }
+
+    override suspend fun byId(id: Long): Attachment? = dao.byId(id)?.toDomain()
+
+    override suspend fun forTask(taskId: Long): List<Attachment> =
+        dao.forTask(taskId).map { it.toDomain() }
+
+    override suspend fun insert(attachment: Attachment): Long = dao.insert(attachment.toEntity())
+
+    override suspend fun delete(id: Long) = dao.delete(id)
+
+    override suspend fun deleteForTasks(taskIds: List<Long>) = dao.deleteForTasks(taskIds)
+
+    override suspend fun hashesForTasks(taskIds: List<Long>): List<String> =
+        dao.hashesForTasks(taskIds)
+
+    override suspend fun stillReferenced(hashes: List<String>): List<String> =
+        dao.stillReferenced(hashes)
+
+    override suspend fun referencedHashes(): List<String> = dao.referencedHashes()
 }

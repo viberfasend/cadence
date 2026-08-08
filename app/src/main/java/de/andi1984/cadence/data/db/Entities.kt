@@ -4,6 +4,8 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import de.andi1984.cadence.domain.model.Attachment
+import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
@@ -135,4 +137,64 @@ fun Task.toEntity(): TaskEntity = TaskEntity(
     createdAt = createdAt.toEpochMilli(),
     sortOrder = sortOrder,
     recurrence = RecurrenceCodec.encode(recurrence),
+)
+
+@Entity(
+    tableName = "attachments",
+    indices = [
+        Index(value = ["taskId"], name = "idx_attachments_task"),
+        // Not decorative — the blob-reclaim query filters on sha256 and runs on every delete.
+        Index(value = ["sha256"], name = "idx_attachments_sha"),
+    ],
+    foreignKeys = [
+        ForeignKey(
+            entity = TaskEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["taskId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class AttachmentEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0L,
+    val taskId: Long,
+    /** [AttachmentKind] by name, not ordinal — reordering the enum must not rewrite history. */
+    val kind: String,
+    val name: String,
+    val mimeType: String,
+    val sha256: String? = null,
+    val sizeBytes: Long = 0L,
+    val url: String? = null,
+    /** Epoch millis, matching every other instant in this file. */
+    val createdAt: Long = 0L,
+    val sortOrder: Int = 0,
+)
+
+fun AttachmentEntity.toDomain(): Attachment = Attachment(
+    id = id,
+    taskId = taskId,
+    // Falls back from the bytes rather than throwing, the rule RecurrenceCodec already follows:
+    // an unrecognised kind should still render as something rather than crash the whole list.
+    kind = AttachmentKind.entries.firstOrNull { it.name == kind }
+        ?: if (sha256 != null) AttachmentKind.FILE else AttachmentKind.LINK,
+    name = name,
+    mimeType = mimeType,
+    sha256 = sha256,
+    sizeBytes = sizeBytes,
+    url = url,
+    createdAt = Instant.ofEpochMilli(createdAt),
+    sortOrder = sortOrder,
+)
+
+fun Attachment.toEntity(): AttachmentEntity = AttachmentEntity(
+    id = id,
+    taskId = taskId,
+    kind = kind.name,
+    name = name,
+    mimeType = mimeType,
+    sha256 = sha256,
+    sizeBytes = sizeBytes,
+    url = url,
+    createdAt = createdAt.toEpochMilli(),
+    sortOrder = sortOrder,
 )
