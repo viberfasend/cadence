@@ -7,7 +7,12 @@ import de.andi1984.cadence.domain.backup.AutoBackupPolicy
 import de.andi1984.cadence.domain.backup.BackupCodec
 import de.andi1984.cadence.domain.backup.BackupError
 import de.andi1984.cadence.domain.backup.BackupReadResult
+import de.andi1984.cadence.domain.backup.BackupSettings
 import de.andi1984.cadence.domain.backup.BackupSnapshot
+import de.andi1984.cadence.ui.settings.Density
+import de.andi1984.cadence.ui.settings.SettingsStore
+import de.andi1984.cadence.ui.settings.SortMode
+import de.andi1984.cadence.ui.settings.ThemeChoice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -46,12 +51,26 @@ sealed interface BackupOutcome {
 class BackupIo(
     private val context: Context,
     private val repository: CadenceRepository,
+    private val settingsStore: SettingsStore,
 ) {
 
     suspend fun export(uri: Uri): BackupOutcome = withContext(Dispatchers.IO) {
         val snapshot = repository.snapshot()
         val exportedAt = Instant.now()
-        val json = BackupCodec.encode(snapshot, exportedAt)
+        
+        // Add settings to the snapshot
+        val currentSettings = settingsStore.state.value
+        val backupSettings = BackupSettings(
+            theme = currentSettings.theme.name,
+            density = currentSettings.density.name,
+            sortMode = currentSettings.sortMode.name,
+            showCompleted = currentSettings.showCompleted,
+            locale = null, // Locale is handled by the system, not stored in settings
+        )
+        
+        val snapshotWithSettings = snapshot.copy(settings = backupSettings)
+        val json = BackupCodec.encode(snapshotWithSettings, exportedAt)
+        
         runCatching {
             // "wt" truncates: overwriting an existing backup must not leave a tail of the old one.
             context.contentResolver.openOutputStream(uri, "wt")
@@ -106,6 +125,29 @@ class BackupIo(
 
     private suspend fun restore(read: Read.Ok): BackupOutcome {
         repository.restore(read.snapshot)
+        
+        // Restore settings if present in the backup
+        read.snapshot.settings?.let { backupSettings ->
+            backupSettings.theme?.let { name ->
+                ThemeChoice.entries.firstOrNull { it.name == name }?.let { theme ->
+                    settingsStore.setTheme(theme)
+                }
+            }
+            backupSettings.density?.let { name ->
+                Density.entries.firstOrNull { it.name == name }?.let { density ->
+                    settingsStore.setDensity(density)
+                }
+            }
+            backupSettings.sortMode?.let { name ->
+                SortMode.entries.firstOrNull { it.name == name }?.let { sortMode ->
+                    settingsStore.setSortMode(sortMode)
+                }
+            }
+            backupSettings.showCompleted?.let { showCompleted ->
+                settingsStore.setShowCompleted(showCompleted)
+            }
+        }
+        
         return BackupOutcome.Imported(
             projects = read.snapshot.projects.size,
             tasks = read.snapshot.tasks.size,

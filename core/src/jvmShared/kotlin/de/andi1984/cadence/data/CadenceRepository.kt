@@ -274,11 +274,13 @@ class CadenceRepository(
     suspend fun snapshot(): BackupSnapshot = BackupSnapshot(
         projects = projectStore.getAll(),
         tasks = taskStore.getAll(),
+        settings = null, // Settings are added by the app-specific BackupIo
     )
 
     /**
      * Restores a backup by *replacing* both tables — importing is not a merge, so ids stay the
      * ones in the file and task→project links survive without remapping.
+     * Settings in the snapshot are ignored by the core repository and handled by the app-specific BackupIo.
      */
     suspend fun restore(snapshot: BackupSnapshot) = backupStore.replaceAll(
         projects = snapshot.projects,

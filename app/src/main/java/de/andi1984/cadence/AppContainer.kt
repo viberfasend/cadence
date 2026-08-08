@@ -26,9 +26,9 @@ class AppContainer(context: Context) {
         backupStore = RoomBackupStore(database.backupDao()),
     )
 
-    val backupIo = BackupIo(context, repository)
-
     val settingsStore = SettingsStore(context)
+
+    val backupIo = BackupIo(context, repository, settingsStore)
 
     val reminderScheduler = ReminderScheduler(context)
 
