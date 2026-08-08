@@ -22,6 +22,7 @@ import de.andi1984.cadence.data.db.CADENCE_DATABASE_FILE_NAME
 import de.andi1984.cadence.reminders.AlarmReminderScheduler
 import de.andi1984.cadence.ui.CadenceApp
 import de.andi1984.cadence.ui.CadenceViewModelHost
+import de.andi1984.cadence.ui.Routes
 import de.andi1984.cadence.ui.platform.AppInfo
 import de.andi1984.cadence.ui.theme.CadenceTheme
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -42,11 +43,8 @@ class MainActivity : ComponentActivity() {
             val intentTaskId = remember {
                 intent.getStringExtra(AlarmReminderScheduler.EXTRA_TASK_ID)
             }
-            LaunchedEffect(intentTaskId) {
-                if (intentTaskId != null) {
-                    // Clear the intent so it doesn't trigger again on configuration changes
-                    intent.removeExtra(AlarmReminderScheduler.EXTRA_TASK_ID)
-                }
+            val startDestination = remember(intentTaskId) {
+                if (intentTaskId != null) Routes.task(intentTaskId) else Routes.TODAY
             }
 
             // Automatic backup sync, when the user has switched it on, reads the file as the
@@ -75,7 +73,7 @@ class MainActivity : ComponentActivity() {
                     viewModel = viewModel,
                     state = state,
                     appInfo = appInfo,
-                    intentTaskId = intentTaskId,
+                    startDestination = startDestination,
                 )
             }
         }

@@ -76,26 +76,15 @@ fun CadenceApp(
     viewModel: CadenceViewModel,
     state: CadenceUiState,
     appInfo: AppInfo,
-    intentTaskId: String? = null,
+    // A reminder notification launches straight into its task rather than navigating there once
+    // the NavHost is up — see the crash that fix was for (#29 follow-up).
+    startDestination: String = Routes.TODAY,
 ) {
     val navController = rememberNavController()
     val backupFilePicker = rememberSafBackupFilePicker()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val today = remember { LocalDate.now() }
-
-    // Handle deep linking from reminder notifications
-    LaunchedEffect(intentTaskId) {
-        if (intentTaskId != null) {
-            navController.navigate(Routes.task(intentTaskId)) {
-                // Clear back stack to start fresh from the task detail
-                popUpTo(navController.graph.findStartDestination().id) {
-                    inclusive = true
-                }
-                launchSingleTop = true
-            }
-        }
-    }
 
     var quickAddOpen by remember { mutableStateOf(false) }
     var quickAddProjectId by remember { mutableStateOf<String?>(null) }
@@ -166,7 +155,7 @@ fun CadenceApp(
         },
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            NavHost(navController = navController, startDestination = Routes.TODAY) {
+            NavHost(navController = navController, startDestination = startDestination) {
                 composable(Routes.TODAY) {
                     TodayScreen(
                         state = state,
