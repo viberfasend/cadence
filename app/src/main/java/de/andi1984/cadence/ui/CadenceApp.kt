@@ -1,6 +1,5 @@
 package de.andi1984.cadence.ui
 
-import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -23,17 +22,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.stringResource
-import de.andi1984.cadence.R
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import de.andi1984.cadence.ui.backup.rememberSafBackupFilePicker
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.FittedLabel
 import de.andi1984.cadence.ui.detail.TaskDetailScreen
+import de.andi1984.cadence.ui.platform.AppInfo
 import de.andi1984.cadence.ui.inbox.InboxScreen
 import de.andi1984.cadence.ui.inbox.TriageScreen
 import de.andi1984.cadence.ui.projects.ProjectDetailScreen
@@ -43,6 +42,10 @@ import de.andi1984.cadence.ui.search.SearchScreen
 import de.andi1984.cadence.ui.settings.SettingsScreen
 import de.andi1984.cadence.ui.today.TodayScreen
 import de.andi1984.cadence.ui.upcoming.UpcomingScreen
+import de.andi1984.cadence.ui.resources.Res
+import de.andi1984.cadence.ui.resources.*
+import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.stringResource
 import java.time.LocalDate
 
 object Routes {
@@ -63,14 +66,22 @@ object Routes {
 
 private data class BottomDestination(
     val route: String,
-    @StringRes val label: Int,
+    val label: StringResource,
     val icon: ImageVector,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId: String? = null, startDestination: String = Routes.TODAY) {
+fun CadenceApp(
+    viewModel: CadenceViewModel,
+    state: CadenceUiState,
+    appInfo: AppInfo,
+    // A reminder notification launches straight into its task rather than navigating there once
+    // the NavHost is up — see the crash that fix was for (#29 follow-up).
+    startDestination: String = Routes.TODAY,
+) {
     val navController = rememberNavController()
+    val backupFilePicker = rememberSafBackupFilePicker()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val today = remember { LocalDate.now() }
@@ -79,10 +90,10 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId:
     var quickAddProjectId by remember { mutableStateOf<String?>(null) }
 
     val destinations = listOf(
-        BottomDestination(Routes.TODAY, R.string.nav_today, AppIcons.Today),
-        BottomDestination(Routes.UPCOMING, R.string.nav_upcoming, AppIcons.CalendarMonth),
-        BottomDestination(Routes.INBOX, R.string.nav_inbox, AppIcons.Inbox),
-        BottomDestination(Routes.PROJECTS, R.string.nav_projects, AppIcons.Folder),
+        BottomDestination(Routes.TODAY, Res.string.nav_today, AppIcons.Today),
+        BottomDestination(Routes.UPCOMING, Res.string.nav_upcoming, AppIcons.CalendarMonth),
+        BottomDestination(Routes.INBOX, Res.string.nav_inbox, AppIcons.Inbox),
+        BottomDestination(Routes.PROJECTS, Res.string.nav_projects, AppIcons.Folder),
     )
     val showChrome = currentRoute in destinations.map { it.route }
     val inboxCount = state.inboxTasks().count { !it.isDone }
@@ -138,7 +149,7 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId:
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     icon = { Icon(AppIcons.Add, contentDescription = null) },
-                    text = { Text(stringResource(R.string.nav_add_task)) },
+                    text = { Text(stringResource(Res.string.nav_add_task)) },
                 )
             }
         },
@@ -199,6 +210,8 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId:
                 composable(Routes.SETTINGS) {
                     SettingsScreen(
                         state = state,
+                        appInfo = appInfo,
+                        filePicker = backupFilePicker,
                         onBack = { navController.popBackStack() },
                         onThemeChange = viewModel::setTheme,
                         onDensityChange = viewModel::setDensity,

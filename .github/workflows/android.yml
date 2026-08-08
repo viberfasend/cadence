@@ -47,6 +47,12 @@ jobs:
         # running only one would let the other rot.
         run: ./gradlew testDebugUnitTest :core:jvmTest --stacktrace
 
+      - name: Compile the desktop target
+        # :ui has no tests of its own, but it is the module the desktop app is mostly made of.
+        # Nothing else in this workflow compiles its JVM target, so without this the Android
+        # build could stay green while the desktop one stopped building.
+        run: ./gradlew :ui:compileKotlinJvm --stacktrace
+
       # Runs on every branch too, where it is only a preview of what merging would publish.
       - name: Work out the next version
         id: version

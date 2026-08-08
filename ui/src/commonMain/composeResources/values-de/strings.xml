@@ -1,0 +1,363 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- ── Navigation ──────────────────────────────────────────────────────────────── -->
+    <string name="nav_today">Heute</string>
+    <string name="nav_upcoming">Demnächst</string>
+    <string name="nav_inbox">Eingang</string>
+    <string name="nav_projects">Projekte</string>
+    <string name="nav_add_task">Aufgabe</string>
+
+    <!-- ── Gemeinsame Aktionen ─────────────────────────────────────────────────────── -->
+    <string name="action_back">Zurück</string>
+    <string name="action_search">Suchen</string>
+    <string name="action_settings">Einstellungen</string>
+    <string name="action_sort_and_settings">Sortierung und Einstellungen</string>
+    <string name="action_more">Mehr</string>
+    <string name="action_cancel">Abbrechen</string>
+    <string name="action_create">Erstellen</string>
+    <string name="action_save">Speichern</string>
+    <string name="action_delete">Löschen</string>
+    <string name="action_set">Übernehmen</string>
+    <string name="action_clear">Löschen</string>
+    <string name="action_expand">Aufklappen</string>
+    <string name="action_collapse">Zuklappen</string>
+
+    <!-- ── Sortierung ──────────────────────────────────────────────────────────────── -->
+    <string name="sort_importance">Nach Wichtigkeit</string>
+    <string name="sort_date">Nach Datum</string>
+    <string name="sort_manual">Manuell</string>
+
+    <!-- ── Wichtigkeit ─────────────────────────────────────────────────────────────── -->
+    <string name="priority_p1_title">Kritisch</string>
+    <string name="priority_p2_title">Hoch</string>
+    <string name="priority_p3_title">Normal</string>
+    <string name="priority_p4_title">Niedrig</string>
+    <string name="priority_label">%1$s · %2$s</string>
+    <string name="priority_p1_explanation">P1 · Kritisch — steht über allem anderen, unabhängig vom Datum.</string>
+    <string name="priority_p2_explanation">P2 · Hoch — über normaler Arbeit, innerhalb der Stufe weiter nach Datum sortiert.</string>
+    <string name="priority_p3_explanation">P3 · Normal — die Voreinstellung. Nach Datum sortiert.</string>
+    <string name="priority_p4_explanation">P4 · Niedrig — bleibt aus dem Weg, bis nichts anderes ansteht.</string>
+
+    <!-- ── Datum ───────────────────────────────────────────────────────────────────── -->
+    <string name="date_pattern_day_month">EEE d. MMM</string>
+    <string name="date_pattern_day_month_year">EEE d. MMM yyyy</string>
+    <string name="date_pattern_weekday">EEE</string>
+    <string name="date_pattern_time">HH:mm</string>
+    <string name="date_today">Heute</string>
+    <string name="date_tomorrow">Morgen</string>
+    <string name="date_yesterday">Gestern</string>
+    <string name="date_due_today">Heute fällig</string>
+    <string name="date_compact_overdue">−%1$dT</string>
+    <plurals name="date_days_ago">
+        <item quantity="one">vor %1$d Tag</item>
+        <item quantity="other">vor %1$d Tagen</item>
+    </plurals>
+    <plurals name="date_days_overdue">
+        <item quantity="one">%1$d Tag überfällig</item>
+        <item quantity="other">%1$d Tage überfällig</item>
+    </plurals>
+    <plurals name="task_count">
+        <item quantity="one">%1$d Aufgabe</item>
+        <item quantity="other">%1$d Aufgaben</item>
+    </plurals>
+    <plurals name="project_count">
+        <item quantity="one">%1$d Projekt</item>
+        <item quantity="other">%1$d Projekte</item>
+    </plurals>
+
+    <!-- ── Wiederholung ────────────────────────────────────────────────────────────── -->
+    <plurals name="unit_day">
+        <item quantity="one">Tag</item>
+        <item quantity="other">Tage</item>
+    </plurals>
+    <plurals name="unit_week">
+        <item quantity="one">Woche</item>
+        <item quantity="other">Wochen</item>
+    </plurals>
+    <plurals name="unit_month">
+        <item quantity="one">Monat</item>
+        <item quantity="other">Monate</item>
+    </plurals>
+    <plurals name="unit_year">
+        <item quantity="one">Jahr</item>
+        <item quantity="other">Jahre</item>
+    </plurals>
+    <string name="recurrence_daily">Täglich</string>
+    <string name="recurrence_weekly">Wöchentlich</string>
+    <string name="recurrence_monthly">Monatlich</string>
+    <string name="recurrence_yearly">Jährlich</string>
+    <string name="recurrence_every_n">Alle %1$d %2$s</string>
+    <string name="recurrence_after_done">%1$d %2$s nach Erledigung</string>
+    <string name="recurrence_with_qualifier">%1$s %2$s</string>
+    <string name="recurrence_on_days">am %1$s</string>
+    <string name="recurrence_on_day_of_month">am %1$s</string>
+    <string name="recurrence_on_last_day">am letzten Tag</string>
+    <string name="recurrence_on_last_weekday">am letzten Werktag</string>
+    <string name="recurrence_on_nth_weekday">am %1$s %2$s</string>
+    <string name="recurrence_on_last_named_weekday">am letzten %1$s</string>
+    <string name="ordinal_format">%1$d%2$s</string>
+    <string name="ordinal_suffix_st">.</string>
+    <string name="ordinal_suffix_nd">.</string>
+    <string name="ordinal_suffix_rd">.</string>
+    <string name="ordinal_suffix_th">.</string>
+
+    <!-- ── Aufgabenzeilen ──────────────────────────────────────────────────────────── -->
+    <string name="task_state_done">Erledigt</string>
+    <string name="task_state_not_done">Offen</string>
+    <string name="task_done_at">Erledigt %1$s</string>
+    <string name="task_done_repeats">%1$s · wiederholt sich %2$s</string>
+
+    <!-- ── Heute ───────────────────────────────────────────────────────────────────── -->
+    <string name="today_title">Heute</string>
+    <string name="today_section_due">Heute fällig</string>
+    <string name="today_empty_title">Heute ist nichts fällig</string>
+    <string name="today_empty_supporting">Alles, was du ohne Datum anlegst, landet im Eingang.</string>
+    <string name="today_overdue_header">Überfällig · %1$d</string>
+    <string name="today_reschedule_all">Alle verschieben</string>
+    <plurals name="today_show_more">
+        <item quantity="one">%1$d weitere anzeigen</item>
+        <item quantity="other">%1$d weitere anzeigen</item>
+    </plurals>
+
+    <!-- ── Demnächst ───────────────────────────────────────────────────────────────── -->
+    <string name="upcoming_title">Demnächst</string>
+    <string name="upcoming_subtitle">Nächste 7 Tage · %1$s</string>
+    <string name="upcoming_empty_title">Nichts geplant</string>
+    <string name="upcoming_empty_supporting">Aufgaben mit Datum erscheinen hier, nach Tag gruppiert.</string>
+
+    <!-- ── Eingang ─────────────────────────────────────────────────────────────────── -->
+    <string name="inbox_title">Eingang</string>
+    <string name="inbox_empty_subtitle">Leer</string>
+    <plurals name="inbox_to_sort">
+        <item quantity="one">%1$d zu sortieren</item>
+        <item quantity="other">%1$d zu sortieren</item>
+    </plurals>
+    <string name="inbox_empty_title">Eingang ist leer</string>
+    <string name="inbox_empty_supporting">Alles, was du ohne Projekt erfasst, wartet hier.</string>
+
+    <!-- ── Triage ──────────────────────────────────────────────────────────────────── -->
+    <string name="triage_title">Triage</string>
+    <string name="triage_close">Triage schließen</string>
+    <string name="triage_skip_all">Alle überspringen</string>
+    <string name="triage_nothing">Nichts zu sortieren</string>
+    <string name="triage_progress">%1$d von %2$d · tippe eine Stufe an</string>
+    <string name="triage_finished_title">Eingang sortiert</string>
+    <string name="triage_finished_supporting">Alles im Eingang hat jetzt eine Wichtigkeit.</string>
+    <string name="triage_ranked_so_far">BISHER EINGESTUFT</string>
+    <string name="triage_from_inbox">AUS DEM EINGANG</string>
+    <string name="triage_no_due_date">Kein Fälligkeitsdatum</string>
+    <string name="triage_set_date">Datum setzen</string>
+    <string name="triage_move">Verschieben</string>
+
+    <!-- ── Projekte ────────────────────────────────────────────────────────────────── -->
+    <string name="projects_title">Projekte</string>
+    <string name="projects_section">Projekte</string>
+    <string name="projects_new">Neues Projekt</string>
+    <string name="projects_new_subproject">Neues Unterprojekt</string>
+    <string name="projects_edit">Projekt bearbeiten</string>
+    <string name="projects_delete">Projekt löschen</string>
+    <!-- Beschreibung des Menüknopfs in einer Projektzeile; %1$s ist der Projektname. -->
+    <string name="projects_actions">Aktionen für %1$s</string>
+    <string name="projects_quick_recurring">Wiederkehrend</string>
+    <string name="projects_empty_title">Noch keine Projekte</string>
+    <string name="projects_empty_supporting">Projekte bündeln, was zusammengehört. Alles, was du ohne Projekt erfasst, wartet im Eingang.</string>
+    <plurals name="projects_subproject_count">
+        <item quantity="one">%1$d Unterprojekt</item>
+        <item quantity="other">%1$d Unterprojekte</item>
+    </plurals>
+    <string name="projects_due_this_week">%1$d diese Woche fällig</string>
+    <plurals name="projects_overdue_count">
+        <item quantity="one">%1$d überfällig</item>
+        <item quantity="other">%1$d überfällig</item>
+    </plurals>
+    <plurals name="projects_delete_includes_subprojects">
+        <item quantity="one">Damit wird auch %1$d Unterprojekt gelöscht.</item>
+        <item quantity="other">Damit werden auch %1$d Unterprojekte gelöscht.</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_toggle">
+        <item quantity="one">%1$d Aufgabe löschen</item>
+        <item quantity="other">%1$d Aufgaben löschen</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_gone">
+        <item quantity="one">Die Aufgabe ist für immer weg.</item>
+        <item quantity="other">Alle %1$d Aufgaben sind für immer weg.</item>
+    </plurals>
+    <plurals name="projects_delete_tasks_kept">
+        <item quantity="one">Die Aufgabe wird in den Posteingang verschoben.</item>
+        <item quantity="other">Alle %1$d Aufgaben werden in den Posteingang verschoben.</item>
+    </plurals>
+    <string name="projects_dialog_name">Name</string>
+    <string name="projects_dialog_color">Farbe</string>
+    <string name="projects_dialog_nest_under">Einordnen unter</string>
+    <string name="projects_dialog_top_level">Oberste Ebene</string>
+    <!-- Namen der Farbtupfer, damit die Auswahl nie allein über Farbe läuft. -->
+    <string name="projects_color_teal">Petrol</string>
+    <string name="projects_color_slate">Schiefer</string>
+    <string name="projects_color_amber">Bernstein</string>
+    <string name="projects_color_plum">Pflaume</string>
+    <string name="projects_color_sage">Salbei</string>
+    <string name="projects_color_red">Rot</string>
+    <!-- Löschbestätigung; %1$s ist der Projektname. -->
+    <string name="projects_delete_confirm_title">„%1$s“ löschen?</string>
+    <string name="projects_delete_no_tasks">Das Projekt ist leer.</string>
+    <string name="project_not_found_title">Projekt nicht gefunden</string>
+    <string name="project_add_task">Aufgabe zum Projekt hinzufügen</string>
+    <string name="project_empty_title">Noch keine Aufgaben</string>
+    <string name="project_empty_supporting">Mit dem +-Knopf legst du eine direkt in %1$s an.</string>
+    <string name="project_section_subprojects">Unterprojekte</string>
+    <string name="project_section_overdue">Überfällig</string>
+    <string name="project_section_all">Alle Aufgaben</string>
+
+    <!-- ── Aufgabendetails ─────────────────────────────────────────────────────────── -->
+    <string name="task_not_found_title">Aufgabe nicht gefunden</string>
+    <string name="deleted_supporting">Sie wurde vermutlich gelöscht.</string>
+    <string name="task_delete">Aufgabe löschen</string>
+    <string name="task_move_to_project">In Projekt verschieben</string>
+    <string name="task_set_time">Uhrzeit setzen</string>
+    <string name="task_importance">Wichtigkeit</string>
+    <string name="task_due">Fällig %1$s</string>
+    <string name="task_no_due_date">Kein Fälligkeitsdatum</string>
+    <string name="task_tap_to_schedule">Zum Planen tippen</string>
+    <string name="task_remind_at">Erinnerung um %1$s</string>
+    <string name="task_no_reminder">Keine Erinnerung</string>
+    <string name="task_on_the_due_day">Am Fälligkeitstag</string>
+    <string name="task_tap_to_add_reminder">Zum Hinzufügen tippen</string>
+    <string name="task_does_not_repeat">Wiederholt sich nicht</string>
+    <string name="task_next_occurrence">Nächster Termin: %1$s</string>
+    <string name="task_recurrence_supporting">Kalenderregeln oder „n Tage nach Erledigung“</string>
+    <string name="task_notes">Notizen</string>
+    <string name="task_notes_placeholder">Alles, was erwähnenswert ist</string>
+    <string name="task_snooze">Auf morgen verschieben</string>
+    <string name="task_mark_done">Als erledigt markieren</string>
+    <string name="task_mark_not_done">Als offen markieren</string>
+    <string name="task_due_at_picker">Fällig um</string>
+    <string name="task_remind_at_picker">Erinnerung um</string>
+
+    <!-- ── Unteraufgaben ───────────────────────────────────────────────────────────── -->
+    <string name="subtasks_title">Unteraufgaben</string>
+    <string name="subtasks_progress">%1$d/%2$d</string>
+    <string name="subtasks_progress_label">%1$d von %2$d Unteraufgaben erledigt</string>
+    <string name="subtasks_supporting">Zerlege sie in einzelne Schritte.</string>
+    <string name="subtasks_add">Unteraufgabe hinzufügen</string>
+    <string name="subtasks_add_placeholder">Schritt hinzufügen</string>
+    <string name="subtasks_remove">Unteraufgabe entfernen</string>
+    <string name="subtasks_part_of">Teil von %1$s</string>
+    <string name="subtasks_open_parent">Zugehörige Aufgabe öffnen</string>
+    <string name="subtasks_completion_note">Wird diese Aufgabe erledigt, gelten auch ihre offenen Unteraufgaben als erledigt.</string>
+    <string name="subtasks_expand">Unteraufgaben anzeigen</string>
+    <string name="subtasks_collapse">Unteraufgaben ausblenden</string>
+
+    <!-- ── Suche ───────────────────────────────────────────────────────────────────── -->
+    <string name="search_placeholder">Aufgaben durchsuchen</string>
+    <string name="search_title">Suche</string>
+    <string name="search_supporting">Finde alles über Titel oder Notizen, erledigt oder nicht.</string>
+    <string name="search_no_matches_title">Keine Treffer</string>
+    <string name="search_no_matches_supporting">Nichts passt zu „%1$s“.</string>
+    <plurals name="search_results">
+        <item quantity="one">%1$d Treffer</item>
+        <item quantity="other">%1$d Treffer</item>
+    </plurals>
+
+    <!-- ── Einstellungen ───────────────────────────────────────────────────────────── -->
+    <string name="settings_title">Einstellungen</string>
+    <string name="settings_theme">Design</string>
+    <string name="settings_theme_system">Systemeinstellung folgen</string>
+    <string name="settings_theme_light">Hell</string>
+    <string name="settings_theme_dark">Dunkel</string>
+    <string name="settings_density">Zeilendichte</string>
+    <string name="settings_density_comfortable">Komfortabel</string>
+    <string name="settings_density_compact">Kompakt</string>
+    <string name="settings_density_explanation">Komfortabel zeigt 64dp hohe Zeilen mit der vollen Infozeile. Kompakt schrumpft auf 52dp und eine Zeile. Die Tippflächen bleiben in beiden Fällen 48dp groß.</string>
+    <string name="settings_lists">Listen</string>
+    <string name="settings_show_completed">Erledigte Aufgaben anzeigen</string>
+    <string name="settings_show_completed_supporting">Erledigtes bleibt für den Rest des Tages stehen</string>
+    <string name="settings_about">Über die App</string>
+    <string name="settings_about_text">Cadence sortiert zuerst nach Wichtigkeit und nutzt das Fälligkeitsdatum nur, um Gleichstände aufzulösen. Die Priorität erscheint immer als Balkenanzeige mit Beschriftung, nie allein über Farbe.</string>
+    <string name="settings_metadata_version">Version %1$s</string>
+    <string name="settings_metadata_counts">%1$s · %2$s</string>
+    <string name="settings_metadata_database_size">Datenbank: %1$s</string>
+
+    <!-- ── Wiederholungs-Editor ────────────────────────────────────────────────────── -->
+    <string name="repeat_title">Wiederholen</string>
+    <string name="repeat_mode_schedule">Nach Zeitplan</string>
+    <string name="repeat_mode_after_completion">Nach Erledigung</string>
+    <string name="repeat_every">Alle</string>
+    <string name="repeat_on">Am</string>
+    <string name="repeat_day_of_month">Tag %1$d</string>
+    <string name="repeat_last_day">Letzter Tag</string>
+    <string name="repeat_last_weekday">Letzter Werktag</string>
+    <string name="repeat_nth_weekday">%1$s %2$s</string>
+    <string name="repeat_preview_next_three">Die nächsten drei</string>
+    <string name="repeat_preview_after_completion">Nächster Termin, wenn du heute fertig wirst</string>
+    <string name="repeat_keep_missed">Verpasste Termine behalten</string>
+    <string name="repeat_keep_missed_supporting">Übersprungene bleiben überfällig, statt zu verschwinden</string>
+    <string name="repeat_turn_off">Ausschalten</string>
+    <string name="repeat_save">Regel speichern</string>
+
+    <!-- ── Schnelleingabe ──────────────────────────────────────────────────────────── -->
+    <string name="quick_add_placeholder">Miete zahlen jeden 1. !p2 #Haushalt</string>
+    <string name="quick_add_hint">Tippe einen Chip an, um ihn zu korrigieren. Normale Wörter sind in Ordnung — alles hier ist optional. Datum und Wiederholung verstehen Deutsch und Englisch, etwa „morgen“, „jeden 1.“ oder „alle 2 Wochen am Donnerstag“.</string>
+    <string name="quick_add_set_due_date">Fälligkeitsdatum setzen</string>
+    <string name="quick_add_set_repeat">Wiederholung setzen</string>
+    <string name="quick_add_cycle_importance">Wichtigkeit durchschalten</string>
+    <string name="quick_add_choose_project">Projekt wählen</string>
+    <string name="quick_add_submit">Aufgabe hinzufügen</string>
+    <string name="quick_add_new_task">Neue Aufgabe</string>
+
+    <!-- ── Auswahldialoge ──────────────────────────────────────────────────────────── -->
+    <string name="picker_no_date">Kein Datum</string>
+    <string name="picker_move_to">Verschieben nach</string>
+
+    <!-- ── Backup ──────────────────────────────────────────────────────────────────── -->
+    <string name="settings_data">Daten</string>
+    <string name="settings_export">Backup exportieren</string>
+    <string name="settings_export_supporting">Schreibt alle Aufgaben und Projekte in eine JSON-Datei deiner Wahl. Sie bleibt auf dem Gerät, solange du sie nicht an einem synchronisierten Ort ablegst.</string>
+    <string name="settings_import">Backup importieren</string>
+    <string name="settings_import_supporting">Liest eine Backup-Datei wieder ein und ersetzt dabei alles, was aktuell in der App steht.</string>
+    <!-- Vom Dateiauswahldialog vorgeschlagener Name; %1$s ist das Datum, z. B. 2026-08-05. -->
+    <string name="backup_file_name">cadence-backup-%1$s.json</string>
+    <string name="backup_import_confirm_title">Alle Daten ersetzen?</string>
+    <string name="backup_import_confirm_text">Beim Import werden alle Aufgaben und Projekte auf diesem Gerät gelöscht und durch den Inhalt der Backup-Datei ersetzt. Das lässt sich nicht rückgängig machen.</string>
+    <string name="backup_import_confirm_action">Ersetzen</string>
+    <!-- "42 Aufgaben und 6 Projekte exportiert." -->
+    <string name="backup_exported">%1$s und %2$s exportiert.</string>
+    <string name="backup_imported">%1$s und %2$s importiert.</string>
+    <string name="backup_error_write">Das Backup konnte nicht geschrieben werden. Wähle einen anderen Ort und versuche es erneut.</string>
+    <string name="backup_error_read">Diese Datei konnte nicht gelesen werden.</string>
+    <string name="backup_error_too_large">Diese Datei ist zu groß für ein Cadence-Backup.</string>
+    <string name="backup_error_not_json">Diese Datei ist kein gültiges JSON.</string>
+    <string name="backup_error_not_a_backup">Diese Datei ist kein Cadence-Backup.</string>
+    <string name="backup_error_newer_version">Dieses Backup stammt aus einer neueren Version von Cadence.</string>
+
+    <!-- ── Automatischer Backup-Abgleich ───────────────────────────────────────────── -->
+    <string name="settings_auto_backup">Backup aktuell halten</string>
+    <string name="settings_auto_backup_supporting">Liest die Backup-Datei beim Öffnen von Cadence und schreibt sie nach jeder Änderung und beim Verlassen wieder.</string>
+    <string name="settings_auto_backup_choose">Sync-Datei auswählen</string>
+    <string name="settings_auto_backup_change">Datei ändern</string>
+    <!-- %1$s ist der Dateiname, z. B. cadence-backup-2026-08-07.json. -->
+    <string name="settings_auto_backup_file">Abgleich mit %1$s</string>
+    <!-- %1$s ist eine relative Zeitangabe, z. B. „vor 5 Minuten“. -->
+    <string name="settings_auto_backup_last_synced">Zuletzt abgeglichen %1$s</string>
+    <!-- %1$s ist einer der backup_error_*-Sätze. -->
+    <string name="settings_auto_backup_failed">Automatischer Abgleich gestoppt. %1$s</string>
+    <string name="auto_backup_offer_title">Dieses Backup aktuell halten?</string>
+    <string name="auto_backup_offer_text">Cadence kann sich um diese Datei kümmern: beim Öffnen der App liest sie sie, nach jeder Änderung und beim Verlassen schreibt sie sie wieder. Leg die Datei in einen synchronisierten Ordner, und deine Aufgaben ziehen mit.</string>
+    <string name="auto_backup_offer_note">Beim Öffnen ersetzt die App ihre Daten durch die Datei, sobald diese neuer ist – nutze sie deshalb auf einem Gerät zur Zeit. Du kannst das in den Einstellungen wieder abschalten und jederzeit von Hand exportieren oder importieren.</string>
+    <string name="auto_backup_offer_enable">Aktuell halten</string>
+    <string name="auto_backup_offer_decline">Jetzt nicht</string>
+
+    <!-- ── Größen und vergangene Zeit ──────────────────────────────────────────────── -->
+    <string name="size_bytes">%1$s B</string>
+    <string name="size_kilobytes">%1$s kB</string>
+    <string name="size_megabytes">%1$s MB</string>
+    <string name="time_just_now">gerade eben</string>
+    <plurals name="time_minutes_ago">
+        <item quantity="one">vor %1$d Minute</item>
+        <item quantity="other">vor %1$d Minuten</item>
+    </plurals>
+    <plurals name="time_hours_ago">
+        <item quantity="one">vor %1$d Stunde</item>
+        <item quantity="other">vor %1$d Stunden</item>
+    </plurals>
+</resources>

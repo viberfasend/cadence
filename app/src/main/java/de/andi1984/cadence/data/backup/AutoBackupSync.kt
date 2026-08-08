@@ -4,6 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import de.andi1984.cadence.data.CadenceRepository
+import de.andi1984.cadence.domain.backup.BackupFailure
+import de.andi1984.cadence.domain.backup.BackupOutcome
+import de.andi1984.cadence.ui.platform.AutoBackupController
+import de.andi1984.cadence.ui.platform.BackupTarget
 import de.andi1984.cadence.ui.settings.SettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
@@ -45,7 +49,7 @@ class AutoBackupSync(
     private val settingsStore: SettingsStore,
     repository: CadenceRepository,
     private val scope: CoroutineScope,
-) {
+) : AutoBackupController {
 
     private val mutex = Mutex()
 
@@ -56,7 +60,7 @@ class AutoBackupSync(
      * most likely. Automatic sync is invisible when it works, so it has to be visible when it
      * stops; Settings shows this under the switch.
      */
-    val failure: StateFlow<BackupFailure?> = _failure.asStateFlow()
+    override val failure: StateFlow<BackupFailure?> = _failure.asStateFlow()
 
     init {
         scope.launch { watchForChanges(repository) }
@@ -73,12 +77,12 @@ class AutoBackupSync(
     }
 
     /** Called when the app comes to the foreground. */
-    fun onAppForegrounded() {
+    override fun onAppForegrounded() {
         scope.launch { importIfNewer() }
     }
 
     /** Called when the app goes to the background — including on the way to being killed. */
-    fun onAppBackgrounded() {
+    override fun onAppBackgrounded() {
         scope.launch { exportNow() }
     }
 
@@ -87,7 +91,8 @@ class AutoBackupSync(
      * picker hands out dies with the process, so it is made persistable here — without that,
      * sync would work until the next app start and then silently stop.
      */
-    fun enable(uri: Uri) {
+    override fun enable(target: BackupTarget) {
+        val uri = Uri.parse(target.value)
         val kept = runCatching {
             context.contentResolver.takePersistableUriPermission(
                 uri,
@@ -101,24 +106,24 @@ class AutoBackupSync(
             return
         }
         _failure.value = null
-        settingsStore.enableAutoBackup(uri.toString())
+        settingsStore.enableAutoBackup(target.value)
     }
 
-    fun disable() {
+    override fun disable() {
         _failure.value = null
         settingsStore.disableAutoBackup()
     }
 
     /** Records the user's answer when they turn the offer down. */
-    fun declineOffer() = settingsStore.markAutoBackupOffered()
+    override fun declineOffer() = settingsStore.markAutoBackupOffered()
 
     /**
      * A manual export or import counts as a sync when it used the synced file: it is now the
      * newest thing on both sides, and the next open must not read it back as if it came from
      * somewhere else.
      */
-    fun noteManualBackup(uri: Uri, outcome: BackupOutcome) {
-        if (uri.toString() != settingsStore.state.value.autoBackup.fileUri) return
+    override fun noteManualBackup(target: BackupTarget, outcome: BackupOutcome) {
+        if (target.value != settingsStore.state.value.autoBackup.fileUri) return
         when (outcome) {
             is BackupOutcome.Exported -> settingsStore.recordAutoBackupSync(outcome.exportedAt)
             is BackupOutcome.Imported -> outcome.exportedAt?.let(settingsStore::recordAutoBackupSync)
@@ -127,10 +132,10 @@ class AutoBackupSync(
     }
 
     private suspend fun importIfNewer() {
-        val uri = activeUri() ?: return
+        val target = activeTarget() ?: return
         val lastSyncedAt = settingsStore.state.value.autoBackup.lastSyncedAt
         mutex.withLock {
-            when (val outcome = backupIo.importIfNewer(uri, lastSyncedAt)) {
+            when (val outcome = backupIo.importIfNewer(target, lastSyncedAt)) {
                 null -> Unit // Nothing newer on disk: the device is already up to date.
                 is BackupOutcome.Failed -> _failure.value = outcome.reason
                 is BackupOutcome.Imported -> {
@@ -144,9 +149,9 @@ class AutoBackupSync(
     }
 
     private suspend fun exportNow() {
-        val uri = activeUri() ?: return
+        val target = activeTarget() ?: return
         mutex.withLock {
-            when (val outcome = backupIo.export(uri)) {
+            when (val outcome = backupIo.export(target)) {
                 is BackupOutcome.Exported -> {
                     _failure.value = null
                     settingsStore.recordAutoBackupSync(outcome.exportedAt)
@@ -158,10 +163,10 @@ class AutoBackupSync(
         }
     }
 
-    private fun activeUri(): Uri? = settingsStore.state.value.autoBackup
+    private fun activeTarget(): BackupTarget? = settingsStore.state.value.autoBackup
         .takeIf { it.isActive }
         ?.fileUri
-        ?.let(Uri::parse)
+        ?.let(::BackupTarget)
 
     private companion object {
         /** Long enough to fold a burst of edits into one write, short enough to survive a

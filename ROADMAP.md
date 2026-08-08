@@ -18,8 +18,8 @@ carry the detail and the up-to-date checked/unchecked state.
       than a snapshot that replaces everything. Phases 1–4 land invisibly, phase 5 is the first
       desktop build.
       - [x] 1 — `:core` KMP module ([#19](../../issues/19), [#20](../../issues/20))
-      - [ ] 2 — UUIDv7 keys, `updatedAt`/`deletedAt`, SQLDelight schema — [#23](../../issues/23)
-      - [ ] 3 — `:ui` Compose Multiplatform module, strings to `composeResources` —
+      - [x] 2 — UUIDv7 keys, `updatedAt`/`deletedAt`, SQLDelight schema — [#23](../../issues/23)
+      - [x] 3 — `:ui` Compose Multiplatform module, strings to `composeResources` —
             [#24](../../issues/24)
       - [ ] 4 — `:app-android` reduced to a shell — [#25](../../issues/25)
       - [ ] 5 — `:app-desktop` with jpackage installers and a CI matrix — [#26](../../issues/26)

@@ -6,9 +6,13 @@ import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.domain.backup.AutoBackupPolicy
 import de.andi1984.cadence.domain.backup.BackupCodec
 import de.andi1984.cadence.domain.backup.BackupError
+import de.andi1984.cadence.domain.backup.BackupFailure
+import de.andi1984.cadence.domain.backup.BackupOutcome
 import de.andi1984.cadence.domain.backup.BackupReadResult
 import de.andi1984.cadence.domain.backup.BackupSettings
 import de.andi1984.cadence.domain.backup.BackupSnapshot
+import de.andi1984.cadence.ui.platform.BackupGateway
+import de.andi1984.cadence.ui.platform.BackupTarget
 import de.andi1984.cadence.ui.settings.Density
 import de.andi1984.cadence.ui.settings.SettingsStore
 import de.andi1984.cadence.ui.settings.SortMode
@@ -19,31 +23,6 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.time.Instant
 
-enum class BackupFailure { WRITE_FAILED, READ_FAILED, FILE_TOO_LARGE, NOT_JSON, NOT_A_BACKUP, NEWER_VERSION }
-
-/**
- * What the last export or import did, for the line the Settings screen shows afterwards.
- *
- * [BackupOutcome.Exported.exportedAt] and [BackupOutcome.Imported.exportedAt] are the file's own
- * timestamp: automatic sync records it so it can tell a file it wrote itself from one that
- * arrived from elsewhere. Nothing in the UI reads them.
- */
-sealed interface BackupOutcome {
-    data class Exported(
-        val projects: Int,
-        val tasks: Int,
-        val exportedAt: Instant,
-    ) : BackupOutcome
-
-    data class Imported(
-        val projects: Int,
-        val tasks: Int,
-        val exportedAt: Instant? = null,
-    ) : BackupOutcome
-
-    data class Failed(val reason: BackupFailure) : BackupOutcome
-}
-
 /**
  * Reads and writes backup files through the Storage Access Framework: the user picks the
  * location, so the app needs no storage permission and keeps no copy of its own.
@@ -52,9 +31,10 @@ class BackupIo(
     private val context: Context,
     private val repository: CadenceRepository,
     private val settingsStore: SettingsStore,
-) {
+) : BackupGateway {
 
-    suspend fun export(uri: Uri): BackupOutcome = withContext(Dispatchers.IO) {
+    override suspend fun export(target: BackupTarget): BackupOutcome = withContext(Dispatchers.IO) {
+        val uri = Uri.parse(target.value)
         val snapshot = repository.snapshot()
         val exportedAt = Instant.now()
         
@@ -88,8 +68,8 @@ class BackupIo(
         )
     }
 
-    suspend fun import(uri: Uri): BackupOutcome = withContext(Dispatchers.IO) {
-        when (val read = read(uri)) {
+    override suspend fun import(target: BackupTarget): BackupOutcome = withContext(Dispatchers.IO) {
+        when (val read = read(Uri.parse(target.value))) {
             is Read.Failed -> BackupOutcome.Failed(read.reason)
             is Read.Ok -> restore(read)
         }
@@ -100,9 +80,9 @@ class BackupIo(
      * device when [AutoBackupPolicy] recognises it as newer than the last one this device wrote
      * or read. Returns null when there was nothing to do, so a quiet open stays quiet.
      */
-    suspend fun importIfNewer(uri: Uri, lastSyncedAt: Instant?): BackupOutcome? =
+    suspend fun importIfNewer(target: BackupTarget, lastSyncedAt: Instant?): BackupOutcome? =
         withContext(Dispatchers.IO) {
-            when (val read = read(uri)) {
+            when (val read = read(Uri.parse(target.value))) {
                 is Read.Failed -> BackupOutcome.Failed(read.reason)
                 is Read.Ok ->
                     if (AutoBackupPolicy.shouldImport(read.exportedAt, lastSyncedAt)) {

@@ -7,17 +7,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Cadence — a local-first native Android todo app (Kotlin, Jetpack Compose, Material 3, SQLDelight).
 No cloud, no account, no analytics. Package `de.andi1984.cadence` throughout.
 
-Two modules: `:core` (Kotlin Multiplatform, the domain layer) and `:app` (the Android app).
-A desktop app for Ubuntu/macOS/Windows is being built out of `:core` in the steps laid out in
+Three modules: `:core` (Kotlin Multiplatform, the domain layer), `:ui` (Compose Multiplatform —
+theme, components, formatters, every screen, the ViewModel) and `:app` (the Android shell). A
+desktop app for Ubuntu/macOS/Windows is being built out of the first two in the steps laid out in
 [`docs/adr/0001-desktop-app-and-multi-device-sync.md`](docs/adr/0001-desktop-app-and-multi-device-sync.md).
 
 The product rule the whole app is built on: **importance first, due date breaks ties**
-(`ui/TaskSorting.kt`). Recurrence supports both calendar rules and "n days after completion".
+(`:ui`'s `ui/TaskSorting.kt`). Recurrence supports both calendar rules and "n days after completion".
 
 ## Commands
 
 ```bash
 ./gradlew testDebugUnitTest :core:jvmTest   # what CI runs — see below for why both
+./gradlew :ui:compileKotlinJvm     # also CI: nothing else compiles :ui for the desktop
 ./gradlew assembleDebug            # app/build/outputs/apk/debug/app-debug.apk
 ./gradlew assembleRelease          # falls back to the debug key when no CADENCE_KEYSTORE is set
 
@@ -31,6 +33,10 @@ The product rule the whole app is built on: **importance first, due date breaks 
 `:core` today, but it also never exercises the JVM target the desktop app will be built on, so CI
 names both. Storage lives entirely in `:core` now (ADR 0001, phase 2), so `:app` has no unit
 tests of its own left — `RecurrenceCodecTest` and the SQLDelight store tests moved with it.
+
+`:ui` has no tests at all, and `assembleDebug` only ever compiles its *Android* target. CI
+therefore also runs `:ui:compileKotlinJvm` on its own: without it the Android build could stay
+green while the module the desktop app is mostly made of stopped compiling for the JVM.
 
 JDK 17, compileSdk/targetSdk 35, minSdk 26. No lint or format task is wired up.
 
@@ -51,13 +57,22 @@ callbacks — no per-screen ViewModel, no per-screen data loading. Derived views
 tasks-in-project, project labels) are computed by helper methods **on `CadenceUiState`**, so add
 new derivations there rather than filtering inside a screen.
 
+It is a **plain class**, not an `androidx.lifecycle.ViewModel`: there is no ViewModel on the
+desktop, and the only two things the Android shell actually needs from the lifecycle library are
+a scope that survives a rotation and a moment to stop. Both are constructor parameters
+(`scope`) and a method (`close()`), and `:app`'s `CadenceViewModelHost` — an
+`androidx.lifecycle.ViewModel` whose whole body is one field — supplies them from
+`viewModelScope`. `:app-desktop` will supply them from its window.
+
 **Wiring** is hand-rolled in `AppContainer`, built once in `CadenceApplication.onCreate` and
 reached through `ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY`. No DI framework —
 new singletons go in `AppContainer`.
 
-**Navigation** lives entirely in `ui/CadenceApp.kt`: route constants in `Routes`, one `NavHost`,
-bottom bar + FAB shown only on the four top-level destinations. Quick-add is a sheet driven by
-composable state, not a route.
+**Navigation** lives entirely in `:app`'s `ui/CadenceApp.kt`, which is the part of the UI that
+did *not* move: route constants in `Routes`, one `NavHost`, bottom bar + FAB shown only on the
+four top-level destinations. Quick-add is a sheet driven by composable state, not a route. The
+desktop shell replaces this file wholesale (sidebar, menu, command palette) and reuses every
+screen it points at.
 
 ### Layers
 
@@ -66,10 +81,24 @@ composable state, not a route.
                    Android imports; this is what the JVM unit tests exercise. Keep it that way.
        data/       CadenceRepository, the TaskStore/ProjectStore/BackupStore ports it needs, and
                    the SQLDelight-backed implementations of those ports (data/db/)
-:app   data/backup/BackupIo (SAF read/write), AutoBackupSync
+:ui    ui/         theme, shared components, ui/format/, one package per screen, CadenceViewModel
+       ui/platform/ the ports the ViewModel needs from the machine — ReminderScheduler,
+                   BackupGateway, AutoBackupController, BackupFilePicker
+       composeResources/ strings.xml and values-de/, reached as Res.string.x
+:app   ui/         CadenceApp (NavHost, bottom bar, FAB), CadenceViewModelHost, the SAF picker
+       data/backup/BackupIo (SAF read/write), AutoBackupSync
+       data/settings/SharedPrefsSettingsStore
        reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
-       ui/         theme, shared components, one package per screen
 ```
+
+**`:ui` states its platform needs as ports too.** `:core` already treats storage that way; the
+same idea covers everything else the app touches that Android and the desktop do differently.
+`ui/platform/Ports.kt` declares `ReminderScheduler`, `BackupGateway`, `AutoBackupController` and
+`BackupFilePicker`, plus `BackupTarget` — an opaque string that is a SAF content uri on Android
+and will be a path on the desktop, which `:ui` only ever hands back. `:app` implements all four
+(`AlarmReminderScheduler`, `BackupIo`, `AutoBackupSync`, `rememberSafBackupFilePicker`), and no
+screen learns which it got. `SettingsStore` is a port for the same reason, declared next to the
+settings types in `ui/settings/SettingsStore.kt`.
 
 **Storage is a port, not a layer, and it lives in `:core` entirely (ADR 0001, phase 2).**
 `CadenceRepository` reaches storage through three interfaces in `data/Stores.kt` that speak `Task`
@@ -225,8 +254,8 @@ than reaching for `!!`.
   - **It runs on an application-scoped coroutine** in `AppContainer`, not `viewModelScope`: the
     write that starts as the user leaves has to outlive the screen it started from. A `Mutex`
     serialises reads against writes.
-- Settings persist to `SharedPreferences` via `SettingsStore` (not DataStore), exposed as a
-  `StateFlow`.
+- Settings persist to `SharedPreferences` via `SharedPrefsSettingsStore` (not DataStore), the
+  Android implementation of `:ui`'s `SettingsStore` port, exposed as a `StateFlow`.
 
 ### UI conventions
 
@@ -242,9 +271,17 @@ than reaching for `!!`.
 
 ### Localisation
 
-English and German (`values/` and `values-de/`), listed in `res/xml/locales_config.xml` for the
-Android 13+ per-app language picker. **No user-visible string belongs in Kotlin.** Consequences
-worth knowing before adding a screen:
+English and German. Since ADR 0001 phase 3 the strings live in **`:ui`'s
+`src/commonMain/composeResources/values{,-de}/strings.xml`** and are reached as `Res.string.x` /
+`Res.plurals.x` (`org.jetbrains.compose.resources`, not `androidx.compose.ui.res`) — the XML
+shape, `<plurals>` included, is unchanged. `:app` keeps four strings of its own in `res/values/`:
+the launcher label and the three the notification channel needs, none of which a composable ever
+sees. `res/xml/locales_config.xml` still drives the Android 13+ per-app language picker.
+
+The generated accessors are one top-level property per string, so files import them with
+`de.andi1984.cadence.ui.resources.*` rather than 245 import lines.
+
+**No user-visible string belongs in Kotlin.** Consequences worth knowing before adding a screen:
 
 - The `domain/` layer produces no prose. `RecurrenceEngine.summarize()` returns a structured
   `RecurrenceSummary`/`MonthlyPhrase` (unit-testable on the JVM), and `ui/format/` turns it into
@@ -252,7 +289,13 @@ worth knowing before adding a screen:
   `ui/format/PriorityLabels.kt`.
 - Everything in `ui/format/` is `@Composable`, because the wording *and* the date patterns
   (`date_pattern_*`) come from resources. Use `currentLocale()` from `DateLabels.kt` rather than
-  `Locale.getDefault()` — the app language can differ from the system one.
+  `Locale.getDefault()` — the app language can differ from the system one. It reads
+  `LocalAppLocale`, which `CadenceTheme` provides from a `locale` parameter: the *shell* is what
+  knows where the language comes from, Android's per-app picker today and an explicit desktop
+  setting in phase 5 (ADR 0001, decision 9).
+- Android used to hand two of these labels over ready-made — `Formatter.formatShortFileSize` and
+  `DateUtils.getRelativeTimeSpanString`. Neither has a desktop counterpart, so both are now
+  `ui/format/DiagnosticLabels.kt`, resources and all.
 - Never branch on a formatted string (an early bug compared a day header to `"Tomorrow"`);
   compare the underlying date or enum.
 - Counts go through `<plurals>`, even where English and German happen to agree.
