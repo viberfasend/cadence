@@ -5,6 +5,12 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create a release (true to publish)'
+        required: true
+        default: 'false'
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,9 +31,10 @@ jobs:
     steps:
       - name: Check out
         # Full history and tags: the version is derived from the commits since the last release.
+        # Only fetch full history on main or when we need version info
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && 0 || 1 }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -38,8 +45,26 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches/modules-*
+            ~/.gradle/caches/jars-*
+            ~/.gradle/caches/transforms-
+          key: ${{ runner.os }}-gradle-deps-${{ hashFiles('**/*.gradle*', '**/gradle.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-deps-
+
       - name: Make gradlew executable
         run: chmod +x ./gradlew
+
+      - name: Clean Gradle cache periodically
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          # Clean up old Gradle cache entries to prevent storage bloat
+          find ~/.gradle/caches -name "*.lock" -mtime +7 -delete
+          find ~/.gradle/caches -type d -name "fileHashes" -mtime +7 -exec rm -rf {} + 2>/dev/null || true
 
       - name: Unit tests
         # :core is a Kotlin Multiplatform module: testDebugUnitTest is its Android variant,
@@ -110,12 +135,10 @@ jobs:
           name: test-report
           path: app-android/build/reports/tests/
 
-      # Merging to main publishes a release. The action creates the tag from this commit, so the
-      # next run derives its version from the commits that land after it.
+      # Manual release via workflow_dispatch with release=true input
       - name: Publish release
         if: >-
-          github.event_name == 'push' &&
-          github.ref == 'refs/heads/main' &&
+          github.event_name == 'workflow_dispatch' && inputs.release == 'true' &&
           steps.version.outputs.skip == 'false'
         uses: softprops/action-gh-release@v2
         with:
