@@ -15,20 +15,77 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Test and build APK
+  test:
+    name: Run tests
     runs-on: ubuntu-latest
+    # Run tests on PRs and all pushes, but skip heavy build steps on PRs
+    if: always()
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          # Shallow clone for PRs, full history for main/workflow_dispatch
+          fetch-depth: ${{ (github.ref == 'refs/heads/main' || github.event_name != 'pull_request') && 0 || 1 }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches/modules-*
+            ~/.gradle/caches/jars-*
+            ~/.gradle/caches/transforms-
+          key: ${{ runner.os }}-gradle-deps-${{ hashFiles('**/*.gradle*', '**/gradle.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-deps-
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Unit tests
+        # :core is a Kotlin Multiplatform module: testDebugUnitTest is its Android variant,
+        # jvmTest the one the desktop app will rely on. Both run the same source set, and
+        # running only one would let the other rot.
+        run: ./gradlew testDebugUnitTest :core:jvmTest --stacktrace
+
+      - name: Compile the desktop target
+        # :ui has no tests of its own, but it is the module the desktop app is mostly made of.
+        # Nothing else in this workflow compiles its JVM target, so without this the Android
+        # build could stay green while the desktop one stopped building.
+        run: ./gradlew :ui:compileKotlinJvm --stacktrace
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: app-android/build/reports/tests/
+
+  build:
+    name: Build APKs
+    runs-on: ubuntu-latest
+    # Only build on push to main or workflow_dispatch, not on PRs
+    if: github.event_name != 'pull_request'
+
+    needs: test
 
     env:
       KEYSTORE_BASE64: ${{ secrets.CADENCE_KEYSTORE_BASE64 }}
 
     steps:
       - name: Check out
-        # Full history and tags: the version is derived from the commits since the last release.
-        # Only fetch full history on main or when we need version info
         uses: actions/checkout@v4
         with:
-          fetch-depth: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && 0 || 1 }}
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -54,23 +111,11 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Clean Gradle cache periodically
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         run: |
           # Clean up old Gradle cache entries to prevent storage bloat
           find ~/.gradle/caches -name "*.lock" -mtime +7 -delete
           find ~/.gradle/caches -type d -name "fileHashes" -mtime +7 -exec rm -rf {} + 2>/dev/null || true
-
-      - name: Unit tests
-        # :core is a Kotlin Multiplatform module: testDebugUnitTest is its Android variant,
-        # jvmTest the one the desktop app will rely on. Both run the same source set, and
-        # running only one would let the other rot.
-        run: ./gradlew testDebugUnitTest :core:jvmTest --stacktrace
-
-      - name: Compile the desktop target
-        # :ui has no tests of its own, but it is the module the desktop app is mostly made of.
-        # Nothing else in this workflow compiles its JVM target, so without this the Android
-        # build could stay green while the desktop one stopped building.
-        run: ./gradlew :ui:compileKotlinJvm --stacktrace
 
       # Runs on every branch too, where it is only a preview of what merging would publish.
       - name: Work out the next version
@@ -121,10 +166,3 @@ jobs:
           name: cadence-release-apk
           path: dist/cadence-release.apk
           if-no-files-found: error
-
-      - name: Upload test report
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-report
-          path: app-android/build/reports/tests/
