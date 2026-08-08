@@ -8,8 +8,9 @@ Cadence — a local-first native Android todo app (Kotlin, Jetpack Compose, Mate
 No cloud, no account, no analytics. Package `de.andi1984.cadence` throughout.
 
 Three modules: `:core` (Kotlin Multiplatform, the domain layer), `:ui` (Compose Multiplatform —
-theme, components, formatters, every screen, the ViewModel) and `:app` (the Android shell). A
-desktop app for Ubuntu/macOS/Windows is being built out of the first two in the steps laid out in
+theme, components, formatters, every screen, the ViewModel) and `:app-android` (the Android
+shell, renamed from `:app` in ADR 0001 phase 4 to leave room for `:app-desktop`). A desktop app
+for Ubuntu/macOS/Windows is being built out of the first two in the steps laid out in
 [`docs/adr/0001-desktop-app-and-multi-device-sync.md`](docs/adr/0001-desktop-app-and-multi-device-sync.md).
 
 The product rule the whole app is built on: **importance first, due date breaks ties**
@@ -20,7 +21,7 @@ The product rule the whole app is built on: **importance first, due date breaks 
 ```bash
 ./gradlew testDebugUnitTest :core:jvmTest   # what CI runs — see below for why both
 ./gradlew :ui:compileKotlinJvm     # also CI: nothing else compiles :ui for the desktop
-./gradlew assembleDebug            # app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleDebug            # app-android/build/outputs/apk/debug/app-android-debug.apk
 ./gradlew assembleRelease          # falls back to the debug key when no CADENCE_KEYSTORE is set
 
 # a single test class / method (method names are backticked sentences)
@@ -31,7 +32,7 @@ The product rule the whole app is built on: **importance first, due date breaks 
 `:core`'s tests are one source set compiled twice: `:core:jvmTest` is the desktop compilation and
 `:core:testDebugUnitTest` the Android one. `testDebugUnitTest` alone therefore misses nothing in
 `:core` today, but it also never exercises the JVM target the desktop app will be built on, so CI
-names both. Storage lives entirely in `:core` now (ADR 0001, phase 2), so `:app` has no unit
+names both. Storage lives entirely in `:core` now (ADR 0001, phase 2), so `:app-android` has no unit
 tests of its own left — `RecurrenceCodecTest` and the SQLDelight store tests moved with it.
 
 `:ui` has no tests at all, and `assembleDebug` only ever compiles its *Android* target. CI
@@ -60,7 +61,7 @@ new derivations there rather than filtering inside a screen.
 It is a **plain class**, not an `androidx.lifecycle.ViewModel`: there is no ViewModel on the
 desktop, and the only two things the Android shell actually needs from the lifecycle library are
 a scope that survives a rotation and a moment to stop. Both are constructor parameters
-(`scope`) and a method (`close()`), and `:app`'s `CadenceViewModelHost` — an
+(`scope`) and a method (`close()`), and `:app-android`'s `CadenceViewModelHost` — an
 `androidx.lifecycle.ViewModel` whose whole body is one field — supplies them from
 `viewModelScope`. `:app-desktop` will supply them from its window.
 
@@ -68,7 +69,7 @@ a scope that survives a rotation and a moment to stop. Both are constructor para
 reached through `ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY`. No DI framework —
 new singletons go in `AppContainer`.
 
-**Navigation** lives entirely in `:app`'s `ui/CadenceApp.kt`, which is the part of the UI that
+**Navigation** lives entirely in `:app-android`'s `ui/CadenceApp.kt`, which is the part of the UI that
 did *not* move: route constants in `Routes`, one `NavHost`, bottom bar + FAB shown only on the
 four top-level destinations. Quick-add is a sheet driven by composable state, not a route. The
 desktop shell replaces this file wholesale (sidebar, menu, command palette) and reuses every
@@ -77,25 +78,25 @@ screen it points at.
 ### Layers
 
 ```
-:core  domain/     pure Kotlin — model, RecurrenceEngine, QuickAddParser, BackupCodec. NO
-                   Android imports; this is what the JVM unit tests exercise. Keep it that way.
-       data/       CadenceRepository, the TaskStore/ProjectStore/BackupStore ports it needs, and
-                   the SQLDelight-backed implementations of those ports (data/db/)
-:ui    ui/         theme, shared components, ui/format/, one package per screen, CadenceViewModel
-       ui/platform/ the ports the ViewModel needs from the machine — ReminderScheduler,
-                   BackupGateway, AutoBackupController, BackupFilePicker
-       composeResources/ strings.xml and values-de/, reached as Res.string.x
-:app   ui/         CadenceApp (NavHost, bottom bar, FAB), CadenceViewModelHost, the SAF picker
-       data/backup/BackupIo (SAF read/write), AutoBackupSync
-       data/settings/SharedPrefsSettingsStore
-       reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
+:core         domain/     pure Kotlin — model, RecurrenceEngine, QuickAddParser, BackupCodec. NO
+                          Android imports; this is what the JVM unit tests exercise. Keep it that way.
+              data/       CadenceRepository, the TaskStore/ProjectStore/BackupStore ports it needs, and
+                          the SQLDelight-backed implementations of those ports (data/db/)
+:ui           ui/         theme, shared components, ui/format/, one package per screen, CadenceViewModel
+              ui/platform/ the ports the ViewModel needs from the machine — ReminderScheduler,
+                          BackupGateway, AutoBackupController, BackupFilePicker
+              composeResources/ strings.xml and values-de/, reached as Res.string.x
+:app-android  ui/         CadenceApp (NavHost, bottom bar, FAB), CadenceViewModelHost, the SAF picker
+              data/backup/BackupIo (SAF read/write), AutoBackupSync
+              data/settings/SharedPrefsSettingsStore
+              reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
 ```
 
 **`:ui` states its platform needs as ports too.** `:core` already treats storage that way; the
 same idea covers everything else the app touches that Android and the desktop do differently.
 `ui/platform/Ports.kt` declares `ReminderScheduler`, `BackupGateway`, `AutoBackupController` and
 `BackupFilePicker`, plus `BackupTarget` — an opaque string that is a SAF content uri on Android
-and will be a path on the desktop, which `:ui` only ever hands back. `:app` implements all four
+and will be a path on the desktop, which `:ui` only ever hands back. `:app-android` implements all four
 (`AlarmReminderScheduler`, `BackupIo`, `AutoBackupSync`, `rememberSafBackupFilePicker`), and no
 screen learns which it got. `SettingsStore` is a port for the same reason, declared next to the
 settings types in `ui/settings/SettingsStore.kt`.
@@ -105,7 +106,7 @@ settings types in `ui/settings/SettingsStore.kt`.
 and `Project` rather than rows and carry no database annotation. `data/db/SqlDelightStores.kt`
 implements them over the SQLDelight schema in `data/db/*.sq`, and every row↔domain conversion
 lives there — epoch day/second-of-day/epoch-millis at the boundary, nowhere else. This is
-possible because SQLDelight itself is multiplatform, unlike Room: `:app` only supplies the
+possible because SQLDelight itself is multiplatform, unlike Room: `:app-android` only supplies the
 `DatabaseDriverFactory` actual (`AndroidSqliteDriver`, needing a `Context`) that opens the same
 schema the desktop app's `JdbcSqliteDriver` actual will open too — see "Persistence" below.
 
@@ -274,7 +275,7 @@ than reaching for `!!`.
 English and German. Since ADR 0001 phase 3 the strings live in **`:ui`'s
 `src/commonMain/composeResources/values{,-de}/strings.xml`** and are reached as `Res.string.x` /
 `Res.plurals.x` (`org.jetbrains.compose.resources`, not `androidx.compose.ui.res`) — the XML
-shape, `<plurals>` included, is unchanged. `:app` keeps four strings of its own in `res/values/`:
+shape, `<plurals>` included, is unchanged. `:app-android` keeps four strings of its own in `res/values/`:
 the launcher label and the three the notification channel needs, none of which a composable ever
 sees. `res/xml/locales_config.xml` still drives the Android 13+ per-app language picker.
 
@@ -322,7 +323,7 @@ The version is **derived, never edited**. `.github/scripts/next-version.sh` read
 Conventional Commit subjects since the last `v*` tag: a `!` or a `BREAKING CHANGE:` footer bumps
 major, any `feat:` bumps minor, anything else bumps patch, so every merge ships a build. With no
 tag yet the first release is `1.0.0`. The script writes `version`/`version_code`/`notes` as step
-outputs; `app/build.gradle.kts` reads `CADENCE_VERSION_NAME`/`CADENCE_VERSION_CODE` from the
+outputs; `app-android/build.gradle.kts` reads `CADENCE_VERSION_NAME`/`CADENCE_VERSION_CODE` from the
 environment and falls back to `0.0.0-dev` locally. `versionCode` is
 `major * 10000 + minor * 100 + patch`. Run the script locally to see what a merge would publish:
 
@@ -336,7 +337,7 @@ release is published with `make_latest`. Branch and PR runs only upload APK arti
 version they print is a preview of what merging would publish. Debug and release use different
 application IDs (`.debug` suffix) and install side by side.
 
-**The debug key is committed (`app/debug.keystore`) and must stay that way.** Android installs a
+**The debug key is committed (`app-android/debug.keystore`) and must stay that way.** Android installs a
 build over an existing app only when both carry the same signing certificate, and AGP invents a
 fresh `~/.android/debug.keystore` wherever none exists — on a CI runner, that is every single
 run. Releases up to v1.1.2 therefore each had their own key and could not update one another;
@@ -347,7 +348,7 @@ stops matching the committed keystore.
 
 Release signing is optional on top of that: the four `CADENCE_*` env vars/secrets enable it,
 otherwise the release build is signed with the debug key too (see the comment block in
-`app/build.gradle.kts`) — which means an APK anyone can forge, acceptable only because the app
+`app-android/build.gradle.kts`) — which means an APK anyone can forge, acceptable only because the app
 ships as a GitHub link rather than through a store.
 
 ## Agent skills

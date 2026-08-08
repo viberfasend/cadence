@@ -7,12 +7,12 @@
 # to survive from one release to the next, and the failure is invisible at build time — the
 # build succeeds, and the update breaks on the phone weeks later. This turns that into a red CI
 # run instead: it compares the certificate inside the built APK with the one in
-# app/debug.keystore, and prints both fingerprints so a mismatch is readable.
+# app-android/debug.keystore, and prints both fingerprints so a mismatch is readable.
 #
 # Usage: bash .github/scripts/check-signing.sh <apk> [<apk> …]
 set -euo pipefail
 
-keystore="app/debug.keystore"
+keystore="app-android/debug.keystore"
 
 # The APK is signed by whichever key the build picked; the keystore is the one it should have
 # picked. Both fingerprints are normalised to bare lowercase hex, since keytool prints

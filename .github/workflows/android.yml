@@ -80,8 +80,8 @@ jobs:
       - name: Stage APKs
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/*.apk dist/cadence-debug.apk
-          cp app/build/outputs/apk/release/*.apk dist/cadence-release.apk
+          cp app-android/build/outputs/apk/debug/*.apk dist/cadence-debug.apk
+          cp app-android/build/outputs/apk/release/*.apk dist/cadence-release.apk
           ls -lh dist
 
       # A build signed by a different key than the last release cannot be installed over it —
@@ -108,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-report
-          path: app/build/reports/tests/
+          path: app-android/build/reports/tests/
 
       # Merging to main publishes a release. The action creates the tag from this commit, so the
       # next run derives its version from the commits that land after it.
