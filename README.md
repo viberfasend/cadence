@@ -41,7 +41,7 @@ step.
 ### Signing the release build (optional)
 
 Without any configuration the release APK is signed with the debug key committed at
-`app/debug.keystore`, which is public: anyone can build an APK that installs over it. That is
+`app-android/debug.keystore`, which is public: anyone can build an APK that installs over it. That is
 fine for a build distributed as a link on GitHub, and it is what keeps updates working. To sign
 the release APK with a key only you hold, add these repository secrets:
 
@@ -115,7 +115,7 @@ up to today.
 
 ```bash
 ./gradlew testDebugUnitTest   # unit tests for the recurrence engine and the quick-add parser
-./gradlew assembleDebug       # app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleDebug       # app-android/build/outputs/apk/debug/app-android-debug.apk
 ```
 
 Requires JDK 17 and the Android SDK (compileSdk 35). Minimum supported device: Android 8.0.
@@ -123,7 +123,7 @@ Requires JDK 17 and the Android SDK (compileSdk 35). Minimum supported device: A
 ## Layout
 
 ```
-app/src/main/java/de/andi1984/cadence/
+app-android/src/main/java/de/andi1984/cadence/
 ├── data/            Room entities, DAOs, repository, seed content
 ├── domain/          model, recurrence engine, quick-add parser
 ├── reminders/       alarm scheduling and notifications

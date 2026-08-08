@@ -4,7 +4,7 @@
 /.idea/
 .DS_Store
 /build
-/app/build
+/app-android/build
 /core/build
 /ui/build
 .kotlin/
@@ -16,5 +16,5 @@ local.properties
 *.keystore
 *.jks
 # …but the debug key is checked in on purpose: it is what makes one build installable
-# over the last one. See the signing comment in app/build.gradle.kts.
-!/app/debug.keystore
+# over the last one. See the signing comment in app-android/build.gradle.kts.
+!/app-android/debug.keystore
