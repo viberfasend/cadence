@@ -21,6 +21,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import de.andi1984.cadence.reminders.ReminderScheduler
 import de.andi1984.cadence.ui.CadenceApp
 import de.andi1984.cadence.ui.CadenceViewModel
+import de.andi1984.cadence.ui.Routes
 import de.andi1984.cadence.ui.theme.CadenceTheme
 import androidx.activity.compose.rememberLauncherForActivityResult
 
@@ -37,11 +38,8 @@ class MainActivity : ComponentActivity() {
 
             // Handle intent extras for deep linking (e.g., from reminder notifications)
             val intentTaskId = remember { intent.getStringExtra(ReminderScheduler.EXTRA_TASK_ID) }
-            LaunchedEffect(intentTaskId) {
-                if (intentTaskId != null) {
-                    // Clear the intent so it doesn't trigger again on configuration changes
-                    intent.removeExtra(ReminderScheduler.EXTRA_TASK_ID)
-                }
+            val startDestination = remember(intentTaskId) {
+                if (intentTaskId != null) Routes.task(intentTaskId) else Routes.TODAY
             }
 
             // Automatic backup sync, when the user has switched it on, reads the file as the
@@ -53,7 +51,7 @@ class MainActivity : ComponentActivity() {
                 theme = state.settings.theme,
                 density = state.settings.density,
             ) {
-                CadenceApp(viewModel = viewModel, state = state, intentTaskId = intentTaskId)
+                CadenceApp(viewModel = viewModel, state = state, intentTaskId = intentTaskId, startDestination = startDestination)
             }
         }
     }

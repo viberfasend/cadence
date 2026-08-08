@@ -69,24 +69,11 @@ private data class BottomDestination(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId: String? = null) {
+fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId: String? = null, startDestination: String = Routes.TODAY) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val today = remember { LocalDate.now() }
-
-    // Handle deep linking from reminder notifications
-    LaunchedEffect(intentTaskId) {
-        if (intentTaskId != null) {
-            navController.navigate(Routes.task(intentTaskId)) {
-                // Clear back stack to start fresh from the task detail
-                popUpTo(navController.graph.findStartDestination().id) {
-                    inclusive = true
-                }
-                launchSingleTop = true
-            }
-        }
-    }
 
     var quickAddOpen by remember { mutableStateOf(false) }
     var quickAddProjectId by remember { mutableStateOf<String?>(null) }
@@ -157,7 +144,7 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId:
         },
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            NavHost(navController = navController, startDestination = Routes.TODAY) {
+            NavHost(navController = navController, startDestination = startDestination) {
                 composable(Routes.TODAY) {
                     TodayScreen(
                         state = state,
