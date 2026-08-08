@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,11 +69,24 @@ private data class BottomDestination(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState) {
+fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId: Long = -1L) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val today = remember { LocalDate.now() }
+
+    // Handle deep linking from reminder notifications
+    LaunchedEffect(intentTaskId) {
+        if (intentTaskId > 0) {
+            navController.navigate(Routes.task(intentTaskId)) {
+                // Clear back stack to start fresh from the task detail
+                popUpTo(navController.graph.findStartDestination().id) {
+                    inclusive = true
+                }
+                launchSingleTop = true
+            }
+        }
+    }
 
     var quickAddOpen by remember { mutableStateOf(false) }
     var quickAddProjectId by remember { mutableStateOf<Long?>(null) }

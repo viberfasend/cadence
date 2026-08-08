@@ -1,6 +1,7 @@
 package de.andi1984.cadence
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -11,11 +12,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import de.andi1984.cadence.reminders.ReminderScheduler
 import de.andi1984.cadence.ui.CadenceApp
 import de.andi1984.cadence.ui.CadenceViewModel
 import de.andi1984.cadence.ui.theme.CadenceTheme
@@ -32,6 +35,15 @@ class MainActivity : ComponentActivity() {
 
             RequestNotificationPermission()
 
+            // Handle intent extras for deep linking (e.g., from reminder notifications)
+            val intentTaskId = remember { intent.getLongExtra(ReminderScheduler.EXTRA_TASK_ID, -1L) }
+            LaunchedEffect(intentTaskId) {
+                if (intentTaskId > 0) {
+                    // Clear the intent so it doesn't trigger again on configuration changes
+                    intent.removeExtra(ReminderScheduler.EXTRA_TASK_ID)
+                }
+            }
+
             // Automatic backup sync, when the user has switched it on, reads the file as the
             // app comes up and writes it as the app leaves. Both are no-ops otherwise.
             LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.onAppForegrounded() }
@@ -41,7 +53,7 @@ class MainActivity : ComponentActivity() {
                 theme = state.settings.theme,
                 density = state.settings.density,
             ) {
-                CadenceApp(viewModel = viewModel, state = state)
+                CadenceApp(viewModel = viewModel, state = state, intentTaskId = intentTaskId)
             }
         }
     }
