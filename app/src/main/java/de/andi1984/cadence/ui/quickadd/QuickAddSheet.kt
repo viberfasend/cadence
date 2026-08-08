@@ -68,6 +68,7 @@ import de.andi1984.cadence.ui.format.describeRecurrence
 import de.andi1984.cadence.ui.format.formatDate
 import de.andi1984.cadence.ui.format.label
 import de.andi1984.cadence.ui.recurrence.RecurrenceSheet
+import de.andi1984.cadence.ui.theme.CadenceColors
 import de.andi1984.cadence.ui.theme.LocalCadenceColors
 import java.time.LocalDate
 
@@ -118,160 +119,21 @@ fun QuickAddSheet(
         sheetState = sheetState,
         containerColor = scheme.surface,
     ) {
-        Column(modifier = Modifier.imePadding().padding(bottom = 12.dp)) {
-            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                BasicTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    textStyle = MaterialTheme.typography.titleLarge.copy(color = scheme.onSurface),
-                    cursorBrush = SolidColor(scheme.primary),
-                    visualTransformation = TokenHighlightTransformation(
-                        parsed = parsed,
-                        dateColor = cadenceColors.tokenDate,
-                        priorityColor = cadenceColors.tokenPriority,
-                        projectColor = cadenceColors.tokenProject,
-                    ),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(
-                        onDone = { if (effective.title.isNotBlank()) onSubmit(effective) },
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
-                    decorationBox = { inner ->
-                        if (text.isEmpty()) {
-                            Text(
-                                text = stringResource(R.string.quick_add_placeholder),
-                                style = MaterialTheme.typography.titleLarge,
-                                color = scheme.onSurfaceVariant,
-                            )
-                        }
-                        inner()
-                    },
-                )
-
-                FlowRow(
-                    modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    effective.dueDate?.let { due ->
-                        TokenChip(
-                            label = formatDate(due),
-                            icon = AppIcons.Event,
-                            background = cadenceColors.tokenDate,
-                            foreground = cadenceColors.onTokenDate,
-                            onClick = { datePickerOpen = true },
-                        )
-                    }
-                    effective.recurrence?.let { rule ->
-                        TokenChip(
-                            label = describeRecurrence(rule),
-                            icon = AppIcons.EventRepeat,
-                            background = cadenceColors.tokenDate,
-                            foreground = cadenceColors.onTokenDate,
-                            onClick = { recurrenceOpen = true },
-                        )
-                    }
-                    effective.priority?.let { priority ->
-                        TokenChip(
-                            label = priority.label(),
-                            background = cadenceColors.tokenPriority,
-                            foreground = cadenceColors.onTokenPriority,
-                            onClick = { priorityOverride = nextPriority(priority) },
-                            leading = {
-                                PrioritySpine(
-                                    priority = priority,
-                                    overrideColor = cadenceColors.onTokenPriority,
-                                    overrideTrack = cadenceColors.onTokenPriority.copy(alpha = 0.25f),
-                                )
-                            },
-                        )
-                    }
-                    if (chosenProject != null) {
-                        TokenChip(
-                            label = projectPath(chosenProject, projects).orEmpty(),
-                            background = cadenceColors.tokenProject,
-                            foreground = cadenceColors.onTokenProject,
-                            onClick = { projectPickerOpen = true },
-                            leading = { ProjectSwatch(colorHex = chosenProject.colorHex, size = 9) },
-                        )
-                    }
-                }
-
-                Text(
-                    text = stringResource(R.string.quick_add_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = scheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 12.dp),
-                )
-            }
-
-            HorizontalDivider(color = scheme.outlineVariant)
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                IconButton(onClick = { datePickerOpen = true }) {
-                    Icon(
-                        AppIcons.Event,
-                        contentDescription = stringResource(R.string.quick_add_set_due_date),
-                    )
-                }
-                IconButton(onClick = { recurrenceOpen = true }) {
-                    Icon(
-                        AppIcons.EventRepeat,
-                        contentDescription = stringResource(R.string.quick_add_set_repeat),
-                    )
-                }
-                IconButton(
-                    onClick = {
-                        priorityOverride = nextPriority(effective.priority ?: Priority.P4)
-                    },
-                ) {
-                    Icon(
-                        AppIcons.Flag,
-                        contentDescription = stringResource(R.string.quick_add_cycle_importance),
-                    )
-                }
-                IconButton(onClick = { projectPickerOpen = true }) {
-                    Icon(
-                        AppIcons.Folder,
-                        contentDescription = stringResource(R.string.quick_add_choose_project),
-                    )
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(
-                            if (effective.title.isBlank()) {
-                                scheme.surfaceContainerHigh
-                            } else {
-                                scheme.primary
-                            },
-                        )
-                        .clickable(enabled = effective.title.isNotBlank()) { onSubmit(effective) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = AppIcons.ArrowUpward,
-                        contentDescription = stringResource(R.string.quick_add_submit),
-                        tint = if (effective.title.isBlank()) {
-                            scheme.onSurfaceVariant
-                        } else {
-                            scheme.onPrimary
-                        },
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-        }
+        QuickAddBody(
+            text = text,
+            onTextChange = { text = it },
+            parsed = parsed,
+            effective = effective,
+            projects = projects,
+            chosenProject = chosenProject,
+            cadenceColors = cadenceColors,
+            focusRequester = focusRequester,
+            onOpenDatePicker = { datePickerOpen = true },
+            onOpenProjectPicker = { projectPickerOpen = true },
+            onOpenRecurrence = { recurrenceOpen = true },
+            onPriorityChange = { priorityOverride = it },
+            onSubmit = { onSubmit(effective) },
+        )
     }
 
     if (datePickerOpen) {
@@ -300,6 +162,184 @@ fun QuickAddSheet(
                 recurrenceOpen = false
             },
         )
+    }
+}
+
+/**
+ * The sheet's content — text field, recognised-token chips, hint and the action row. Pulled out
+ * of [QuickAddSheet] so a future attachment section (phase 1) has a body to add itself to
+ * without threading through the [ModalBottomSheet] shell.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun QuickAddBody(
+    text: String,
+    onTextChange: (String) -> Unit,
+    parsed: ParsedQuickAdd,
+    effective: ParsedQuickAdd,
+    projects: List<Project>,
+    chosenProject: Project?,
+    cadenceColors: CadenceColors,
+    focusRequester: FocusRequester,
+    onOpenDatePicker: () -> Unit,
+    onOpenProjectPicker: () -> Unit,
+    onOpenRecurrence: () -> Unit,
+    onPriorityChange: (Priority) -> Unit,
+    onSubmit: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+
+    Column(modifier = Modifier.imePadding().padding(bottom = 12.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+            BasicTextField(
+                value = text,
+                onValueChange = onTextChange,
+                textStyle = MaterialTheme.typography.titleLarge.copy(color = scheme.onSurface),
+                cursorBrush = SolidColor(scheme.primary),
+                visualTransformation = TokenHighlightTransformation(
+                    parsed = parsed,
+                    dateColor = cadenceColors.tokenDate,
+                    priorityColor = cadenceColors.tokenPriority,
+                    projectColor = cadenceColors.tokenProject,
+                ),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(
+                    onDone = { if (effective.title.isNotBlank()) onSubmit() },
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+                decorationBox = { inner ->
+                    if (text.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.quick_add_placeholder),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = scheme.onSurfaceVariant,
+                        )
+                    }
+                    inner()
+                },
+            )
+
+            FlowRow(
+                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                effective.dueDate?.let { due ->
+                    TokenChip(
+                        label = formatDate(due),
+                        icon = AppIcons.Event,
+                        background = cadenceColors.tokenDate,
+                        foreground = cadenceColors.onTokenDate,
+                        onClick = onOpenDatePicker,
+                    )
+                }
+                effective.recurrence?.let { rule ->
+                    TokenChip(
+                        label = describeRecurrence(rule),
+                        icon = AppIcons.EventRepeat,
+                        background = cadenceColors.tokenDate,
+                        foreground = cadenceColors.onTokenDate,
+                        onClick = onOpenRecurrence,
+                    )
+                }
+                effective.priority?.let { priority ->
+                    TokenChip(
+                        label = priority.label(),
+                        background = cadenceColors.tokenPriority,
+                        foreground = cadenceColors.onTokenPriority,
+                        onClick = { onPriorityChange(nextPriority(priority)) },
+                        leading = {
+                            PrioritySpine(
+                                priority = priority,
+                                overrideColor = cadenceColors.onTokenPriority,
+                                overrideTrack = cadenceColors.onTokenPriority.copy(alpha = 0.25f),
+                            )
+                        },
+                    )
+                }
+                if (chosenProject != null) {
+                    TokenChip(
+                        label = projectPath(chosenProject, projects).orEmpty(),
+                        background = cadenceColors.tokenProject,
+                        foreground = cadenceColors.onTokenProject,
+                        onClick = onOpenProjectPicker,
+                        leading = { ProjectSwatch(colorHex = chosenProject.colorHex, size = 9) },
+                    )
+                }
+            }
+
+            Text(
+                text = stringResource(R.string.quick_add_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp, bottom = 12.dp),
+            )
+        }
+
+        HorizontalDivider(color = scheme.outlineVariant)
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            IconButton(onClick = onOpenDatePicker) {
+                Icon(
+                    AppIcons.Event,
+                    contentDescription = stringResource(R.string.quick_add_set_due_date),
+                )
+            }
+            IconButton(onClick = onOpenRecurrence) {
+                Icon(
+                    AppIcons.EventRepeat,
+                    contentDescription = stringResource(R.string.quick_add_set_repeat),
+                )
+            }
+            IconButton(
+                onClick = { onPriorityChange(nextPriority(effective.priority ?: Priority.P4)) },
+            ) {
+                Icon(
+                    AppIcons.Flag,
+                    contentDescription = stringResource(R.string.quick_add_cycle_importance),
+                )
+            }
+            IconButton(onClick = onOpenProjectPicker) {
+                Icon(
+                    AppIcons.Folder,
+                    contentDescription = stringResource(R.string.quick_add_choose_project),
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(
+                        if (effective.title.isBlank()) {
+                            scheme.surfaceContainerHigh
+                        } else {
+                            scheme.primary
+                        },
+                    )
+                    .clickable(enabled = effective.title.isNotBlank(), onClick = onSubmit),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = AppIcons.ArrowUpward,
+                    contentDescription = stringResource(R.string.quick_add_submit),
+                    tint = if (effective.title.isBlank()) {
+                        scheme.onSurfaceVariant
+                    } else {
+                        scheme.onPrimary
+                    },
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
     }
 }
 
