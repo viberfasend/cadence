@@ -7,10 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Cadence — a local-first native Android todo app (Kotlin, Jetpack Compose, Material 3, SQLDelight).
 No cloud, no account, no analytics. Package `de.andi1984.cadence` throughout.
 
-Three modules: `:core` (Kotlin Multiplatform, the domain layer), `:ui` (Compose Multiplatform —
-theme, components, formatters, every screen, the ViewModel) and `:app-android` (the Android
-shell, renamed from `:app` in ADR 0001 phase 4 to leave room for `:app-desktop`). A desktop app
-for Ubuntu/macOS/Windows is being built out of the first two in the steps laid out in
+Four modules: `:core` (Kotlin Multiplatform, the domain layer), `:ui` (Compose Multiplatform —
+theme, components, formatters, every screen, the ViewModel), `:app-android` (the Android shell,
+renamed from `:app` in ADR 0001 phase 4) and `:app-desktop` (the JVM shell for Ubuntu/macOS/
+Windows, added in ADR 0001 phase 5 — **first runnable desktop build**, no sync yet). Both shells
+are built out of `:core` and `:ui` in the steps laid out in
 [`docs/adr/0001-desktop-app-and-multi-device-sync.md`](docs/adr/0001-desktop-app-and-multi-device-sync.md).
 
 The product rule the whole app is built on: **importance first, due date breaks ties**
@@ -23,6 +24,11 @@ The product rule the whole app is built on: **importance first, due date breaks 
 ./gradlew :ui:compileKotlinJvm     # also CI: nothing else compiles :ui for the desktop
 ./gradlew assembleDebug            # app-android/build/outputs/apk/debug/app-android-debug.apk
 ./gradlew assembleRelease          # falls back to the debug key when no CADENCE_KEYSTORE is set
+
+./gradlew :app-desktop:run                          # launch the desktop app from source
+./gradlew :app-desktop:packageDistributionForCurrentOS   # deb+rpm+tarball / dmg / msi, per OS
+./gradlew :app-desktop:packageUberJarForCurrentOS   # a runnable jar, no native packaging tools
+                                                     # needed — what to reach for off Linux CI
 
 # a single test class / method (method names are backticked sentences)
 ./gradlew :core:jvmTest --tests "de.andi1984.cadence.RecurrenceEngineTest"
@@ -63,17 +69,27 @@ desktop, and the only two things the Android shell actually needs from the lifec
 a scope that survives a rotation and a moment to stop. Both are constructor parameters
 (`scope`) and a method (`close()`), and `:app-android`'s `CadenceViewModelHost` — an
 `androidx.lifecycle.ViewModel` whose whole body is one field — supplies them from
-`viewModelScope`. `:app-desktop` will supply them from its window.
+`viewModelScope`. `:app-desktop`'s `main()` supplies them instead: a plain `CoroutineScope` it
+creates and keeps alive for the process, and `Window`'s `onCloseRequest`.
 
-**Wiring** is hand-rolled in `AppContainer`, built once in `CadenceApplication.onCreate` and
-reached through `ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY`. No DI framework —
-new singletons go in `AppContainer`.
+**Wiring** is hand-rolled in an `AppContainer` class per shell. `:app-android`'s is built once in
+`CadenceApplication.onCreate` and reached through
+`ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY`; `:app-desktop`'s is a plain
+`AppContainer()` constructed once at the top of `main()` — no Activity, no Application, so no
+factory to hang it from. No DI framework either way — new singletons go in the shell's
+`AppContainer`.
 
-**Navigation** lives entirely in `:app-android`'s `ui/CadenceApp.kt`, which is the part of the UI that
-did *not* move: route constants in `Routes`, one `NavHost`, bottom bar + FAB shown only on the
-four top-level destinations. Quick-add is a sheet driven by composable state, not a route. The
-desktop shell replaces this file wholesale (sidebar, menu, command palette) and reuses every
-screen it points at.
+**Navigation** lives entirely in each shell — the part of the UI that does *not* move.
+`:app-android`'s `ui/CadenceApp.kt` uses `androidx.navigation.compose`: route constants in
+`Routes`, one `NavHost`, bottom bar + FAB shown only on the four top-level destinations.
+`:app-desktop`'s `ui/CadenceDesktopApp.kt` does not depend on that Android-only artifact and
+instead holds a plain `List<Route>` back stack in `remember { mutableStateOf(...) }`, rendering
+only its last entry — a `NavigationRail` sidebar stands in for the bottom bar, a rail item for
+the FAB, `Ctrl`/`Cmd`+`N` for its keyboard equivalent. Both shells call the same screen
+composables with the same callbacks; only the chrome around them and how a route is stored
+differ. Quick-add is a sheet driven by composable state on both, not a route. The sidebar's
+detail-pane refinement ADR 0001 §8 describes, and swapping the quick-add sheet for a command
+palette, are left for later — phase 5's bar is a *working* shell, not a *finished* one.
 
 ### Layers
 
@@ -90,25 +106,37 @@ screen it points at.
               data/backup/BackupIo (SAF read/write), AutoBackupSync
               data/settings/SharedPrefsSettingsStore
               reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
+:app-desktop  Main.kt     application {}/Window, wires CadenceViewModel, Ctrl/Cmd+N
+              AppContainer.kt hand-rolled DI, same shape as :app-android's
+              ui/         CadenceDesktopApp (hand-rolled back stack, NavigationRail sidebar)
+              data/       DesktopBackupIo (java.nio), DesktopAutoBackupSync, DesktopSettingsStore
+                          (JSON file), DesktopBackupFilePicker (JFileChooser), DesktopReminderScheduler
+                          (coroutine poll + system tray, no AlarmManager here)
+              platform/   PlatformDirs — the per-OS data directory (ADR 0001 §8)
 ```
 
 **`:ui` states its platform needs as ports too.** `:core` already treats storage that way; the
 same idea covers everything else the app touches that Android and the desktop do differently.
 `ui/platform/Ports.kt` declares `ReminderScheduler`, `BackupGateway`, `AutoBackupController` and
 `BackupFilePicker`, plus `BackupTarget` — an opaque string that is a SAF content uri on Android
-and will be a path on the desktop, which `:ui` only ever hands back. `:app-android` implements all four
-(`AlarmReminderScheduler`, `BackupIo`, `AutoBackupSync`, `rememberSafBackupFilePicker`), and no
-screen learns which it got. `SettingsStore` is a port for the same reason, declared next to the
-settings types in `ui/settings/SettingsStore.kt`.
+and a plain absolute path on the desktop, which `:ui` only ever hands back. `:app-android`
+implements all four (`AlarmReminderScheduler`, `BackupIo`, `AutoBackupSync`,
+`rememberSafBackupFilePicker`) and `:app-desktop` implements the same four
+(`DesktopReminderScheduler`, `DesktopBackupIo`, `DesktopAutoBackupSync`,
+`DesktopBackupFilePicker`), and no screen learns which shell it got. `SettingsStore` is a port
+for the same reason, declared next to the settings types in `ui/settings/SettingsStore.kt` —
+`SharedPrefsSettingsStore` on Android, `DesktopSettingsStore` (a JSON file under `PlatformDirs`)
+on the desktop.
 
 **Storage is a port, not a layer, and it lives in `:core` entirely (ADR 0001, phase 2).**
 `CadenceRepository` reaches storage through three interfaces in `data/Stores.kt` that speak `Task`
 and `Project` rather than rows and carry no database annotation. `data/db/SqlDelightStores.kt`
 implements them over the SQLDelight schema in `data/db/*.sq`, and every row↔domain conversion
 lives there — epoch day/second-of-day/epoch-millis at the boundary, nowhere else. This is
-possible because SQLDelight itself is multiplatform, unlike Room: `:app-android` only supplies the
-`DatabaseDriverFactory` actual (`AndroidSqliteDriver`, needing a `Context`) that opens the same
-schema the desktop app's `JdbcSqliteDriver` actual will open too — see "Persistence" below.
+possible because SQLDelight itself is multiplatform, unlike Room: `:app-android` supplies the
+`DatabaseDriverFactory` actual (`AndroidSqliteDriver`, needing a `Context`) and `:app-desktop`
+the `jvmMain` one (`JdbcSqliteDriver`, needing `PlatformDirs.dataDir()`) — both open the same
+schema; see "Persistence" below.
 
 `TaskStore.completeIfOpen` and `reopenIfDone` return whether *this* call changed the row, and an
 implementation must decide that inside the store — in SQL, in a lock, in whatever it has — never
@@ -199,8 +227,12 @@ than reaching for `!!`.
   already speaks for its steps there, while the date-driven views (Today, Upcoming, Search) show
   a dated subtask in its own right, labelled with the parent's title.
 - **Reminders reconcile on every task emission**: the ViewModel collects `repository.tasks` and
-  calls `ReminderScheduler.sync(tasks)`, which schedules *or cancels* an alarm for every task.
-  Alarms are inexact (`setWindow`) deliberately, so the app needs no exact-alarm permission.
+  calls `ReminderScheduler.sync(tasks)`, which schedules *or cancels* a reminder for every task.
+  Android's alarms are inexact (`setWindow`) deliberately, so the app needs no exact-alarm
+  permission; the desktop has no AlarmManager at all, so `DesktopReminderScheduler` instead polls
+  the synced task list every 30 seconds and fires a system-tray balloon for whatever just came
+  due — which only works while the app is running, same accepted trade-off ADR 0001 §8 names for
+  a killed Android process.
 - **A fresh install starts empty.** There is no seeding: the first screen a new user sees is the
   empty state, not sample content. Anything that needs a populated app (screenshots, a demo) is
   built by importing a backup file, not by putting fixtures back into the app.
@@ -292,8 +324,10 @@ The generated accessors are one top-level property per string, so files import t
   (`date_pattern_*`) come from resources. Use `currentLocale()` from `DateLabels.kt` rather than
   `Locale.getDefault()` — the app language can differ from the system one. It reads
   `LocalAppLocale`, which `CadenceTheme` provides from a `locale` parameter: the *shell* is what
-  knows where the language comes from, Android's per-app picker today and an explicit desktop
-  setting in phase 5 (ADR 0001, decision 9).
+  knows where the language comes from — Android's per-app picker. `:app-desktop` passes
+  `Locale.getDefault()` for now; the explicit desktop language setting ADR 0001 decision 9
+  describes (`CadenceSettings` has no language field yet) is left for a follow-up rather than
+  bundled into "first runnable build".
 - Android used to hand two of these labels over ready-made — `Formatter.formatShortFileSize` and
   `DateUtils.getRelativeTimeSpanString`. Neither has a desktop counterpart, so both are now
   `ui/format/DiagnosticLabels.kt`, resources and all.
@@ -318,6 +352,18 @@ The generated accessors are one top-level property per string, so files import t
 
 `.github/workflows/android.yml` runs tests then builds both APKs on every push to **any** branch
 and on pull requests. A push to `main` — i.e. a merged PR — additionally publishes a release.
+
+`.github/workflows/desktop.yml` builds `:app-desktop` on the same triggers, as a
+`fail-fast: false` matrix over `ubuntu-latest`/`macos-latest`/`windows-latest` — jpackage runs on
+the target OS, so there is no cross-compiling a `.dmg` from Linux. Each job installs whatever
+native packaging tool its OS needs that the runner image doesn't already carry (`fakeroot`/`rpm`
+on Linux, the WiX Toolset on Windows; macOS's `hdiutil` needs nothing extra), derives the same
+version `android.yml` does from `next-version.sh`, and uploads whatever
+`packageDistributionForCurrentOS` produced — deb, rpm and a tarball on Linux, a dmg on macOS, an
+msi on Windows — as a per-OS artifact. It does not yet publish those installers to the release
+`android.yml` creates; wiring the two together, so one release carries the APKs and all three
+desktop installers (ADR 0001 §"Phases" table), is left for a follow-up once this matrix has
+proven itself green.
 
 The version is **derived, never edited**. `.github/scripts/next-version.sh` reads the
 Conventional Commit subjects since the last `v*` tag: a `!` or a `BREAKING CHANGE:` footer bumps

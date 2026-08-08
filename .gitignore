@@ -5,6 +5,7 @@
 .DS_Store
 /build
 /app-android/build
+/app-desktop/build
 /core/build
 /ui/build
 .kotlin/
