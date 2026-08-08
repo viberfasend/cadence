@@ -125,6 +125,14 @@ abstract class BackupDao {
     @Query("DELETE FROM projects")
     protected abstract suspend fun deleteAllProjects()
 
+    /**
+     * The backup format does not carry attachments yet, so a restore has nothing to put back —
+     * only rows to clear, ahead of the tasks they name, so nothing is left pointing at a task
+     * the restore is about to replace.
+     */
+    @Query("DELETE FROM attachments")
+    protected abstract suspend fun deleteAllAttachments()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     protected abstract suspend fun insertProjects(projects: List<ProjectEntity>)
 
@@ -134,9 +142,49 @@ abstract class BackupDao {
     /** All or nothing: a failed restore must not leave the app half-empty. */
     @Transaction
     open suspend fun replaceAll(projects: List<ProjectEntity>, tasks: List<TaskEntity>) {
+        deleteAllAttachments()
         deleteAllTasks()
         deleteAllProjects()
         insertProjects(projects)
         insertTasks(tasks)
     }
+}
+
+/**
+ * Metadata rows only; the bytes live in the app-private blob store. The attachments table is the
+ * only refcount a blob has — [stillReferenced] and [referencedHashes] read it back rather than
+ * trust a counter that could drift.
+ */
+@Dao
+interface AttachmentDao {
+
+    @Query("SELECT * FROM attachments")
+    fun observeAll(): Flow<List<AttachmentEntity>>
+
+    @Query("SELECT * FROM attachments WHERE id = :id")
+    suspend fun byId(id: Long): AttachmentEntity?
+
+    @Query("SELECT * FROM attachments WHERE taskId = :taskId ORDER BY sortOrder, id")
+    suspend fun forTask(taskId: Long): List<AttachmentEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(attachment: AttachmentEntity): Long
+
+    @Query("DELETE FROM attachments WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("DELETE FROM attachments WHERE taskId IN (:taskIds)")
+    suspend fun deleteForTasks(taskIds: List<Long>)
+
+    @Query(
+        "SELECT DISTINCT sha256 FROM attachments WHERE taskId IN (:taskIds) AND sha256 IS NOT NULL",
+    )
+    suspend fun hashesForTasks(taskIds: List<Long>): List<String>
+
+    /** Which of these hashes some row still names. The rest are garbage on disk. */
+    @Query("SELECT DISTINCT sha256 FROM attachments WHERE sha256 IN (:hashes)")
+    suspend fun stillReferenced(hashes: List<String>): List<String>
+
+    @Query("SELECT DISTINCT sha256 FROM attachments WHERE sha256 IS NOT NULL")
+    suspend fun referencedHashes(): List<String>
 }

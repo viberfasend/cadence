@@ -1,10 +1,15 @@
 package de.andi1984.cadence
 
+import de.andi1984.cadence.data.AttachmentStore
 import de.andi1984.cadence.data.BackupStore
+import de.andi1984.cadence.data.BlobStore
 import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.data.ProjectStore
 import de.andi1984.cadence.data.RepositoryResult
+import de.andi1984.cadence.data.StoreResult
 import de.andi1984.cadence.data.TaskStore
+import de.andi1984.cadence.domain.model.Attachment
+import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceRule
@@ -16,9 +21,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayInputStream
+import java.nio.file.Files
 import java.time.Instant
 import java.time.LocalDate
 
@@ -33,9 +41,36 @@ class CadenceRepositoryTest {
     private val today = LocalDate.of(2026, 8, 7)
 
     private val taskStore = FakeTaskStore()
-    private val repository = CadenceRepository(taskStore, FakeProjectStore(), FakeBackupStore())
+    private val attachmentStore = FakeAttachmentStore()
+    private val blobStore = BlobStore(
+        root = Files.createTempDirectory("cadence-blobs").toFile(),
+        tmp = Files.createTempDirectory("cadence-blobs-tmp").toFile(),
+    )
+    private val repository = CadenceRepository(
+        taskStore,
+        FakeProjectStore(),
+        FakeBackupStore(),
+        attachmentStore,
+        blobStore,
+    )
 
     private fun store(task: Task): Task = taskStore.row(taskStore.put(task))
+
+    /** Stores [bytes] as a FILE attachment on [taskId] and returns the hash it landed at. */
+    private fun attach(taskId: Long, bytes: ByteArray = byteArrayOf(1, 2, 3)): String {
+        val result = blobStore.store(ByteArrayInputStream(bytes), maxBytes = 1024) as StoreResult.Ok
+        attachmentStore.put(
+            Attachment(
+                taskId = taskId,
+                kind = AttachmentKind.FILE,
+                name = "file.bin",
+                mimeType = "application/octet-stream",
+                sha256 = result.sha256,
+                sizeBytes = result.sizeBytes,
+            ),
+        )
+        return result.sha256
+    }
 
     private fun rowsTitled(title: String) = taskStore.rows().filter { it.title == title }
 
@@ -226,6 +261,110 @@ class CadenceRepositoryTest {
         assertNull(rows.single().completedAt)
         assertFalse(rows.single().isDone)
     }
+
+    // ── Attachments ────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `deleting a task reclaims the blob its only attachment named`() = runTest {
+        val task = store(Task(title = "Send the invoice"))
+        val hash = attach(task.id)
+
+        repository.deleteTask(task.id)
+
+        assertTrue(attachmentStore.forTask(task.id).isEmpty())
+        assertNull(blobStore.file(hash))
+    }
+
+    @Test
+    fun `a blob shared by two tasks survives one of them being deleted`() = runTest {
+        val first = store(Task(title = "Send the invoice"))
+        val second = store(Task(title = "File the invoice"))
+        val bytes = byteArrayOf(9, 9, 9)
+        val hash = attach(first.id, bytes)
+        attach(second.id, bytes)
+
+        repository.deleteTask(first.id)
+
+        assertNotNull(blobStore.file(hash))
+    }
+
+    @Test
+    fun `deleting a task's subtasks reclaims their attachments too`() = runTest {
+        val parent = store(Task(title = "Plan the trip"))
+        val step = store(Task(title = "Book flights", parentId = parent.id))
+        val hash = attach(step.id)
+
+        repository.deleteTask(parent.id)
+
+        assertNull(blobStore.file(hash))
+    }
+
+    @Test
+    fun `deleting a project with its tasks reclaims their attachments`() = runTest {
+        val task = store(Task(title = "Send the invoice"))
+        val hash = attach(task.id)
+        val projectStore = FakeProjectStore(tasksIn = listOf(task.id))
+        val withProject = CadenceRepository(
+            taskStore,
+            projectStore,
+            FakeBackupStore(),
+            attachmentStore,
+            blobStore,
+        )
+
+        withProject.deleteProject(id = 1L, deleteTasks = true)
+
+        assertNull(blobStore.file(hash))
+    }
+
+    @Test
+    fun `moving a project's tasks to the Inbox keeps their attachments`() = runTest {
+        val task = store(Task(title = "Send the invoice"))
+        val hash = attach(task.id)
+        val projectStore = FakeProjectStore(tasksIn = listOf(task.id))
+        val withProject = CadenceRepository(
+            taskStore,
+            projectStore,
+            FakeBackupStore(),
+            attachmentStore,
+            blobStore,
+        )
+
+        withProject.deleteProject(id = 1L, deleteTasks = false)
+
+        assertNotNull(blobStore.file(hash))
+        assertEquals(1, attachmentStore.forTask(task.id).size)
+    }
+
+    @Test
+    fun `a recurring task hands its attachments to the next occurrence unremoved`() = runTest {
+        val task = store(recurring())
+        val hash = attach(task.id)
+
+        repository.setCompleted(task, true, today)
+
+        val next = rowsTitled("Rat poison").single { !it.isDone }
+        val done = rowsTitled("Rat poison").single { it.isDone }
+        assertEquals(1, attachmentStore.forTask(next.id).size)
+        assertEquals(hash, attachmentStore.forTask(next.id).single().sha256)
+        // The finished occurrence keeps its own copy — carrying over means cloning, not moving.
+        assertEquals(1, attachmentStore.forTask(done.id).size)
+        assertNotNull(blobStore.file(hash))
+    }
+
+    @Test
+    fun `deleting one attachment reclaims its blob but leaves the task's other attachments`() =
+        runTest {
+            val task = store(Task(title = "Send the invoice"))
+            attach(task.id, byteArrayOf(1))
+            val secondHash = attach(task.id, byteArrayOf(2))
+            val removedId = attachmentStore.forTask(task.id).first().id
+
+            repository.deleteAttachment(removedId)
+
+            assertEquals(1, attachmentStore.forTask(task.id).size)
+            assertNotNull(blobStore.file(secondHash))
+        }
 }
 
 /** An in-memory [TaskStore] with SQLite's semantics for the guarded writes. */
@@ -287,7 +426,7 @@ private class FakeTaskStore : TaskStore {
 }
 
 /** Projects play no part in completing a task; these fakes only satisfy the constructor. */
-private class FakeProjectStore : ProjectStore {
+private class FakeProjectStore(private val tasksIn: List<Long> = emptyList()) : ProjectStore {
 
     override fun observeAll(): Flow<List<Project>> = MutableStateFlow(emptyList())
 
@@ -297,7 +436,7 @@ private class FakeProjectStore : ProjectStore {
 
     override suspend fun update(project: Project) = Unit
 
-    override suspend fun taskIdsIn(id: Long): List<Long> = emptyList()
+    override suspend fun taskIdsIn(id: Long): List<Long> = tasksIn
 
     override suspend fun deleteWithChildren(id: Long, deleteTasks: Boolean) = Unit
 }
@@ -305,4 +444,48 @@ private class FakeProjectStore : ProjectStore {
 private class FakeBackupStore : BackupStore {
 
     override suspend fun replaceAll(projects: List<Project>, tasks: List<Task>) = Unit
+}
+
+/** An in-memory [AttachmentStore] mirroring [FakeTaskStore]'s shape. */
+private class FakeAttachmentStore : AttachmentStore {
+
+    private val table = MutableStateFlow<Map<Long, Attachment>>(emptyMap())
+    private var nextId = 1L
+
+    fun put(attachment: Attachment): Long {
+        val id = if (attachment.id == 0L) nextId++ else attachment.id
+        table.value = table.value + (id to attachment.copy(id = id))
+        return id
+    }
+
+    override fun observeAll(): Flow<List<Attachment>> = table.map { it.values.toList() }
+
+    override suspend fun byId(id: Long): Attachment? = table.value[id]
+
+    override suspend fun forTask(taskId: Long): List<Attachment> = table.value.values
+        .filter { it.taskId == taskId }
+        .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+
+    override suspend fun insert(attachment: Attachment): Long = put(attachment)
+
+    override suspend fun delete(id: Long) {
+        table.value = table.value - id
+    }
+
+    override suspend fun deleteForTasks(taskIds: List<Long>) {
+        table.value = table.value.filterValues { it.taskId !in taskIds }
+    }
+
+    override suspend fun hashesForTasks(taskIds: List<Long>): List<String> = table.value.values
+        .filter { it.taskId in taskIds }
+        .mapNotNull { it.sha256 }
+        .distinct()
+
+    override suspend fun stillReferenced(hashes: List<String>): List<String> {
+        val named = table.value.values.mapNotNull { it.sha256 }.toSet()
+        return hashes.filter { it in named }
+    }
+
+    override suspend fun referencedHashes(): List<String> =
+        table.value.values.mapNotNull { it.sha256 }.distinct()
 }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Full-backup-content rules for pre-Android-12 (API < 31), which ignores dataExtractionRules
+    and reads this file instead — minSdk 26 means both must exist and say the same thing. Unlike
+    data_extraction_rules.xml's include-only list, full-backup-content includes everything by
+    default, so attachments/ needs an explicit exclude or it is what silently blows the 25 MB
+    cloud-backup ceiling (see data_extraction_rules.xml for why that matters).
+
+    See: https://developer.android.com/guide/topics/data/autobackup
+    -->
+<full-backup-content>
+    <include domain="database" path="cadence.db" />
+    <include domain="sharedpref" path="." />
+    <exclude domain="file" path="attachments/" />
+</full-backup-content>
