@@ -18,3 +18,4 @@ rootProject.name = "Cadence"
 include(":core")
 include(":ui")
 include(":app-android")
+include(":app-desktop")

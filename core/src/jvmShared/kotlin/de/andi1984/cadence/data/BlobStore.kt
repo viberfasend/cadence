@@ -27,6 +27,12 @@ class BlobStore(private val root: File, private val tmp: File) {
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
             var total = 0L
+            var tooLarge = false
+            // `break`, not `return` — deleting `staged` while its own output stream is still
+            // open fails silently on Windows (no open-file unlink like POSIX has), and a `return`
+            // from inside `use {}` only closes the stream *after* this line runs. Breaking out of
+            // the loop lets both `use` blocks close normally first, so the delete below actually
+            // has an unlocked file to remove.
             DigestInputStream(source, digest).use { input ->
                 staged.outputStream().use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -35,12 +41,16 @@ class BlobStore(private val root: File, private val tmp: File) {
                         if (read == -1) break
                         total += read
                         if (total > maxBytes) {
-                            staged.delete()
-                            return StoreResult.TooLarge
+                            tooLarge = true
+                            break
                         }
                         output.write(buffer, 0, read)
                     }
                 }
+            }
+            if (tooLarge) {
+                staged.delete()
+                return StoreResult.TooLarge
             }
             val sha256 = digest.digest().toHex()
             val destination = fileFor(sha256)

@@ -22,7 +22,7 @@ carry the detail and the up-to-date checked/unchecked state.
       - [x] 3 — `:ui` Compose Multiplatform module, strings to `composeResources` —
             [#24](../../issues/24)
       - [x] 4 — `:app-android` reduced to a shell — [#25](../../issues/25)
-      - [ ] 5 — `:app-desktop` with jpackage installers and a CI matrix — [#26](../../issues/26)
+      - [x] 5 — `:app-desktop` with jpackage installers and a CI matrix — [#26](../../issues/26)
       - [ ] 6 — backup format v2, merge engine, `SyncTransport`, per-device sync folder —
             [#27](../../issues/27)
 - [ ] A reminder opens Today, not the task it reminded you about — [#29](../../issues/29)
