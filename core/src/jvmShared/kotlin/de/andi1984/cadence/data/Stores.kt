@@ -1,5 +1,6 @@
 package de.andi1984.cadence.data
 
+import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.flow.Flow
@@ -92,4 +93,44 @@ interface BackupStore {
 
     /** All or nothing: a failed restore must not leave the app half-empty. */
     suspend fun replaceAll(projects: List<Project>, tasks: List<Task>)
+}
+
+/**
+ * Metadata rows only — the bytes live in [BlobStore], addressed by [Attachment.sha256] and
+ * shared across every row that names them. The attachments table *is* the refcount: there is no
+ * stored counter to drift, only [stillReferenced] and [referencedHashes] reading it back.
+ */
+interface AttachmentStore {
+
+    /** Every attachment across every task — grouped by task the way [Task]s are grouped into
+     *  subtask lists, by whatever reads this flow. */
+    fun observeAll(): Flow<List<Attachment>>
+
+    suspend fun byId(id: String): Attachment?
+
+    /** The attachments of one task, in the order they were added. */
+    suspend fun forTask(taskId: String): List<Attachment>
+
+    /** Inserts an attachment that already carries its final id, minted by the caller. */
+    suspend fun insert(attachment: Attachment)
+
+    suspend fun delete(id: String)
+
+    /**
+     * Attachment rows for [taskIds], deleted explicitly ahead of the task rows themselves —
+     * never left to the FK cascade, for the same reason `TaskDao.deleteWithSubtasks` is not
+     * either: the repository's fakes model no foreign-key semantics at all, and a cascade an
+     * implementation forgets to enable would leak every blob it should have reclaimed.
+     */
+    suspend fun deleteForTasks(taskIds: List<String>)
+
+    /** The distinct hashes named by [taskIds]' FILE attachments, gathered before those rows are
+     *  deleted so the caller can reclaim whichever of them no surviving row still names. */
+    suspend fun hashesForTasks(taskIds: List<String>): List<String>
+
+    /** Of [hashes], the ones some row still names — the rest are garbage on disk. */
+    suspend fun stillReferenced(hashes: List<String>): List<String>
+
+    /** Every hash any row currently names, for the full sweep after a backup restore. */
+    suspend fun referencedHashes(): List<String>
 }

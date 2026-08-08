@@ -3,9 +3,12 @@ package de.andi1984.cadence.data.db
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.coroutines.mapToOneOrNull
+import de.andi1984.cadence.data.AttachmentStore
 import de.andi1984.cadence.data.BackupStore
 import de.andi1984.cadence.data.ProjectStore
 import de.andi1984.cadence.data.TaskStore
+import de.andi1984.cadence.domain.model.Attachment
+import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
@@ -128,6 +131,54 @@ class SqlDelightProjectStore(
         }
 }
 
+class SqlDelightAttachmentStore(
+    private val database: CadenceDatabase,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : AttachmentStore {
+
+    private val queries = database.attachmentQueries
+
+    override fun observeAll(): Flow<List<Attachment>> =
+        queries.selectAll(mapper = ::toAttachment).asFlow().mapToList(ioDispatcher)
+
+    override suspend fun byId(id: String): Attachment? = withContext(ioDispatcher) {
+        queries.selectById(id, mapper = ::toAttachment).executeAsOneOrNull()
+    }
+
+    override suspend fun forTask(taskId: String): List<Attachment> = withContext(ioDispatcher) {
+        queries.selectForTask(taskId, mapper = ::toAttachment).executeAsList()
+    }
+
+    override suspend fun insert(attachment: Attachment) = withContext(ioDispatcher) {
+        queries.insertRow(attachment)
+    }
+
+    override suspend fun delete(id: String) = withContext(ioDispatcher) {
+        queries.delete(id)
+    }
+
+    override suspend fun deleteForTasks(taskIds: List<String>) = withContext(ioDispatcher) {
+        queries.deleteForTasks(taskIds)
+    }
+
+    override suspend fun hashesForTasks(taskIds: List<String>): List<String> =
+        withContext(ioDispatcher) {
+            queries.selectHashesForTasks(taskIds).executeAsList()
+        }
+
+    override suspend fun stillReferenced(hashes: List<String>): List<String> =
+        withContext(ioDispatcher) {
+            // The generated single-column mapper overload requires a non-null T, so this reads
+            // the wrapper row type instead and unwraps — sha256 is nullable only because
+            // `IN :hashes` does not narrow it the way `IS NOT NULL` does on the other queries.
+            queries.selectStillReferenced(hashes).executeAsList().mapNotNull { it.sha256 }
+        }
+
+    override suspend fun referencedHashes(): List<String> = withContext(ioDispatcher) {
+        queries.selectReferencedHashes().executeAsList()
+    }
+}
+
 class SqlDelightBackupStore(
     private val database: CadenceDatabase,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -137,10 +188,16 @@ class SqlDelightBackupStore(
      * All or nothing, in one transaction: a failed restore must not leave the app half-empty.
      * `BackupDao.replaceAll` becomes a merge in phase 6 — until then a restore is still the
      * destructive full-replace it always was, ids and links carried over from the file as-is.
+     * The backup format does not carry attachments yet (`docs/attachments-and-share.md`, phase
+     * 4), so a restore clears every attachment row too — nothing in the file could repopulate
+     * them, and leaving stale rows pointing at tasks the restore just replaced would be worse.
+     * [de.andi1984.cadence.data.CadenceRepository.restore] sweeps the now-orphaned blobs
+     * afterwards.
      */
     override suspend fun replaceAll(projects: List<Project>, tasks: List<Task>) =
         withContext(ioDispatcher) {
             database.transaction {
+                database.attachmentQueries.deleteAll()
                 database.taskQueries.deleteAll()
                 database.projectQueries.deleteAll()
                 projects.forEach { database.projectQueries.insertRow(it) }
@@ -179,6 +236,21 @@ private fun ProjectQueries.insertRow(project: Project) {
         sortOrder = project.sortOrder.toLong(),
         updatedAt = project.updatedAt.toEpochMilli(),
         deletedAt = project.deletedAt?.toEpochMilli(),
+    )
+}
+
+private fun AttachmentQueries.insertRow(attachment: Attachment) {
+    insertOrReplace(
+        id = attachment.id,
+        taskId = attachment.taskId,
+        kind = attachment.kind.name,
+        name = attachment.name,
+        mimeType = attachment.mimeType,
+        sha256 = attachment.sha256,
+        sizeBytes = attachment.sizeBytes,
+        url = attachment.url,
+        createdAt = attachment.createdAt.toEpochMilli(),
+        sortOrder = attachment.sortOrder.toLong(),
     )
 }
 
@@ -234,4 +306,31 @@ private fun toProject(
     sortOrder = sortOrder.toInt(),
     updatedAt = Instant.ofEpochMilli(updatedAt),
     deletedAt = deletedAt?.let { Instant.ofEpochMilli(it) },
+)
+
+private fun toAttachment(
+    id: String,
+    taskId: String,
+    kind: String,
+    name: String,
+    mimeType: String,
+    sha256: String?,
+    sizeBytes: Long,
+    url: String?,
+    createdAt: Long,
+    sortOrder: Long,
+) = Attachment(
+    id = id,
+    taskId = taskId,
+    // Falls back from the bytes rather than throwing, the rule RecurrenceCodec already follows:
+    // an unrecognised kind should still render as something rather than crash the whole list.
+    kind = AttachmentKind.entries.firstOrNull { it.name == kind }
+        ?: if (sha256 != null) AttachmentKind.FILE else AttachmentKind.LINK,
+    name = name,
+    mimeType = mimeType,
+    sha256 = sha256,
+    sizeBytes = sizeBytes,
+    url = url,
+    createdAt = Instant.ofEpochMilli(createdAt),
+    sortOrder = sortOrder.toInt(),
 )
