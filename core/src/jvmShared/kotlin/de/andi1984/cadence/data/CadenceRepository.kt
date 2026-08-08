@@ -1,10 +1,13 @@
 package de.andi1984.cadence.data
 
 import de.andi1984.cadence.domain.backup.BackupSnapshot
+import de.andi1984.cadence.domain.model.Attachment
+import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
 import kotlinx.coroutines.flow.Flow
+import java.io.InputStream
 import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -14,6 +17,13 @@ const val MAX_SUBTASKS_PER_PARENT = 100
 
 /** Maximum depth of project nesting allowed. */
 const val MAX_PROJECT_NESTING_DEPTH = 5
+
+/** No progress UI on the copy, and the number Android's own auto-backup ceiling already trains
+ *  people to expect. */
+const val MAX_ATTACHMENT_BYTES = 25L * 1024 * 1024
+
+/** Maximum number of attachments allowed per task. */
+const val MAX_ATTACHMENTS_PER_TASK = 20
 
 /** Result of a repository operation that can fail. */
 sealed class RepositoryResult<out T> {
@@ -26,11 +36,15 @@ class CadenceRepository(
     private val taskStore: TaskStore,
     private val projectStore: ProjectStore,
     private val backupStore: BackupStore,
+    private val attachmentStore: AttachmentStore,
+    private val blobStore: BlobStore,
 ) {
 
     val tasks: Flow<List<Task>> = taskStore.observeAll()
 
     val projects: Flow<List<Project>> = projectStore.observeAll()
+
+    val attachments: Flow<List<Attachment>> = attachmentStore.observeAll()
 
     fun task(id: Long): Flow<Task?> = taskStore.observeById(id)
 
@@ -48,7 +62,22 @@ class CadenceRepository(
         }
     }
 
-    suspend fun deleteTask(id: Long) = taskStore.deleteWithSubtasks(id)
+    /**
+     * Deletes a task and its subtasks, and reclaims any blob none of their attachments named
+     * anymore.
+     *
+     * The attachment rows are deleted explicitly, ahead of the tasks — never left to the
+     * database's FK cascade — for the same reason as everywhere else this repository does that:
+     * the fakes this class is tested against model no foreign-key semantics at all, so an
+     * implicit delete would let a leak slip past every test that exists to catch one.
+     */
+    suspend fun deleteTask(id: Long) {
+        val ids = listOf(id) + taskStore.subtasksOf(id).map { it.id }
+        val hashes = attachmentStore.hashesForTasks(ids)
+        attachmentStore.deleteForTasks(ids)
+        taskStore.deleteWithSubtasks(id)
+        reclaim(hashes)
+    }
 
     suspend fun subtasksOf(parentId: Long): List<Task> = taskStore.subtasksOf(parentId)
 
@@ -165,6 +194,13 @@ class CadenceRepository(
                 ),
             )
         }
+
+        // A checklist is the method of doing the task, and the method repeats — attachments
+        // follow the same rule and hand over unticked. The store is content-addressed, so
+        // cloning a FILE row copies no bytes, only a row that points at the same blob.
+        attachmentStore.forTask(current.id).forEach { attachment ->
+            attachmentStore.insert(attachment.copy(id = 0L, taskId = nextId))
+        }
         return emptyList()
     }
 
@@ -260,12 +296,102 @@ class CadenceRepository(
      * Inbox — a project is a folder, not a container that owns the work.
      *
      * Returns the ids of the tasks that were deleted, so reminders for them can be cancelled —
-     * the scheduler's sync only ever sees the tasks that still exist.
+     * the scheduler's sync only ever sees the tasks that still exist. When the tasks are
+     * deleted their attachments go with them, explicitly and ahead of the task rows, and
+     * whichever blobs that leaves unnamed are reclaimed. Tasks moved to the Inbox keep their
+     * attachments — nothing to reclaim there.
      */
     suspend fun deleteProject(id: Long, deleteTasks: Boolean = false): List<Long> {
         val affected = if (deleteTasks) projectStore.taskIdsIn(id) else emptyList()
+        val hashes = if (deleteTasks) attachmentStore.hashesForTasks(affected) else emptyList()
+        if (deleteTasks) attachmentStore.deleteForTasks(affected)
         projectStore.deleteWithChildren(id, deleteTasks)
+        reclaim(hashes)
         return affected
+    }
+
+    // ── Attachments ────────────────────────────────────────────────────────────────
+
+    sealed class AddAttachmentResult {
+        data class Success(val id: Long) : AddAttachmentResult()
+        data object TooLarge : AddAttachmentResult()
+        data object LimitReached : AddAttachmentResult()
+        data class Failed(val cause: Throwable) : AddAttachmentResult()
+        data object ValidationError : AddAttachmentResult()
+    }
+
+    /** Copies [source] into the blob store and files it on [taskId]. */
+    suspend fun addFileAttachment(
+        taskId: Long,
+        source: InputStream,
+        name: String,
+        mimeType: String,
+    ): AddAttachmentResult {
+        val existing = attachmentStore.forTask(taskId)
+        if (existing.size >= MAX_ATTACHMENTS_PER_TASK) return AddAttachmentResult.LimitReached
+        return when (val result = blobStore.store(source, MAX_ATTACHMENT_BYTES)) {
+            is StoreResult.Ok -> {
+                val id = attachmentStore.insert(
+                    Attachment(
+                        taskId = taskId,
+                        kind = AttachmentKind.FILE,
+                        name = name,
+                        mimeType = mimeType,
+                        sha256 = result.sha256,
+                        sizeBytes = result.sizeBytes,
+                        createdAt = Instant.now(),
+                        sortOrder = existing.size,
+                    ),
+                )
+                AddAttachmentResult.Success(id)
+            }
+            StoreResult.TooLarge -> AddAttachmentResult.TooLarge
+            is StoreResult.Failed -> AddAttachmentResult.Failed(result.cause)
+        }
+    }
+
+    /** Files a link on [taskId] — no blob, nothing to reclaim if it is later removed. */
+    suspend fun addLinkAttachment(taskId: Long, url: String, name: String): AddAttachmentResult {
+        val trimmedUrl = url.trim()
+        if (trimmedUrl.isBlank()) return AddAttachmentResult.ValidationError
+        val existing = attachmentStore.forTask(taskId)
+        if (existing.size >= MAX_ATTACHMENTS_PER_TASK) return AddAttachmentResult.LimitReached
+        val id = attachmentStore.insert(
+            Attachment(
+                taskId = taskId,
+                kind = AttachmentKind.LINK,
+                name = name.trim().ifBlank { trimmedUrl },
+                mimeType = "text/uri-list",
+                url = trimmedUrl,
+                createdAt = Instant.now(),
+                sortOrder = existing.size,
+            ),
+        )
+        return AddAttachmentResult.Success(id)
+    }
+
+    /** Removes one attachment and reclaims its blob if nothing else names it. */
+    suspend fun deleteAttachment(id: Long) {
+        val attachment = attachmentStore.byId(id) ?: return
+        attachmentStore.delete(id)
+        reclaim(listOfNotNull(attachment.sha256))
+    }
+
+    /** A blob is garbage the moment no row names it — the attachments table is the only
+     *  refcount, read back here rather than trusted from a stored counter. */
+    private suspend fun reclaim(hashes: List<String>) {
+        if (hashes.isEmpty()) return
+        val kept = attachmentStore.stillReferenced(hashes).toSet()
+        blobStore.deleteAll(hashes.toSet() - kept)
+    }
+
+    /**
+     * Removes anything on disk no attachment row names. Meant to run once at cold start, to
+     * heal a leak left by a process killed mid-copy, and after [restore], where a full replace
+     * makes reclaiming one hash at a time meaningless.
+     */
+    suspend fun sweepOrphanBlobs() {
+        blobStore.sweepOrphans(attachmentStore.referencedHashes().toSet())
     }
 
     // ── Backup ─────────────────────────────────────────────────────────────────────
@@ -279,12 +405,21 @@ class CadenceRepository(
 
     /**
      * Restores a backup by *replacing* both tables — importing is not a merge, so ids stay the
-     * ones in the file and task→project links survive without remapping.
-     * Settings in the snapshot are ignored by the core repository and handled by the app-specific BackupIo.
+     * ones in the file and task→project links survive without remapping. Settings in the
+     * snapshot are ignored here and handled by the app-specific `BackupIo`.
+     *
+     * The backup format does not carry attachments yet (`docs/attachments-and-share.md`, phase
+     * 4), so a restore also clears every attachment row and sweeps every blob that leaves
+     * unreferenced — the same full-replace promise the rest of the snapshot already makes,
+     * rather than quietly leaving rows that name tasks the file just replaced out from under
+     * them.
      */
-    suspend fun restore(snapshot: BackupSnapshot) = backupStore.replaceAll(
-        projects = snapshot.projects,
-        tasks = snapshot.tasks,
-    )
+    suspend fun restore(snapshot: BackupSnapshot) {
+        backupStore.replaceAll(
+            projects = snapshot.projects,
+            tasks = snapshot.tasks,
+        )
+        sweepOrphanBlobs()
+    }
 }
 

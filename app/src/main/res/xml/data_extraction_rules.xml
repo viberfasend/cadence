@@ -1,22 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Data extraction rules for Android backup.
-    This file ensures that the Room database and other critical files are included in app backups.
-    Without this file, android:allowBackup="true" would silently exclude these files,
-    leading to data loss when the app is restored.
-    
+    Data extraction rules for Android 12+ backup.
+    Without this file, android:allowBackup="true" would silently exclude the Room database and
+    SharedPreferences from app backups, leading to data loss when the app is restored.
+
+    Attachment blobs are deliberately not backed up: Android's cloud-backup ceiling is 25 MB per
+    app, exceeding it makes the platform silently stop backing the app up entirely, and a single
+    large attachment would take the working database backup down with it. cloud-backup is an
+    allow-list the moment it has any <include>, so attachments/ is already left out by omission —
+    an explicit <exclude> on top of that names a path nothing included, which the
+    FullBackupContent lint check rejects. The bundle export (docs/attachments-and-share.md,
+    section B) is the backup that actually carries them. Device transfer has no such quota — a
+    direct phone-to-phone copy — so it keeps them.
+
     See: https://developer.android.com/guide/topics/data/autobackup
     -->
 <data-extraction-rules>
-    <!-- Include the Room database files -->
     <cloud-backup>
         <include domain="file" path="./databases/cadence.db" />
         <include domain="file" path="./databases/cadence.db-shm" />
         <include domain="file" path="./databases/cadence.db-wal" />
-    </cloud-backup>
-    
-    <!-- Include shared preferences -->
-    <cloud-backup>
         <include domain="sharedpref" path="." />
     </cloud-backup>
+
+    <device-transfer>
+        <include domain="file" path="./databases/cadence.db" />
+        <include domain="file" path="./databases/cadence.db-shm" />
+        <include domain="file" path="./databases/cadence.db-wal" />
+        <include domain="sharedpref" path="." />
+        <include domain="file" path="attachments/" />
+    </device-transfer>
 </data-extraction-rules>

@@ -86,9 +86,40 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
+/**
+ * Attachments: `attachments.taskId` names the task a file or link is filed on. This is the one
+ * migration a mistake bricks every existing install over — `exportSchema = false` means Room has
+ * no schema JSON to diff against, and there is no destructive fallback, so any disagreement
+ * between this hand-written DDL and what Room generates surfaces as `IllegalStateException:
+ * Migration didn't properly handle attachments` at open, on every device that already has data.
+ */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS attachments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                taskId INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                name TEXT NOT NULL,
+                mimeType TEXT NOT NULL,
+                sha256 TEXT,
+                sizeBytes INTEGER NOT NULL DEFAULT 0,
+                url TEXT,
+                createdAt INTEGER NOT NULL DEFAULT 0,
+                sortOrder INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(taskId) REFERENCES tasks(id) ON DELETE CASCADE
+            )
+            """,
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_attachments_task ON attachments(taskId)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_attachments_sha ON attachments(sha256)")
+    }
+}
+
 @Database(
-    entities = [TaskEntity::class, ProjectEntity::class],
-    version = 4,
+    entities = [TaskEntity::class, ProjectEntity::class, AttachmentEntity::class],
+    version = 5,
     exportSchema = false,
 )
 abstract class CadenceDatabase : RoomDatabase() {
@@ -98,6 +129,8 @@ abstract class CadenceDatabase : RoomDatabase() {
     abstract fun projectDao(): ProjectDao
 
     abstract fun backupDao(): BackupDao
+
+    abstract fun attachmentDao(): AttachmentDao
 
     companion object {
         const val DATABASE_NAME = "cadence.db"
@@ -113,7 +146,7 @@ abstract class CadenceDatabase : RoomDatabase() {
             )
                 // Real migrations, no destructive fallback: an upgrade must not empty the app.
                 // Every future entity change needs its own Migration here.
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
                 .also { instance = it }
         }
