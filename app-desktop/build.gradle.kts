@@ -58,6 +58,11 @@ compose.desktop {
             // on macOS, Msi on Windows. jpackage must run on the target OS, so CI names a matrix
             // over ubuntu-latest/macos-latest/windows-latest — see .github/workflows/desktop.yml.
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.Dmg, TargetFormat.Msi)
+            // jlink's jdeps-based module scan misses java.sql: the SQLite JDBC driver registers
+            // itself via ServiceLoader reflection rather than a static import jdeps can trace, so
+            // the packaged runtime shipped without it and DatabaseDriverFactory blew up with
+            // NoClassDefFoundError on java.sql.DriverManager at first launch.
+            modules("java.sql")
             packageName = "Cadence"
             packageVersion = cadenceVersionName
             description = "A local-first todo app. No cloud, no account, no analytics."
