@@ -175,13 +175,19 @@ class CadenceViewModel(
         autoBackupSync.failure,
     ) { settings, failure -> settings to failure }
 
+    /** Paired for the same reason as [settingsWithSync] — one more flow (attachments, phase 1)
+     *  would push the state combine past `combine`'s five-flow overload. */
+    private val backupAndSnackbar = combine(
+        backupOutcome,
+        snackbarMessage,
+    ) { backup, snackMessage -> backup to snackMessage }
+
     val state: StateFlow<CadenceUiState> = combine(
         repository.tasks,
         repository.projects,
         settingsWithSync,
-        backupOutcome,
-        snackbarMessage,
-    ) { tasks, projects, (settings, autoFailure), backup, snackMessage ->
+        backupAndSnackbar,
+    ) { tasks, projects, (settings, autoFailure), (backup, snackMessage) ->
         CadenceUiState(
             tasks = tasks,
             projects = projects,

@@ -27,9 +27,9 @@ class AppContainer(context: Context) {
         backupStore = SqlDelightBackupStore(database),
     )
 
-    val backupIo = BackupIo(context, repository)
-
     val settingsStore = SettingsStore(context)
+
+    val backupIo = BackupIo(context, repository, settingsStore)
 
     val reminderScheduler = ReminderScheduler(context)
 

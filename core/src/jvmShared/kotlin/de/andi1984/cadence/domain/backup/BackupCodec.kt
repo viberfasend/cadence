@@ -19,6 +19,17 @@ import java.time.LocalTime
 data class BackupSnapshot(
     val projects: List<Project> = emptyList(),
     val tasks: List<Task> = emptyList(),
+    val settings: BackupSettings? = null,
+)
+
+/** Serializable settings for backup/import. */
+@Serializable
+data class BackupSettings(
+    val theme: String? = null,
+    val density: String? = null,
+    val sortMode: String? = null,
+    val showCompleted: Boolean? = null,
+    val locale: String? = null,
 )
 
 /** Why a file could not be restored. The wording lives in `ui/format/BackupLabels.kt`. */
@@ -67,6 +78,7 @@ object BackupCodec {
                 exportedAt = exportedAt.toString(),
                 projects = snapshot.projects.map { it.toBackup() },
                 tasks = snapshot.tasks.map { it.toBackup() },
+                settings = snapshot.settings,
             ),
         )
 
@@ -103,7 +115,11 @@ object BackupCodec {
             }
             .normalisedParents()
         return BackupReadResult.Ok(
-            snapshot = BackupSnapshot(projects = projects, tasks = tasks),
+            snapshot = BackupSnapshot(
+                projects = projects,
+                tasks = tasks,
+                settings = document.settings,
+            ),
             exportedAt = document.exportedAt.parseOrNull { Instant.parse(it) },
         )
     }
@@ -139,6 +155,7 @@ internal data class BackupDocument(
     val exportedAt: String? = null,
     val projects: List<BackupProject> = emptyList(),
     val tasks: List<BackupTask> = emptyList(),
+    val settings: BackupSettings? = null,
 )
 
 @Serializable
