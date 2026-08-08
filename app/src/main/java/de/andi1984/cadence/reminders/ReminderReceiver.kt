@@ -16,8 +16,8 @@ import de.andi1984.cadence.R
 class ReminderReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        val taskId = intent.getStringExtra(ReminderScheduler.EXTRA_TASK_ID)
-        val title = intent.getStringExtra(ReminderScheduler.EXTRA_TITLE).orEmpty()
+        val taskId = intent.getStringExtra(AlarmReminderScheduler.EXTRA_TASK_ID)
+        val title = intent.getStringExtra(AlarmReminderScheduler.EXTRA_TITLE).orEmpty()
         if (taskId.isNullOrBlank() || title.isBlank()) return
 
         val allowed = ContextCompat.checkSelfPermission(
@@ -28,9 +28,9 @@ class ReminderReceiver : BroadcastReceiver() {
 
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(ReminderScheduler.EXTRA_TASK_ID, taskId)
+            putExtra(AlarmReminderScheduler.EXTRA_TASK_ID, taskId)
         }
-        val requestCode = ReminderScheduler.requestCodeFor(taskId)
+        val requestCode = AlarmReminderScheduler.requestCodeFor(taskId)
         val contentIntent = PendingIntent.getActivity(
             context,
             requestCode,
@@ -38,7 +38,7 @@ class ReminderReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val notification = NotificationCompat.Builder(context, ReminderScheduler.CHANNEL_ID)
+        val notification = NotificationCompat.Builder(context, AlarmReminderScheduler.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(context.getString(R.string.reminder_content_text))

@@ -113,6 +113,8 @@ dependencies {
     // The model, recurrence engine, quick-add parser and backup codec. Shared with the desktop
     // app; see docs/adr/0001-desktop-app-and-multi-device-sync.md.
     implementation(project(":core"))
+    // Theme, components, formatters, screens and the ViewModel — everything but this shell.
+    implementation(project(":ui"))
 
     implementation(platform(libs.compose.bom))
     androidTestImplementation(platform(libs.compose.bom))

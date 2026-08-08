@@ -12,8 +12,8 @@ import de.andi1984.cadence.data.db.SqlDelightAttachmentStore
 import de.andi1984.cadence.data.db.SqlDelightBackupStore
 import de.andi1984.cadence.data.db.SqlDelightProjectStore
 import de.andi1984.cadence.data.db.SqlDelightTaskStore
-import de.andi1984.cadence.reminders.ReminderScheduler
-import de.andi1984.cadence.ui.settings.SettingsStore
+import de.andi1984.cadence.data.settings.SharedPrefsSettingsStore
+import de.andi1984.cadence.reminders.AlarmReminderScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -41,11 +41,11 @@ class AppContainer(context: Context) {
         blobStore = blobStore,
     )
 
-    val settingsStore = SettingsStore(context)
+    val settingsStore = SharedPrefsSettingsStore(context)
 
     val backupIo = BackupIo(context, repository, settingsStore)
 
-    val reminderScheduler = ReminderScheduler(context)
+    val reminderScheduler = AlarmReminderScheduler(context)
 
     /**
      * Outlives every screen: the backup written as the user leaves the app starts while the
@@ -76,6 +76,6 @@ class CadenceApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
-        ReminderScheduler.createChannel(this)
+        AlarmReminderScheduler.createChannel(this)
     }
 }
