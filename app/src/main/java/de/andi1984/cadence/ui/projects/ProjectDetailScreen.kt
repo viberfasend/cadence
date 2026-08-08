@@ -42,7 +42,7 @@ import java.time.LocalDate
 
 @Composable
 fun ProjectDetailScreen(
-    projectId: Long?,
+    projectId: String?,
     state: CadenceUiState,
     today: LocalDate,
     onBack: () -> Unit,
@@ -50,8 +50,8 @@ fun ProjectDetailScreen(
     onProjectClick: (Project) -> Unit,
     onToggle: (Task) -> Unit,
     onAddTask: () -> Unit,
-    onCreateProject: (String, String, Long?) -> Unit,
-    onEditProject: (Project, String, String, Long?) -> Unit,
+    onCreateProject: (String, String, String?) -> Unit,
+    onEditProject: (Project, String, String, String?) -> Unit,
     onDeleteProject: (Project, Boolean) -> Unit,
 ) {
     val project = state.project(projectId)
@@ -70,8 +70,8 @@ fun ProjectDetailScreen(
         .sortedFor(state.settings.sortMode)
     val open = tasks.count { !it.isDone }
     val overdue = tasks.filter { it.isOverdue(today) }
-    var expandedIds by remember { mutableStateOf(emptySet<Long>()) }
-    fun toggleExpanded(id: Long) {
+    var expandedIds by remember { mutableStateOf(emptySet<String>()) }
+    fun toggleExpanded(id: String) {
         expandedIds = if (id in expandedIds) expandedIds - id else expandedIds + id
     }
 

@@ -4,13 +4,23 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.sqldelight)
 }
 
 kotlin {
+    // DatabaseDriverFactory is expect/actual with a platform-specific constructor (Context vs.
+    // File) — still Beta as of Kotlin 2.0, hence the flag on both targets.
     androidTarget {
-        compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+            freeCompilerArgs.add("-Xexpect-actual-classes")
+        }
     }
-    jvm()
+    jvm {
+        compilerOptions {
+            freeCompilerArgs.add("-Xexpect-actual-classes")
+        }
+    }
 
     applyDefaultHierarchyTemplate()
 
@@ -29,6 +39,20 @@ kotlin {
         androidUnitTest.get().dependsOn(jvmSharedTest)
         jvmTest.get().dependsOn(jvmSharedTest)
 
+        // SQLDelight generates its query code into commonMain by default. That code is plain
+        // Kotlin with no JDK dependency — only the driver differs per platform — so it does not
+        // reopen the "commonMain stays empty" rule above; the store implementations that convert
+        // rows to/from java.time still live in jvmShared, same as Room's toDomain/toEntity did.
+        commonMain.dependencies {
+            api(libs.sqldelight.coroutines.extensions)
+        }
+        androidMain.dependencies {
+            implementation(libs.sqldelight.android.driver)
+        }
+        jvmMain.dependencies {
+            implementation(libs.sqldelight.sqlite.driver)
+        }
+
         jvmShared.dependencies {
             implementation(libs.kotlinx.serialization.json)
             // api, not implementation: the store ports hand back Flow, so anything implementing
@@ -39,6 +63,17 @@ kotlin {
             implementation(libs.test.junit)
             implementation(libs.kotlinx.coroutines.test)
             implementation(kotlin("test"))
+            // The JVM tests exercise the real SQLDelight-backed stores against a throwaway file,
+            // not fakes, wherever a store's own logic (not the repository's) is under test.
+            implementation(libs.sqldelight.sqlite.driver)
+        }
+    }
+}
+
+sqldelight {
+    databases {
+        create("CadenceDatabase") {
+            packageName.set("de.andi1984.cadence.data.db")
         }
     }
 }

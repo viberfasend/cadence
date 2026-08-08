@@ -1,5 +1,6 @@
 package de.andi1984.cadence.domain.backup
 
+import de.andi1984.cadence.domain.id.UuidV7
 import de.andi1984.cadence.domain.model.MonthlyMode
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
@@ -88,8 +89,11 @@ object BackupCodec {
         if (document.version > VERSION) return BackupReadResult.Failed(BackupError.NEWER_VERSION)
 
         // Rows the database could never hold are dropped rather than failing the whole restore:
-        // a project needs a real id (tasks reference it) and a task needs a title.
-        val projects = document.projects.filter { it.id > 0L }.map { it.toDomain() }
+        // a project needs a real id (tasks reference it) and a task needs a title. A task
+        // missing its id is not dropped — unlike the old autoincrement column, nothing assigns
+        // one implicitly on insert now, so decode mints a fresh one, the same substitute Room's
+        // `id = 0` used to trigger.
+        val projects = document.projects.filter { it.id.isNotBlank() }.map { it.toDomain() }
         val knownProjects = projects.map { it.id }.toSet()
         val decoded = document.tasks.filter { it.title.isNotBlank() }.map { it.toDomain() }
         val knownTasks = decoded.mapTo(mutableSetOf()) { it.id }
@@ -130,9 +134,9 @@ object BackupCodec {
  */
 private fun List<Task>.normalisedParents(): List<Task> {
     if (none { it.parentId != null }) return this
-    val byId = filter { it.id > 0L }.associateBy { it.id }
+    val byId = filter { it.id.isNotBlank() }.associateBy { it.id }
     return map { task ->
-        var parent = task.parentId?.takeIf { it > 0L }?.let(byId::get)
+        var parent = task.parentId?.takeIf { it.isNotBlank() }?.let(byId::get)
         val seen = mutableSetOf(task.id)
         while (true) {
             val current = parent ?: break
@@ -156,25 +160,25 @@ internal data class BackupDocument(
 
 @Serializable
 internal data class BackupProject(
-    val id: Long = 0L,
+    val id: String = "",
     val name: String = "",
     val colorHex: String = "#006A60",
-    val parentId: Long? = null,
+    val parentId: String? = null,
     val sortOrder: Int = 0,
 )
 
 @Serializable
 internal data class BackupTask(
-    val id: Long = 0L,
+    val id: String = "",
     val title: String = "",
     val notes: String? = null,
     /** 1…4, matching [Priority.level]. */
     val priority: Int = Priority.DEFAULT.level,
-    val projectId: Long? = null,
+    val projectId: String? = null,
     /** Id of the task this one is a subtask of, or null for a top-level task. */
-    val parentId: Long? = null,
+    val parentId: String? = null,
     /** Id of the recurring occurrence this row replaces, or null. */
-    val spawnedFromId: Long? = null,
+    val spawnedFromId: String? = null,
     /** ISO local date, e.g. `2026-08-05`. */
     val dueDate: String? = null,
     /** ISO local time, e.g. `09:30`. */
@@ -213,7 +217,7 @@ private fun BackupProject.toDomain() = Project(
     id = id,
     name = name,
     colorHex = colorHex,
-    parentId = parentId?.takeIf { it > 0L },
+    parentId = parentId?.takeIf { it.isNotBlank() },
     sortOrder = sortOrder,
 )
 
@@ -235,13 +239,15 @@ private fun Task.toBackup() = BackupTask(
 )
 
 private fun BackupTask.toDomain() = Task(
-    id = id.coerceAtLeast(0L),
+    // Nothing assigns a fresh id implicitly on insert any more, so a missing one is minted here
+    // — the direct substitute for what Room's autoincrement column used to do with `id = 0`.
+    id = id.ifBlank { UuidV7.random() },
     title = title,
     notes = notes?.takeIf { it.isNotBlank() },
     priority = Priority.fromLevel(priority),
-    projectId = projectId?.takeIf { it > 0L },
-    parentId = parentId?.takeIf { it > 0L },
-    spawnedFromId = spawnedFromId?.takeIf { it > 0L },
+    projectId = projectId?.takeIf { it.isNotBlank() },
+    parentId = parentId?.takeIf { it.isNotBlank() },
+    spawnedFromId = spawnedFromId?.takeIf { it.isNotBlank() },
     dueDate = dueDate.parseOrNull { LocalDate.parse(it) },
     dueTime = dueTime.parseOrNull { LocalTime.parse(it) },
     reminderTime = reminderTime.parseOrNull { LocalTime.parse(it) },

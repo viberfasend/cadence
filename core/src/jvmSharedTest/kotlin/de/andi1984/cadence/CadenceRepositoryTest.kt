@@ -57,7 +57,7 @@ class CadenceRepositoryTest {
     private fun store(task: Task): Task = taskStore.row(taskStore.put(task))
 
     /** Stores [bytes] as a FILE attachment on [taskId] and returns the hash it landed at. */
-    private fun attach(taskId: Long, bytes: ByteArray = byteArrayOf(1, 2, 3)): String {
+    private fun attach(taskId: String, bytes: ByteArray = byteArrayOf(1, 2, 3)): String {
         val result = blobStore.store(ByteArrayInputStream(bytes), maxBytes = 1024) as StoreResult.Ok
         attachmentStore.put(
             Attachment(
@@ -312,7 +312,7 @@ class CadenceRepositoryTest {
             blobStore,
         )
 
-        withProject.deleteProject(id = 1L, deleteTasks = true)
+        withProject.deleteProject(id = "p1", deleteTasks = true)
 
         assertNull(blobStore.file(hash))
     }
@@ -330,7 +330,7 @@ class CadenceRepositoryTest {
             blobStore,
         )
 
-        withProject.deleteProject(id = 1L, deleteTasks = false)
+        withProject.deleteProject(id = "p1", deleteTasks = false)
 
         assertNotNull(blobStore.file(hash))
         assertEquals(1, attachmentStore.forTask(task.id).size)
@@ -370,75 +370,81 @@ class CadenceRepositoryTest {
 /** An in-memory [TaskStore] with SQLite's semantics for the guarded writes. */
 private class FakeTaskStore : TaskStore {
 
-    private val table = MutableStateFlow<Map<Long, Task>>(emptyMap())
-    private var nextId = 1L
+    private val table = MutableStateFlow<Map<String, Task>>(emptyMap())
+    private var nextId = 1
 
-    /** Inserts a task with no id and replaces one that has it, as [TaskStore.insert] promises. */
-    fun put(task: Task): Long {
-        val id = if (task.id == 0L) nextId++ else task.id
+    /**
+     * Test-only setup helper: mints an id when [task] does not carry one, the way
+     * [de.andi1984.cadence.data.CadenceRepository] does for a real insert — [TaskStore.insert]
+     * itself now only ever receives a task that already has its final id.
+     */
+    fun put(task: Task): String {
+        val id = task.id.ifBlank { "fake-task-${nextId++}" }
         table.value = table.value + (id to task.copy(id = id))
         return id
     }
 
-    fun row(id: Long): Task = table.value[id] ?: error("no task with id $id")
+    fun row(id: String): Task = table.value[id] ?: error("no task with id $id")
 
     fun rows(): List<Task> = table.value.values.toList()
 
     override fun observeAll(): Flow<List<Task>> = table.map { it.values.toList() }
 
-    override fun observeById(id: Long): Flow<Task?> = table.map { it[id] }
+    override fun observeById(id: String): Flow<Task?> = table.map { it[id] }
 
     override suspend fun getAll(): List<Task> = rows()
 
-    override suspend fun byId(id: Long): Task? = table.value[id]
+    override suspend fun byId(id: String): Task? = table.value[id]
 
-    override suspend fun subtasksOf(parentId: Long): List<Task> = rows()
+    override suspend fun subtasksOf(parentId: String): List<Task> = rows()
         .filter { it.parentId == parentId }
         .sortedWith(compareBy({ it.sortOrder }, { it.id }))
 
-    override suspend fun insert(task: Task): Long = put(task)
+    override suspend fun insert(task: Task) {
+        put(task)
+    }
 
     override suspend fun update(task: Task) {
         if (table.value.containsKey(task.id)) table.value = table.value + (task.id to task)
     }
 
-    override suspend fun deleteWithSubtasks(id: Long) {
+    override suspend fun deleteWithSubtasks(id: String) {
         table.value = table.value.filterValues { it.id != id && it.parentId != id }
     }
 
-    override suspend fun completeIfOpen(id: Long, completedAt: Instant): Int {
+    override suspend fun completeIfOpen(id: String, completedAt: Instant): Int {
         val task = table.value[id] ?: return 0
         if (task.completedAt != null) return 0
-        table.value = table.value + (id to task.copy(completedAt = completedAt))
+        table.value = table.value + (id to task.copy(completedAt = completedAt, updatedAt = completedAt))
         return 1
     }
 
-    override suspend fun reopenIfDone(id: Long): Int {
+    override suspend fun reopenIfDone(id: String, updatedAt: Instant): Int {
         val task = table.value[id] ?: return 0
         if (task.completedAt == null) return 0
-        table.value = table.value + (id to task.copy(completedAt = null))
+        table.value = table.value + (id to task.copy(completedAt = null, updatedAt = updatedAt))
         return 1
     }
 
-    override suspend fun openSuccessorsOf(id: Long): List<Long> = rows()
+    override suspend fun openSuccessorsOf(id: String): List<String> = rows()
         .filter { it.spawnedFromId == id && it.completedAt == null }
         .map { it.id }
 }
 
 /** Projects play no part in completing a task; these fakes only satisfy the constructor. */
-private class FakeProjectStore(private val tasksIn: List<Long> = emptyList()) : ProjectStore {
+private class FakeProjectStore(private val tasksIn: List<String> = emptyList()) : ProjectStore {
 
     override fun observeAll(): Flow<List<Project>> = MutableStateFlow(emptyList())
 
     override suspend fun getAll(): List<Project> = emptyList()
 
-    override suspend fun insert(project: Project): Long = project.id
+    override suspend fun insert(project: Project) = Unit
 
     override suspend fun update(project: Project) = Unit
 
-    override suspend fun taskIdsIn(id: Long): List<Long> = tasksIn
+    override suspend fun taskIdsIn(id: String): List<String> = tasksIn
 
-    override suspend fun deleteWithChildren(id: Long, deleteTasks: Boolean) = Unit
+    override suspend fun deleteWithChildren(id: String, deleteTasks: Boolean) = Unit
 }
 
 private class FakeBackupStore : BackupStore {
@@ -449,34 +455,36 @@ private class FakeBackupStore : BackupStore {
 /** An in-memory [AttachmentStore] mirroring [FakeTaskStore]'s shape. */
 private class FakeAttachmentStore : AttachmentStore {
 
-    private val table = MutableStateFlow<Map<Long, Attachment>>(emptyMap())
-    private var nextId = 1L
+    private val table = MutableStateFlow<Map<String, Attachment>>(emptyMap())
+    private var nextId = 1
 
-    fun put(attachment: Attachment): Long {
-        val id = if (attachment.id == 0L) nextId++ else attachment.id
+    fun put(attachment: Attachment): String {
+        val id = attachment.id.ifBlank { "fake-attachment-${nextId++}" }
         table.value = table.value + (id to attachment.copy(id = id))
         return id
     }
 
     override fun observeAll(): Flow<List<Attachment>> = table.map { it.values.toList() }
 
-    override suspend fun byId(id: Long): Attachment? = table.value[id]
+    override suspend fun byId(id: String): Attachment? = table.value[id]
 
-    override suspend fun forTask(taskId: Long): List<Attachment> = table.value.values
+    override suspend fun forTask(taskId: String): List<Attachment> = table.value.values
         .filter { it.taskId == taskId }
         .sortedWith(compareBy({ it.sortOrder }, { it.id }))
 
-    override suspend fun insert(attachment: Attachment): Long = put(attachment)
+    override suspend fun insert(attachment: Attachment) {
+        put(attachment)
+    }
 
-    override suspend fun delete(id: Long) {
+    override suspend fun delete(id: String) {
         table.value = table.value - id
     }
 
-    override suspend fun deleteForTasks(taskIds: List<Long>) {
+    override suspend fun deleteForTasks(taskIds: List<String>) {
         table.value = table.value.filterValues { it.taskId !in taskIds }
     }
 
-    override suspend fun hashesForTasks(taskIds: List<Long>): List<String> = table.value.values
+    override suspend fun hashesForTasks(taskIds: List<String>): List<String> = table.value.values
         .filter { it.taskId in taskIds }
         .mapNotNull { it.sha256 }
         .distinct()

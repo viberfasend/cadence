@@ -1,0 +1,82 @@
+-- Named taskRow, not task, so the generated row class does not collide with the domain Task.
+CREATE TABLE taskRow (
+    id TEXT NOT NULL PRIMARY KEY,
+    title TEXT NOT NULL,
+    notes TEXT,
+    priority INTEGER NOT NULL,
+    projectId TEXT REFERENCES projectRow(id) ON DELETE SET NULL,
+    -- The task this one is a step of, or null for a task that stands on its own. Self-referencing
+    -- on purpose: nesting is one level deep, enforced by the repository, not this constraint.
+    parentId TEXT REFERENCES taskRow(id) ON DELETE CASCADE,
+    -- The occurrence whose completion inserted this row. Deliberately no REFERENCES clause: the
+    -- row it names may be deleted long before this one, and a link gone stale is harmless — ids
+    -- are never reused, so it can only ever fail to match.
+    spawnedFromId TEXT,
+    -- Epoch day, or null for "no due date".
+    dueDate INTEGER,
+    -- Second of day, or null when the task is due on a day but not at a time.
+    dueTime INTEGER,
+    reminderTime INTEGER,
+    -- Epoch millis of completion, or null while open.
+    completedAt INTEGER,
+    createdAt INTEGER NOT NULL,
+    sortOrder INTEGER NOT NULL,
+    -- Packed `v1;key=value;...` — see RecurrenceCodec.
+    recurrence TEXT,
+    -- Last write, local or merged in. The phase-6 merge engine resolves conflicts by this.
+    updatedAt INTEGER NOT NULL,
+    -- Tombstone: set instead of a hard delete once phase 6 needs one device's delete to reach
+    -- another's. Unused today — every delete is still a real DELETE.
+    deletedAt INTEGER
+);
+
+CREATE INDEX idx_task_project ON taskRow(projectId);
+CREATE INDEX idx_task_parent ON taskRow(parentId);
+CREATE INDEX idx_task_spawned_from ON taskRow(spawnedFromId);
+CREATE INDEX idx_task_due ON taskRow(dueDate);
+CREATE INDEX idx_task_completed ON taskRow(completedAt);
+CREATE INDEX idx_task_sort ON taskRow(sortOrder);
+
+selectAll:
+SELECT * FROM taskRow;
+
+selectById:
+SELECT * FROM taskRow WHERE id = ?;
+
+selectSubtasksOf:
+SELECT * FROM taskRow WHERE parentId = :parentId ORDER BY sortOrder, id;
+
+insertOrReplace:
+INSERT OR REPLACE INTO taskRow(
+    id, title, notes, priority, projectId, parentId, spawnedFromId,
+    dueDate, dueTime, reminderTime, completedAt, createdAt, sortOrder, recurrence,
+    updatedAt, deletedAt
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- Closes a task only if it is still open. Follow with `changes` to learn whether this call was
+-- the one that did it — the guard the whole idempotent-completion rule depends on.
+completeIfOpen:
+UPDATE taskRow SET completedAt = :completedAt, updatedAt = :completedAt
+WHERE id = :id AND completedAt IS NULL;
+
+-- The mirror of completeIfOpen: reopens a done task. Follow with `changes`.
+reopenIfDone:
+UPDATE taskRow SET completedAt = NULL, updatedAt = :updatedAt
+WHERE id = :id AND completedAt IS NOT NULL;
+
+-- SQLite's own count of rows touched by the statement just run on this connection —
+-- completeIfOpen and reopenIfDone read this back to report whether *this* call changed the row.
+changes:
+SELECT changes();
+
+-- The occurrences a completion inserted that nobody has ticked off yet.
+selectOpenSuccessorsOf:
+SELECT id FROM taskRow WHERE spawnedFromId = :id AND completedAt IS NULL;
+
+-- Deleting a task takes its subtasks with it — a step without its task has no meaning.
+deleteWithSubtasks:
+DELETE FROM taskRow WHERE id = :id OR parentId = :id;
+
+deleteAll:
+DELETE FROM taskRow;

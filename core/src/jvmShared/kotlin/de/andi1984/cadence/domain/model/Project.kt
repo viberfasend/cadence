@@ -1,15 +1,23 @@
 package de.andi1984.cadence.domain.model
 
+import java.time.Instant
+
 /**
  * Projects nest exactly one level deep: a top-level project may have subprojects,
  * subprojects may not.
  */
 data class Project(
-    val id: Long = 0L,
+    /** Blank until [de.andi1984.cadence.data.CadenceRepository] mints a UUIDv7 for a new
+     *  project — ids are no longer assigned by storage (ADR 0001, decision 4). */
+    val id: String = "",
     val name: String,
     val colorHex: String = "#006A60",
-    val parentId: Long? = null,
+    val parentId: String? = null,
     val sortOrder: Int = 0,
+    /** Last write, local or merged in. The phase-6 merge engine resolves conflicts by this. */
+    val updatedAt: Instant = Instant.EPOCH,
+    /** Tombstone, unused until phase 6 — see [Task.deletedAt]. */
+    val deletedAt: Instant? = null,
 ) {
     val isSubproject: Boolean get() = parentId != null
 }

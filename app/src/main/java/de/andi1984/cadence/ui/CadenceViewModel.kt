@@ -64,7 +64,7 @@ data class CadenceUiState(
     /** Current snackbar message to display, if any. */
     val snackbarMessage: SnackbarMessage? = null,
 ) {
-    fun project(id: Long?): Project? = id?.let { projectId -> projects.firstOrNull { it.id == projectId } }
+    fun project(id: String?): Project? = id?.let { projectId -> projects.firstOrNull { it.id == projectId } }
 
     /** "Home / Finance" for a task's project, or null for Inbox items. */
     fun projectLabel(task: Task): String? = projectPath(project(task.projectId), projects)
@@ -92,12 +92,12 @@ data class CadenceUiState(
     fun inboxTasks(): List<Task> = rootTasks().filter { it.isInbox }
 
     /** The steps under a task, in the order they were added. */
-    fun subtasks(parentId: Long): List<Task> = tasks
+    fun subtasks(parentId: String): List<Task> = tasks
         .filter { it.parentId == parentId }
         .sortedWith(compareBy({ it.sortOrder }, { it.id }))
 
     /** Null when a task has no checklist at all, so rows can leave the chip out entirely. */
-    fun subtaskProgress(parentId: Long): SubtaskProgress? {
+    fun subtaskProgress(parentId: String): SubtaskProgress? {
         val steps = subtasks(parentId)
         return if (steps.isEmpty()) {
             null
@@ -115,7 +115,7 @@ data class CadenceUiState(
      * lists otherwise never show a subtask at all ([rootTasks] drops them), so this is the one
      * place they become visible outside the task's own detail screen.
      */
-    fun expandedRows(roots: List<Task>, expandedIds: Set<Long>): List<TaskListRow> =
+    fun expandedRows(roots: List<Task>, expandedIds: Set<String>): List<TaskListRow> =
         roots.flatMap { task ->
             val children = if (task.id in expandedIds) subtasks(task.id) else emptyList()
             listOf(TaskListRow(task, isSubtaskRow = false)) +
@@ -123,12 +123,12 @@ data class CadenceUiState(
         }
 
     /** Subprojects of a project, in the order they were added. */
-    fun subprojects(parentId: Long): List<Project> = projects
+    fun subprojects(parentId: String): List<Project> = projects
         .filter { it.parentId == parentId }
         .sortedWith(compareBy({ it.sortOrder }, { it.id }))
 
     /** Tasks in a project, including everything filed under its subprojects. */
-    fun tasksIn(projectId: Long): List<Task> {
+    fun tasksIn(projectId: String): List<Task> {
         val childIds = subprojects(projectId).map { it.id }.toSet()
         return rootTasks().filter { it.projectId == projectId || it.projectId in childIds }
     }
@@ -141,7 +141,7 @@ data class CadenceUiState(
         if (exclude == null) return projects.filter { it.parentId == null }
         
         // Find all descendants of the excluded project
-        val descendants = mutableSetOf<Long>()
+        val descendants = mutableSetOf<String>()
         var current = listOf(exclude)
         while (current.isNotEmpty()) {
             val childIds = current.map { it.id }
@@ -269,7 +269,7 @@ class CadenceViewModel(
 
     fun setRecurrence(task: Task, rule: RecurrenceRule?) = saveTask(task.copy(recurrence = rule))
 
-    fun setProject(task: Task, projectId: Long?) = viewModelScope.launch {
+    fun setProject(task: Task, projectId: String?) = viewModelScope.launch {
         repository.moveToProject(task, projectId)
     }
 
@@ -282,7 +282,7 @@ class CadenceViewModel(
     }
 
     /** Creates the task the quick-add sheet parsed out of the typed line. */
-    fun addParsedTask(parsed: ParsedQuickAdd, fallbackProjectId: Long? = null) =
+    fun addParsedTask(parsed: ParsedQuickAdd, fallbackProjectId: String? = null) =
         viewModelScope.launch {
             if (parsed.title.isBlank()) return@launch
             repository.upsertTask(
@@ -299,7 +299,7 @@ class CadenceViewModel(
 
     // ── Projects ───────────────────────────────────────────────────────────────────
 
-    fun addProject(name: String, colorHex: String, parentId: Long?) = viewModelScope.launch {
+    fun addProject(name: String, colorHex: String, parentId: String?) = viewModelScope.launch {
         if (name.isBlank()) {
             showSnackbar("Project name cannot be empty")
             return@launch
@@ -321,7 +321,7 @@ class CadenceViewModel(
         }
     }
 
-    fun editProject(project: Project, name: String, colorHex: String, parentId: Long?) = viewModelScope.launch {
+    fun editProject(project: Project, name: String, colorHex: String, parentId: String?) = viewModelScope.launch {
         if (name.isBlank()) {
             showSnackbar("Project name cannot be empty")
             return@launch

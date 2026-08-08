@@ -57,7 +57,7 @@ fun TriageScreen(
     onClose: () -> Unit,
     onSetPriority: (Task, Priority) -> Unit,
     onSetDueDate: (Task, LocalDate?) -> Unit,
-    onSetProject: (Task, Long?) -> Unit,
+    onSetProject: (Task, String?) -> Unit,
 ) {
     // The queue is captured once so editing a task does not reshuffle the run.
     val queue = remember { state.inboxTasks().filter { !it.isDone }.map { it.id } }

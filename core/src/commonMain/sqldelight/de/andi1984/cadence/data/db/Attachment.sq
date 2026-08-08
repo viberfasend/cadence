@@ -1,0 +1,53 @@
+-- Named attachmentRow, not attachment, so the generated row class does not collide with the
+-- domain Attachment.
+CREATE TABLE attachmentRow (
+    id TEXT NOT NULL PRIMARY KEY,
+    taskId TEXT NOT NULL REFERENCES taskRow(id) ON DELETE CASCADE,
+    -- AttachmentKind by name, not ordinal — reordering the enum must not rewrite history.
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    mimeType TEXT NOT NULL,
+    -- Lowercase hex SHA-256 of the bytes — the blob's only name. Null for a LINK.
+    sha256 TEXT,
+    sizeBytes INTEGER NOT NULL,
+    -- The URL for a LINK, null for a FILE.
+    url TEXT,
+    createdAt INTEGER NOT NULL,
+    sortOrder INTEGER NOT NULL
+);
+
+CREATE INDEX idx_attachment_task ON attachmentRow(taskId);
+-- Not decorative — the blob-reclaim query filters on sha256 and runs on every delete.
+CREATE INDEX idx_attachment_sha ON attachmentRow(sha256);
+
+selectAll:
+SELECT * FROM attachmentRow;
+
+selectById:
+SELECT * FROM attachmentRow WHERE id = ?;
+
+selectForTask:
+SELECT * FROM attachmentRow WHERE taskId = :taskId ORDER BY sortOrder, id;
+
+insertOrReplace:
+INSERT OR REPLACE INTO attachmentRow(id, taskId, kind, name, mimeType, sha256, sizeBytes, url, createdAt, sortOrder)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+delete:
+DELETE FROM attachmentRow WHERE id = ?;
+
+deleteForTasks:
+DELETE FROM attachmentRow WHERE taskId IN :taskIds;
+
+selectHashesForTasks:
+SELECT DISTINCT sha256 FROM attachmentRow WHERE taskId IN :taskIds AND sha256 IS NOT NULL;
+
+-- Which of these hashes some row still names. The rest are garbage on disk.
+selectStillReferenced:
+SELECT DISTINCT sha256 FROM attachmentRow WHERE sha256 IN :hashes;
+
+selectReferencedHashes:
+SELECT DISTINCT sha256 FROM attachmentRow WHERE sha256 IS NOT NULL;
+
+deleteAll:
+DELETE FROM attachmentRow;

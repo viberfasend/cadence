@@ -36,9 +36,9 @@ class MainActivity : ComponentActivity() {
             RequestNotificationPermission()
 
             // Handle intent extras for deep linking (e.g., from reminder notifications)
-            val intentTaskId = remember { intent.getLongExtra(ReminderScheduler.EXTRA_TASK_ID, -1L) }
+            val intentTaskId = remember { intent.getStringExtra(ReminderScheduler.EXTRA_TASK_ID) }
             LaunchedEffect(intentTaskId) {
-                if (intentTaskId > 0) {
+                if (intentTaskId != null) {
                     // Clear the intent so it doesn't trigger again on configuration changes
                     intent.removeExtra(ReminderScheduler.EXTRA_TASK_ID)
                 }

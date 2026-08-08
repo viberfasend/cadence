@@ -7,10 +7,11 @@ import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.data.backup.AutoBackupSync
 import de.andi1984.cadence.data.backup.BackupIo
 import de.andi1984.cadence.data.db.CadenceDatabase
-import de.andi1984.cadence.data.db.RoomAttachmentStore
-import de.andi1984.cadence.data.db.RoomBackupStore
-import de.andi1984.cadence.data.db.RoomProjectStore
-import de.andi1984.cadence.data.db.RoomTaskStore
+import de.andi1984.cadence.data.db.DatabaseDriverFactory
+import de.andi1984.cadence.data.db.SqlDelightAttachmentStore
+import de.andi1984.cadence.data.db.SqlDelightBackupStore
+import de.andi1984.cadence.data.db.SqlDelightProjectStore
+import de.andi1984.cadence.data.db.SqlDelightTaskStore
 import de.andi1984.cadence.reminders.ReminderScheduler
 import de.andi1984.cadence.ui.settings.SettingsStore
 import kotlinx.coroutines.CoroutineScope
@@ -22,7 +23,7 @@ import java.io.File
 /** Hand-rolled dependency graph — the app is small enough not to need a DI framework. */
 class AppContainer(context: Context) {
 
-    private val database = CadenceDatabase.get(context)
+    private val database = CadenceDatabase(DatabaseDriverFactory(context).createDriver())
 
     /** Both directories must sit on the same filesystem — the copy finishes with a `renameTo`
      *  that is only atomic within one volume — so `tmp` is a sibling under `filesDir`, never
@@ -33,10 +34,10 @@ class AppContainer(context: Context) {
     )
 
     val repository = CadenceRepository(
-        taskStore = RoomTaskStore(database.taskDao()),
-        projectStore = RoomProjectStore(database.projectDao()),
-        backupStore = RoomBackupStore(database.backupDao()),
-        attachmentStore = RoomAttachmentStore(database.attachmentDao()),
+        taskStore = SqlDelightTaskStore(database),
+        projectStore = SqlDelightProjectStore(database),
+        backupStore = SqlDelightBackupStore(database),
+        attachmentStore = SqlDelightAttachmentStore(database),
         blobStore = blobStore,
     )
 

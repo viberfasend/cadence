@@ -23,8 +23,8 @@ class QuickAddParserTest {
     private val german = QuickAddLexicon.forLocale(Locale.GERMAN)
 
     private val projects = listOf(
-        Project(id = 1L, name = "Home", colorHex = "#A1560A"),
-        Project(id = 2L, name = "Q3 Launch", colorHex = "#3E6373", parentId = 3L),
+        Project(id = "1", name = "Home", colorHex = "#A1560A"),
+        Project(id = "2", name = "Q3 Launch", colorHex = "#3E6373", parentId = "3"),
     )
 
     @Test
@@ -33,7 +33,7 @@ class QuickAddParserTest {
 
         assertEquals("Pay rent", parsed.title)
         assertEquals(Priority.P2, parsed.priority)
-        assertEquals(1L, parsed.projectId)
+        assertEquals("1", parsed.projectId)
         assertEquals(LocalDate.of(2026, 9, 1), parsed.dueDate)
         assertEquals(RecurrenceUnit.MONTH, parsed.recurrence?.unit)
         assertEquals(MonthlyMode.DAY_OF_MONTH, parsed.recurrence?.monthlyMode)
@@ -45,7 +45,7 @@ class QuickAddParserTest {
     @Test
     fun `a project written without spaces still matches`() {
         val parsed = QuickAddParser.parse("Ship the notes #Q3Launch", projects, today)
-        assertEquals(2L, parsed.projectId)
+        assertEquals("2", parsed.projectId)
         assertEquals("Ship the notes", parsed.title)
     }
 

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     Data extraction rules for Android 12+ backup.
-    Without this file, android:allowBackup="true" would silently exclude the Room database and
+    Without this file, android:allowBackup="true" would silently exclude the SQLite database and
     SharedPreferences from app backups, leading to data loss when the app is restored.
 
     Attachment blobs are deliberately not backed up: Android's cloud-backup ceiling is 25 MB per

@@ -81,7 +81,7 @@ import java.time.LocalDate
 fun QuickAddSheet(
     projects: List<Project>,
     today: LocalDate,
-    defaultProjectId: Long?,
+    defaultProjectId: String?,
     onDismiss: () -> Unit,
     onSubmit: (ParsedQuickAdd) -> Unit,
 ) {

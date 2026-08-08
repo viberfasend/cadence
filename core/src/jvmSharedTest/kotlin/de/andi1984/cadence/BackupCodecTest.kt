@@ -24,14 +24,14 @@ class BackupCodecTest {
 
     private val exportedAt = Instant.parse("2026-08-05T09:00:00Z")
 
-    private val project = Project(id = 7L, name = "Home", colorHex = "#006A60", sortOrder = 2)
+    private val project = Project(id = "7", name = "Home", colorHex = "#006A60", sortOrder = 2)
 
     private val task = Task(
-        id = 3L,
+        id = "3",
         title = "Water the plants",
         notes = "Only the balcony ones",
         priority = Priority.P2,
-        projectId = 7L,
+        projectId = "7",
         dueDate = LocalDate.of(2026, 8, 6),
         dueTime = LocalTime.of(9, 30),
         reminderTime = LocalTime.of(8, 0),
@@ -67,7 +67,7 @@ class BackupCodecTest {
 
     @Test
     fun `a task without dates or recurrence survives a round trip`() {
-        val bare = Task(id = 11L, title = "Someday", createdAt = Instant.EPOCH)
+        val bare = Task(id = "11", title = "Someday", createdAt = Instant.EPOCH)
 
         val restored = roundTrip(BackupSnapshot(tasks = listOf(bare)))
 
@@ -101,7 +101,7 @@ class BackupCodecTest {
 
     @Test
     fun `a task pointing at a missing project lands in the inbox`() {
-        val orphan = task.copy(projectId = 99L)
+        val orphan = task.copy(projectId = "99")
 
         val restored = roundTrip(BackupSnapshot(projects = listOf(project), tasks = listOf(orphan)))
 
@@ -110,17 +110,17 @@ class BackupCodecTest {
 
     @Test
     fun `a recurrence chain keeps its links across a round trip`() {
-        val finished = task.copy(id = 40L, projectId = null)
-        val next = task.copy(id = 41L, projectId = null, completedAt = null, spawnedFromId = 40L)
+        val finished = task.copy(id = "40", projectId = null)
+        val next = task.copy(id = "41", projectId = null, completedAt = null, spawnedFromId = "40")
 
         val restored = roundTrip(BackupSnapshot(tasks = listOf(finished, next)))
 
-        assertEquals(listOf(null, 40L), restored.tasks.map { it.spawnedFromId })
+        assertEquals(listOf(null, "40"), restored.tasks.map { it.spawnedFromId })
     }
 
     @Test
     fun `a recurrence link to an occurrence the file lacks is dropped`() {
-        val orphan = task.copy(projectId = null, spawnedFromId = 404L)
+        val orphan = task.copy(projectId = null, spawnedFromId = "404")
 
         val restored = roundTrip(BackupSnapshot(tasks = listOf(orphan)))
 
@@ -133,8 +133,8 @@ class BackupCodecTest {
             {
               "format": "cadence.backup",
               "version": 1,
-              "projects": [{"id": 0, "name": "Nameless"}],
-              "tasks": [{"id": 1, "title": ""}, {"id": 2, "title": "Keep me"}]
+              "projects": [{"id": "", "name": "Nameless"}],
+              "tasks": [{"id": "1", "title": ""}, {"id": "2", "title": "Keep me"}]
             }
         """.trimIndent()
 
@@ -145,12 +145,29 @@ class BackupCodecTest {
     }
 
     @Test
+    fun `a task without an id is given a fresh one rather than colliding with another`() {
+        val json = """
+            {
+              "format": "cadence.backup",
+              "version": 1,
+              "tasks": [{"title": "First"}, {"title": "Second"}]
+            }
+        """.trimIndent()
+
+        val restored = (BackupCodec.decode(json) as BackupReadResult.Ok).snapshot
+
+        val ids = restored.tasks.map { it.id }
+        assertTrue(ids.all { it.isNotBlank() })
+        assertEquals(2, ids.toSet().size)
+    }
+
+    @Test
     fun `an unreadable date empties that field instead of failing the import`() {
         val json = """
             {
               "format": "cadence.backup",
               "version": 1,
-              "tasks": [{"id": 1, "title": "Broken date", "dueDate": "the 6th"}]
+              "tasks": [{"id": "1", "title": "Broken date", "dueDate": "the 6th"}]
             }
         """.trimIndent()
 
@@ -161,18 +178,18 @@ class BackupCodecTest {
 
     @Test
     fun `subtasks keep their parent through a round trip`() {
-        val step = Task(id = 4L, title = "Compare flights", parentId = 3L, createdAt = Instant.EPOCH)
+        val step = Task(id = "4", title = "Compare flights", parentId = "3", createdAt = Instant.EPOCH)
 
         val restored = roundTrip(
             BackupSnapshot(projects = listOf(project), tasks = listOf(task, step)),
         )
 
-        assertEquals(listOf(null, 3L), restored.tasks.map { it.parentId })
+        assertEquals(listOf(null, "3"), restored.tasks.map { it.parentId })
     }
 
     @Test
     fun `a subtask whose parent is missing becomes a task of its own`() {
-        val orphan = Task(id = 4L, title = "Compare flights", parentId = 99L)
+        val orphan = Task(id = "4", title = "Compare flights", parentId = "99")
 
         val restored = roundTrip(BackupSnapshot(tasks = listOf(orphan)))
 
@@ -186,16 +203,16 @@ class BackupCodecTest {
               "format": "cadence.backup",
               "version": 1,
               "tasks": [
-                {"id": 1, "title": "Move flat"},
-                {"id": 2, "title": "Pack", "parentId": 1},
-                {"id": 3, "title": "Pack the kitchen", "parentId": 2}
+                {"id": "1", "title": "Move flat"},
+                {"id": "2", "title": "Pack", "parentId": "1"},
+                {"id": "3", "title": "Pack the kitchen", "parentId": "2"}
               ]
             }
         """.trimIndent()
 
         val restored = (BackupCodec.decode(json) as BackupReadResult.Ok).snapshot
 
-        assertEquals(listOf(null, 1L, 1L), restored.tasks.map { it.parentId })
+        assertEquals(listOf(null, "1", "1"), restored.tasks.map { it.parentId })
     }
 
     @Test
@@ -205,9 +222,9 @@ class BackupCodecTest {
               "format": "cadence.backup",
               "version": 1,
               "tasks": [
-                {"id": 1, "title": "A", "parentId": 2},
-                {"id": 2, "title": "B", "parentId": 1},
-                {"id": 3, "title": "C", "parentId": 3}
+                {"id": "1", "title": "A", "parentId": "2"},
+                {"id": "2", "title": "B", "parentId": "1"},
+                {"id": "3", "title": "C", "parentId": "3"}
               ]
             }
         """.trimIndent()
@@ -224,7 +241,7 @@ class BackupCodecTest {
               "format": "cadence.backup",
               "version": 1,
               "tags": ["work"],
-              "tasks": [{"id": 1, "title": "Tagged", "tagIds": [4]}]
+              "tasks": [{"id": "1", "title": "Tagged", "tagIds": [4]}]
             }
         """.trimIndent()
 
