@@ -5,18 +5,20 @@ import java.time.LocalDate
 import java.time.LocalTime
 
 data class Task(
-    val id: Long = 0L,
+    /** Blank until [de.andi1984.cadence.data.CadenceRepository] mints a UUIDv7 for a new task —
+     *  ids are no longer assigned by storage (ADR 0001, decision 4). */
+    val id: String = "",
     val title: String,
     val notes: String? = null,
     val priority: Priority = Priority.DEFAULT,
-    val projectId: Long? = null,
+    val projectId: String? = null,
     /**
      * The task this one is a step of, or null for a task that stands on its own.
      *
      * Nesting is one level deep on purpose: a subtask never becomes a parent itself, so a
      * checklist stays a checklist instead of turning into a second project tree.
      */
-    val parentId: Long? = null,
+    val parentId: String? = null,
     /**
      * The occurrence whose completion inserted this row, for a recurring task.
      *
@@ -25,7 +27,7 @@ data class Task(
      * row that completion created back out, and the lists that are not scoped to a day use it
      * to tell a finished occurrence apart from one that is still the task's current state.
      */
-    val spawnedFromId: Long? = null,
+    val spawnedFromId: String? = null,
     val dueDate: LocalDate? = null,
     val dueTime: LocalTime? = null,
     /** Time of day to remind, on the due day. */
@@ -34,6 +36,11 @@ data class Task(
     val createdAt: Instant = Instant.EPOCH,
     val sortOrder: Int = 0,
     val recurrence: RecurrenceRule? = null,
+    /** Last write, local or merged in. The phase-6 merge engine resolves conflicts by this. */
+    val updatedAt: Instant = Instant.EPOCH,
+    /** Tombstone: set instead of a hard delete once sync (phase 6) needs one device's delete to
+     *  reach another's. Unused until then — every delete today is still a real `DELETE`. */
+    val deletedAt: Instant? = null,
 ) {
     val isDone: Boolean get() = completedAt != null
 

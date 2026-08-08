@@ -6,9 +6,10 @@ import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.data.backup.AutoBackupSync
 import de.andi1984.cadence.data.backup.BackupIo
 import de.andi1984.cadence.data.db.CadenceDatabase
-import de.andi1984.cadence.data.db.RoomBackupStore
-import de.andi1984.cadence.data.db.RoomProjectStore
-import de.andi1984.cadence.data.db.RoomTaskStore
+import de.andi1984.cadence.data.db.DatabaseDriverFactory
+import de.andi1984.cadence.data.db.SqlDelightBackupStore
+import de.andi1984.cadence.data.db.SqlDelightProjectStore
+import de.andi1984.cadence.data.db.SqlDelightTaskStore
 import de.andi1984.cadence.reminders.ReminderScheduler
 import de.andi1984.cadence.ui.settings.SettingsStore
 import kotlinx.coroutines.CoroutineScope
@@ -18,12 +19,12 @@ import kotlinx.coroutines.SupervisorJob
 /** Hand-rolled dependency graph — the app is small enough not to need a DI framework. */
 class AppContainer(context: Context) {
 
-    private val database = CadenceDatabase.get(context)
+    private val database = CadenceDatabase(DatabaseDriverFactory(context).createDriver())
 
     val repository = CadenceRepository(
-        taskStore = RoomTaskStore(database.taskDao()),
-        projectStore = RoomProjectStore(database.projectDao()),
-        backupStore = RoomBackupStore(database.backupDao()),
+        taskStore = SqlDelightTaskStore(database),
+        projectStore = SqlDelightProjectStore(database),
+        backupStore = SqlDelightBackupStore(database),
     )
 
     val backupIo = BackupIo(context, repository)

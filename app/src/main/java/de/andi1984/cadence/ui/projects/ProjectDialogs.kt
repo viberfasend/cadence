@@ -50,7 +50,7 @@ import de.andi1984.cadence.ui.components.parseColor
 /** Which project dialog is on screen, if any. */
 sealed interface ProjectDialogState {
     /** Creating one, nested under [parentId] straight away when that came from a project's menu. */
-    data class Create(val parentId: Long?) : ProjectDialogState
+    data class Create(val parentId: String?) : ProjectDialogState
 
     data class Edit(val project: Project) : ProjectDialogState
 
@@ -66,8 +66,8 @@ fun ProjectDialogs(
     dialog: ProjectDialogState?,
     state: CadenceUiState,
     onDismiss: () -> Unit,
-    onCreateProject: (String, String, Long?) -> Unit,
-    onEditProject: (Project, String, String, Long?) -> Unit,
+    onCreateProject: (String, String, String?) -> Unit,
+    onEditProject: (Project, String, String, String?) -> Unit,
     onDeleteProject: (Project, Boolean) -> Unit,
 ) {
     when (dialog) {
@@ -192,9 +192,9 @@ internal val PROJECT_COLORS = listOf(
 fun ProjectEditorDialog(
     project: Project?,
     candidates: List<Project>,
-    initialParentId: Long?,
+    initialParentId: String?,
     onDismiss: () -> Unit,
-    onConfirm: (name: String, colorHex: String, parentId: Long?) -> Unit,
+    onConfirm: (name: String, colorHex: String, parentId: String?) -> Unit,
 ) {
     var name by remember { mutableStateOf(project?.name.orEmpty()) }
     var color by remember { mutableStateOf(project?.colorHex ?: PROJECT_COLORS.first().first) }

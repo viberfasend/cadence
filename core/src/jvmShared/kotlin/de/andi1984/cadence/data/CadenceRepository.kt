@@ -1,6 +1,7 @@
 package de.andi1984.cadence.data
 
 import de.andi1984.cadence.domain.backup.BackupSnapshot
+import de.andi1984.cadence.domain.id.UuidV7
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
@@ -32,25 +33,29 @@ class CadenceRepository(
 
     val projects: Flow<List<Project>> = projectStore.observeAll()
 
-    fun task(id: Long): Flow<Task?> = taskStore.observeById(id)
+    fun task(id: String): Flow<Task?> = taskStore.observeById(id)
 
-    suspend fun upsertTask(task: Task): Long {
-        val stamped = if (task.createdAt == Instant.EPOCH) {
-            task.copy(createdAt = Instant.now())
-        } else {
-            task
-        }
-        return if (stamped.id == 0L) {
-            taskStore.insert(stamped)
+    /** Mints a UUIDv7 for a new task, or stamps an edit — either way `updatedAt` moves to now,
+     *  which is what the phase-6 merge engine will resolve conflicts by. */
+    suspend fun upsertTask(task: Task): String {
+        val now = Instant.now()
+        val stamped = task.copy(
+            createdAt = if (task.createdAt == Instant.EPOCH) now else task.createdAt,
+            updatedAt = now,
+        )
+        return if (stamped.id.isBlank()) {
+            val minted = stamped.copy(id = UuidV7.random())
+            taskStore.insert(minted)
+            minted.id
         } else {
             taskStore.update(stamped)
             stamped.id
         }
     }
 
-    suspend fun deleteTask(id: Long) = taskStore.deleteWithSubtasks(id)
+    suspend fun deleteTask(id: String) = taskStore.deleteWithSubtasks(id)
 
-    suspend fun subtasksOf(parentId: Long): List<Task> = taskStore.subtasksOf(parentId)
+    suspend fun subtasksOf(parentId: String): List<Task> = taskStore.subtasksOf(parentId)
 
     /**
      * Adds a step under [parent].
@@ -58,7 +63,7 @@ class CadenceRepository(
      * Nesting stays one level deep: adding a subtask while looking at a subtask files the new
      * one next to it, under the same task, rather than starting a third level.
      */
-    suspend fun addSubtask(parent: Task, title: String): RepositoryResult<Long> {
+    suspend fun addSubtask(parent: Task, title: String): RepositoryResult<String> {
         val trimmed = title.trim()
         if (trimmed.isEmpty()) {
             return RepositoryResult.ValidationError
@@ -75,25 +80,29 @@ class CadenceRepository(
         }
 
         return try {
-            val newTaskId = taskStore.insert(
-                Task(
-                    title = trimmed,
-                    projectId = parent.projectId,
-                    parentId = parentId,
-                    createdAt = Instant.now(),
-                    sortOrder = currentSubtaskCount,
-                ),
+            val now = Instant.now()
+            val newTask = Task(
+                id = UuidV7.random(),
+                title = trimmed,
+                projectId = parent.projectId,
+                parentId = parentId,
+                createdAt = now,
+                updatedAt = now,
+                sortOrder = currentSubtaskCount,
             )
-            RepositoryResult.Success(newTaskId)
+            taskStore.insert(newTask)
+            RepositoryResult.Success(newTask.id)
         } catch (e: Exception) {
             RepositoryResult.Error("Failed to add subtask", e)
         }
     }
 
     /** A task and its steps live in the same project, so moving one moves the whole checklist. */
-    suspend fun moveToProject(task: Task, projectId: Long?) {
-        taskStore.update(task.copy(projectId = projectId))
-        taskStore.subtasksOf(task.id).forEach { taskStore.update(it.copy(projectId = projectId)) }
+    suspend fun moveToProject(task: Task, projectId: String?) {
+        val now = Instant.now()
+        taskStore.update(task.copy(projectId = projectId, updatedAt = now))
+        taskStore.subtasksOf(task.id)
+            .forEach { taskStore.update(it.copy(projectId = projectId, updatedAt = now)) }
     }
 
     /**
@@ -113,6 +122,12 @@ class CadenceRepository(
      * Reopening undoes both halves: the row opens again *and* the occurrence its completion
      * inserted is removed, so the task does not end up standing in the list twice.
      *
+     * The successor's id is *derived*, not minted — [UuidV7.successorId] from the occurrence
+     * being completed and the next due date, so two devices completing the same occurrence
+     * offline produce the same id and a future merge collapses them instead of duplicating the
+     * task (ADR 0001, decision 4). The subtasks handed over derive theirs the same way, keyed
+     * additionally by their own id so siblings do not collide.
+     *
      * @return the ids of the tasks this call deleted, so their reminders can be cancelled —
      *   [de.andi1984.cadence.reminders.ReminderScheduler.sync] only ever sees the tasks that
      *   still exist, so it cannot cancel an alarm for one that is already gone.
@@ -121,9 +136,9 @@ class CadenceRepository(
         task: Task,
         completed: Boolean,
         today: LocalDate = LocalDate.now(),
-    ): List<Long> {
+    ): List<String> {
         if (!completed) {
-            if (taskStore.reopenIfDone(task.id) == 0) return emptyList()
+            if (taskStore.reopenIfDone(task.id, Instant.now()) == 0) return emptyList()
             val successors = taskStore.openSuccessorsOf(task.id)
             successors.forEach { taskStore.deleteWithSubtasks(it) }
             return successors
@@ -137,16 +152,19 @@ class CadenceRepository(
         val current = taskStore.byId(task.id) ?: return emptyList()
 
         val subtasks = subtasksOf(current.id)
-        subtasks.filter { !it.isDone }.forEach { taskStore.update(it.copy(completedAt = now)) }
+        subtasks.filter { !it.isDone }
+            .forEach { taskStore.update(it.copy(completedAt = now, updatedAt = now)) }
 
         val rule = current.recurrence ?: return emptyList()
         val nextDue = RecurrenceEngine.dueDateAfterCompletion(rule, current.dueDate, today)
-        val nextId = taskStore.insert(
+        val nextId = UuidV7.successorId(current.id, nextDue)
+        taskStore.insert(
             current.copy(
-                id = 0L,
+                id = nextId,
                 completedAt = null,
                 dueDate = nextDue,
                 createdAt = now,
+                updatedAt = now,
                 spawnedFromId = current.id,
             ),
         )
@@ -154,11 +172,12 @@ class CadenceRepository(
         subtasks.forEach { subtask ->
             taskStore.insert(
                 subtask.copy(
-                    id = 0L,
+                    id = UuidV7.successorId(current.id, nextDue, discriminant = subtask.id),
                     parentId = nextId,
                     completedAt = null,
                     dueDate = subtask.dueDate?.plusDays(shift),
                     createdAt = now,
+                    updatedAt = now,
                     // The step belongs to the new occurrence, which already carries the link
                     // back; only the parent rows form the chain.
                     spawnedFromId = null,
@@ -171,29 +190,30 @@ class CadenceRepository(
     /** Moves a task's due date by [days], used by snooze and the overdue triage action. */
     suspend fun shiftDueDate(task: Task, days: Long, from: LocalDate = LocalDate.now()) {
         val base = task.dueDate?.takeIf { it.isAfter(from) } ?: from
-        taskStore.update(task.copy(dueDate = base.plusDays(days)))
+        taskStore.update(task.copy(dueDate = base.plusDays(days), updatedAt = Instant.now()))
     }
 
     suspend fun setDueDate(task: Task, dueDate: LocalDate?) {
-        taskStore.update(task.copy(dueDate = dueDate))
+        taskStore.update(task.copy(dueDate = dueDate, updatedAt = Instant.now()))
     }
 
     /** "Reschedule all" on the overdue block: everything overdue lands on today. */
     suspend fun rescheduleOverdueToToday(today: LocalDate = LocalDate.now()) {
+        val now = Instant.now()
         taskStore.getAll()
             .filter { it.isOverdue(today) }
-            .forEach { taskStore.update(it.copy(dueDate = today)) }
+            .forEach { taskStore.update(it.copy(dueDate = today, updatedAt = now)) }
     }
 
     /**
      * Validates and upserts a project, checking for circular references and maximum nesting depth.
      */
-    suspend fun upsertProject(project: Project): RepositoryResult<Long> {
+    suspend fun upsertProject(project: Project): RepositoryResult<String> {
         // Validate project name
         if (project.name.isBlank()) {
             return RepositoryResult.ValidationError
         }
-        
+
         // Validate nesting depth
         val parentId = project.parentId
         if (parentId != null) {
@@ -201,19 +221,22 @@ class CadenceRepository(
             if (nestingDepth >= MAX_PROJECT_NESTING_DEPTH) {
                 return RepositoryResult.Error("Maximum project nesting depth ($MAX_PROJECT_NESTING_DEPTH) reached")
             }
-            
+
             // Prevent circular references
             if (wouldCreateCircularReference(project.id, project.parentId)) {
                 return RepositoryResult.Error("Cannot create circular reference: project cannot be its own ancestor")
             }
         }
-        
+
         return try {
-            val id = if (project.id == 0L) {
-                projectStore.insert(project)
+            val stamped = project.copy(updatedAt = Instant.now())
+            val id = if (stamped.id.isBlank()) {
+                val minted = stamped.copy(id = UuidV7.random())
+                projectStore.insert(minted)
+                minted.id
             } else {
-                projectStore.update(project)
-                project.id
+                projectStore.update(stamped)
+                stamped.id
             }
             RepositoryResult.Success(id)
         } catch (e: Exception) {
@@ -224,34 +247,34 @@ class CadenceRepository(
     /**
      * Calculates the nesting depth of a project by counting how many levels deep it is.
      */
-    private suspend fun getProjectNestingDepth(projectId: Long): Int {
+    private suspend fun getProjectNestingDepth(projectId: String): Int {
         var depth = 0
-        var currentId: Long? = projectId
-        
-        while (currentId != null && currentId != 0L) {
+        var currentId: String? = projectId
+
+        while (currentId != null) {
             val project = projectStore.getAll().firstOrNull { it.id == currentId } ?: break
             currentId = project.parentId
             depth++
         }
-        
+
         return depth
     }
 
     /**
      * Checks if setting parentId for a project would create a circular reference.
      */
-    private suspend fun wouldCreateCircularReference(projectId: Long, newParentId: Long?): Boolean {
-        if (newParentId == null || newParentId == 0L) return false
-        
-        var currentId: Long? = newParentId
-        while (currentId != null && currentId != 0L) {
+    private suspend fun wouldCreateCircularReference(projectId: String, newParentId: String?): Boolean {
+        if (newParentId == null) return false
+
+        var currentId: String? = newParentId
+        while (currentId != null) {
             if (currentId == projectId) {
                 return true // Circular reference detected
             }
             val project = projectStore.getAll().firstOrNull { it.id == currentId } ?: break
             currentId = project.parentId
         }
-        
+
         return false
     }
 
@@ -262,7 +285,7 @@ class CadenceRepository(
      * Returns the ids of the tasks that were deleted, so reminders for them can be cancelled —
      * the scheduler's sync only ever sees the tasks that still exist.
      */
-    suspend fun deleteProject(id: Long, deleteTasks: Boolean = false): List<Long> {
+    suspend fun deleteProject(id: String, deleteTasks: Boolean = false): List<String> {
         val affected = if (deleteTasks) projectStore.taskIdsIn(id) else emptyList()
         projectStore.deleteWithChildren(id, deleteTasks)
         return affected
@@ -279,10 +302,12 @@ class CadenceRepository(
     /**
      * Restores a backup by *replacing* both tables — importing is not a merge, so ids stay the
      * ones in the file and task→project links survive without remapping.
+     *
+     * `BackupDao.replaceAll` becomes a merge in phase 6 (ADR 0001, decision 5); until then a
+     * restore is still the destructive operation it always was.
      */
     suspend fun restore(snapshot: BackupSnapshot) = backupStore.replaceAll(
         projects = snapshot.projects,
         tasks = snapshot.tasks,
     )
 }
-

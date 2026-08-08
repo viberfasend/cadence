@@ -1,0 +1,47 @@
+-- Named projectRow, not project, so the generated row class does not collide with the domain
+-- Project.
+CREATE TABLE projectRow (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    colorHex TEXT NOT NULL,
+    -- Self-referencing. Nesting is one level deep, enforced by the repository, not this table.
+    parentId TEXT REFERENCES projectRow(id) ON DELETE CASCADE,
+    sortOrder INTEGER NOT NULL,
+    -- Last write, local or merged in. The phase-6 merge engine resolves conflicts by this.
+    updatedAt INTEGER NOT NULL,
+    -- Tombstone, unused today — see taskRow.deletedAt.
+    deletedAt INTEGER
+);
+
+CREATE INDEX idx_project_parent ON projectRow(parentId);
+CREATE INDEX idx_project_sort ON projectRow(sortOrder);
+
+selectAll:
+SELECT * FROM projectRow ORDER BY sortOrder;
+
+insertOrReplace:
+INSERT OR REPLACE INTO projectRow(id, name, colorHex, parentId, sortOrder, updatedAt, deletedAt)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+update:
+UPDATE projectRow SET name = ?, colorHex = ?, parentId = ?, sortOrder = ?, updatedAt = ?, deletedAt = ?
+WHERE id = ?;
+
+-- Everything filed under the project, including its subprojects — nesting is one level.
+selectTaskIdsIn:
+SELECT id FROM taskRow
+WHERE projectId = :id OR projectId IN (SELECT id FROM projectRow WHERE parentId = :id);
+
+moveTasksToInbox:
+UPDATE taskRow SET projectId = NULL, updatedAt = :updatedAt
+WHERE projectId = :id OR projectId IN (SELECT id FROM projectRow WHERE parentId = :id);
+
+deleteTasksIn:
+DELETE FROM taskRow
+WHERE projectId = :id OR projectId IN (SELECT id FROM projectRow WHERE parentId = :id);
+
+deleteWithChildrenRows:
+DELETE FROM projectRow WHERE id = :id OR parentId = :id;
+
+deleteAll:
+DELETE FROM projectRow;

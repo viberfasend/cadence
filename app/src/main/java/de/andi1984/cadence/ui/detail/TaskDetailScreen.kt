@@ -86,7 +86,7 @@ fun TaskDetailScreen(
     onSnooze: (Task) -> Unit,
     onOpenTask: (Task) -> Unit,
     onAddSubtask: (Task, String) -> Unit,
-    onMoveToProject: (Task, Long?) -> Unit,
+    onMoveToProject: (Task, String?) -> Unit,
 ) {
     if (task == null) {
         EmptyState(

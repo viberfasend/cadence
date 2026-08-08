@@ -56,14 +56,14 @@ fun ProjectsScreen(
     onProjectClick: (Project) -> Unit,
     onInbox: () -> Unit,
     onToday: () -> Unit,
-    onCreateProject: (String, String, Long?) -> Unit,
-    onEditProject: (Project, String, String, Long?) -> Unit,
+    onCreateProject: (String, String, String?) -> Unit,
+    onEditProject: (Project, String, String, String?) -> Unit,
     onDeleteProject: (Project, Boolean) -> Unit,
     onSettings: () -> Unit,
 ) {
     val tree = state.projects.toTree()
     var dialog by remember { mutableStateOf<ProjectDialogState?>(null) }
-    val collapsed = remember { mutableStateMapOf<Long, Boolean>() }
+    val collapsed = remember { mutableStateMapOf<String, Boolean>() }
 
     val inboxCount = state.inboxTasks().count { !it.isDone }
     val todayCount = state.tasks.count { task ->
@@ -203,7 +203,7 @@ fun ProjectsScreen(
     )
 }
 
-private fun dueThisWeek(state: CadenceUiState, projectId: Long, today: LocalDate): Int =
+private fun dueThisWeek(state: CadenceUiState, projectId: String, today: LocalDate): Int =
     state.tasksIn(projectId).count { task ->
         !task.isDone && task.dueDate?.isAfter(today.plusDays(7)) == false
     }

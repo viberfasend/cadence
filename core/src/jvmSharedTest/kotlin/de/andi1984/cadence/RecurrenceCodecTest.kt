@@ -10,10 +10,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.DayOfWeek
 
-/**
- * The packed `v1;key=value` column is a storage detail of `:app`, unlike the backup format —
- * which is why this left `QuickAddParserTest` when the parser moved into `:core`.
- */
+/** The packed `v1;key=value` column is a storage detail, unlike the backup format. */
 class RecurrenceCodecTest {
 
     @Test

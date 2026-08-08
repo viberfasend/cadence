@@ -21,7 +21,7 @@ data class ParsedQuickAdd(
     val dueDate: LocalDate? = null,
     val dueTime: LocalTime? = null,
     val priority: Priority? = null,
-    val projectId: Long? = null,
+    val projectId: String? = null,
     val projectName: String? = null,
     val recurrence: RecurrenceRule? = null,
     val spans: List<TokenSpan> = emptyList(),
@@ -75,7 +75,7 @@ object QuickAddParser {
         }
 
         // ── Project ────────────────────────────────────────────────────────────────
-        var projectId: Long? = null
+        var projectId: String? = null
         var projectName: String? = null
         firstMatch(Regex("""#([\p{L}\p{N}_-]+)"""))?.let { match ->
             val typed = match.groupValues[1]

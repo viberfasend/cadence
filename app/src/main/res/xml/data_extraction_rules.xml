@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     Data extraction rules for Android backup.
-    This file ensures that the Room database and other critical files are included in app backups.
-    Without this file, android:allowBackup="true" would silently exclude these files,
+    This file ensures that the SQLite database and other critical files are included in app
+    backups. Without this file, android:allowBackup="true" would silently exclude these files,
     leading to data loss when the app is restored.
-    
+
     See: https://developer.android.com/guide/topics/data/autobackup
     -->
 <data-extraction-rules>
-    <!-- Include the Room database files -->
+    <!-- Include the database files -->
     <cloud-backup>
         <include domain="file" path="./databases/cadence.db" />
         <include domain="file" path="./databases/cadence.db-shm" />

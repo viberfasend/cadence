@@ -51,7 +51,7 @@ fun InboxScreen(
         .filter { state.settings.showCompleted || !it.isDone }
         .sortedFor(state.settings.sortMode)
     val open = inbox.count { !it.isDone }
-    var expandedIds by remember { mutableStateOf(emptySet<Long>()) }
+    var expandedIds by remember { mutableStateOf(emptySet<String>()) }
     val rows = state.expandedRows(inbox, expandedIds)
 
     Column(modifier = Modifier.fillMaxSize()) {

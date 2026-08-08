@@ -56,9 +56,9 @@ object Routes {
     const val TASK = "task/{taskId}"
     const val PROJECT = "project/{projectId}"
 
-    fun task(id: Long) = "task/$id"
+    fun task(id: String) = "task/$id"
 
-    fun project(id: Long) = "project/$id"
+    fun project(id: String) = "project/$id"
 }
 
 private data class BottomDestination(
@@ -69,7 +69,7 @@ private data class BottomDestination(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId: Long = -1L) {
+fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId: String? = null) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -77,7 +77,7 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId:
 
     // Handle deep linking from reminder notifications
     LaunchedEffect(intentTaskId) {
-        if (intentTaskId > 0) {
+        if (intentTaskId != null) {
             navController.navigate(Routes.task(intentTaskId)) {
                 // Clear back stack to start fresh from the task detail
                 popUpTo(navController.graph.findStartDestination().id) {
@@ -89,7 +89,7 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId:
     }
 
     var quickAddOpen by remember { mutableStateOf(false) }
-    var quickAddProjectId by remember { mutableStateOf<Long?>(null) }
+    var quickAddProjectId by remember { mutableStateOf<String?>(null) }
 
     val destinations = listOf(
         BottomDestination(Routes.TODAY, R.string.nav_today, AppIcons.Today),
@@ -235,7 +235,7 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId:
                     )
                 }
                 composable(Routes.TASK) { entry ->
-                    val taskId = entry.arguments?.getString("taskId")?.toLongOrNull()
+                    val taskId = entry.arguments?.getString("taskId")
                     val task = state.tasks.firstOrNull { it.id == taskId }
                     TaskDetailScreen(
                         task = task,
@@ -256,7 +256,7 @@ fun CadenceApp(viewModel: CadenceViewModel, state: CadenceUiState, intentTaskId:
                     )
                 }
                 composable(Routes.PROJECT) { entry ->
-                    val projectId = entry.arguments?.getString("projectId")?.toLongOrNull()
+                    val projectId = entry.arguments?.getString("projectId")
                     ProjectDetailScreen(
                         projectId = projectId,
                         state = state,

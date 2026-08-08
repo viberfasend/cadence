@@ -16,9 +16,9 @@ import de.andi1984.cadence.R
 class ReminderReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        val taskId = intent.getLongExtra(ReminderScheduler.EXTRA_TASK_ID, -1L)
+        val taskId = intent.getStringExtra(ReminderScheduler.EXTRA_TASK_ID)
         val title = intent.getStringExtra(ReminderScheduler.EXTRA_TITLE).orEmpty()
-        if (taskId < 0 || title.isBlank()) return
+        if (taskId.isNullOrBlank() || title.isBlank()) return
 
         val allowed = ContextCompat.checkSelfPermission(
             context,
@@ -30,9 +30,10 @@ class ReminderReceiver : BroadcastReceiver() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(ReminderScheduler.EXTRA_TASK_ID, taskId)
         }
+        val requestCode = ReminderScheduler.requestCodeFor(taskId)
         val contentIntent = PendingIntent.getActivity(
             context,
-            taskId.toInt(),
+            requestCode,
             openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -46,6 +47,6 @@ class ReminderReceiver : BroadcastReceiver() {
             .setContentIntent(contentIntent)
             .build()
 
-        NotificationManagerCompat.from(context).notify(taskId.toInt(), notification)
+        NotificationManagerCompat.from(context).notify(requestCode, notification)
     }
 }

@@ -42,7 +42,7 @@ import de.andi1984.cadence.BuildConfig
 import de.andi1984.cadence.R
 import de.andi1984.cadence.data.backup.BackupFailure
 import de.andi1984.cadence.data.backup.BackupOutcome
-import de.andi1984.cadence.data.db.CadenceDatabase
+import de.andi1984.cadence.data.db.CADENCE_DATABASE_FILE_NAME
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.CadenceChip
@@ -177,7 +177,7 @@ fun SettingsScreen(
 private fun AppMetadata(state: CadenceUiState) {
     val context = LocalContext.current
     val databaseSize = remember(state.tasks.size, state.projects.size) {
-        Formatter.formatShortFileSize(context, context.getDatabasePath(CadenceDatabase.DATABASE_NAME).length())
+        Formatter.formatShortFileSize(context, context.getDatabasePath(CADENCE_DATABASE_FILE_NAME).length())
     }
 
     Column(

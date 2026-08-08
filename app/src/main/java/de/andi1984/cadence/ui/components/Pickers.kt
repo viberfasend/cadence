@@ -117,9 +117,9 @@ fun CadenceTimePickerDialog(
 @Composable
 fun ProjectPickerDialog(
     projects: List<Project>,
-    selectedId: Long?,
+    selectedId: String?,
     onDismiss: () -> Unit,
-    onPick: (Long?) -> Unit,
+    onPick: (String?) -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,

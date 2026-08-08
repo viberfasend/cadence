@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Cadence — a local-first native Android todo app (Kotlin, Jetpack Compose, Material 3, Room).
+Cadence — a local-first native Android todo app (Kotlin, Jetpack Compose, Material 3, SQLDelight).
 No cloud, no account, no analytics. Package `de.andi1984.cadence` throughout.
 
 Two modules: `:core` (Kotlin Multiplatform, the domain layer) and `:app` (the Android app).
@@ -29,8 +29,8 @@ The product rule the whole app is built on: **importance first, due date breaks 
 `:core`'s tests are one source set compiled twice: `:core:jvmTest` is the desktop compilation and
 `:core:testDebugUnitTest` the Android one. `testDebugUnitTest` alone therefore misses nothing in
 `:core` today, but it also never exercises the JVM target the desktop app will be built on, so CI
-names both. `:app`'s only remaining unit test is `RecurrenceCodecTest`, which covers the packed
-storage column and runs under `testDebugUnitTest`.
+names both. Storage lives entirely in `:core` now (ADR 0001, phase 2), so `:app` has no unit
+tests of its own left — `RecurrenceCodecTest` and the SQLDelight store tests moved with it.
 
 JDK 17, compileSdk/targetSdk 35, minSdk 26. No lint or format task is wired up.
 
@@ -64,32 +64,41 @@ composable state, not a route.
 ```
 :core  domain/     pure Kotlin — model, RecurrenceEngine, QuickAddParser, BackupCodec. NO
                    Android imports; this is what the JVM unit tests exercise. Keep it that way.
-       data/       CadenceRepository, and the TaskStore/ProjectStore/BackupStore ports it needs
-:app   data/db/    Room entities + DAOs, and the RoomStores that implement those ports
-       data/backup/BackupIo (SAF read/write), AutoBackupSync
+       data/       CadenceRepository, the TaskStore/ProjectStore/BackupStore ports it needs, and
+                   the SQLDelight-backed implementations of those ports (data/db/)
+:app   data/backup/BackupIo (SAF read/write), AutoBackupSync
        reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
        ui/         theme, shared components, one package per screen
 ```
 
-**Storage is a port, not a layer.** `CadenceRepository` lives in `:core` because the completion
-and recurrence rules do, and it reaches storage through three interfaces in `data/Stores.kt` that
-speak `Task` and `Project` rather than rows and carry no database annotation. `:app` supplies
-`RoomTaskStore`/`RoomProjectStore`/`RoomBackupStore` (`room-runtime` is an Android artifact and
-stays on that side); the desktop app will supply its own. Every `toDomain`/`toEntity` in the app
-is now in `data/db/RoomStores.kt` and `data/db/Entities.kt` — nowhere else.
+**Storage is a port, not a layer, and it lives in `:core` entirely (ADR 0001, phase 2).**
+`CadenceRepository` reaches storage through three interfaces in `data/Stores.kt` that speak `Task`
+and `Project` rather than rows and carry no database annotation. `data/db/SqlDelightStores.kt`
+implements them over the SQLDelight schema in `data/db/*.sq`, and every row↔domain conversion
+lives there — epoch day/second-of-day/epoch-millis at the boundary, nowhere else. This is
+possible because SQLDelight itself is multiplatform, unlike Room: `:app` only supplies the
+`DatabaseDriverFactory` actual (`AndroidSqliteDriver`, needing a `Context`) that opens the same
+schema the desktop app's `JdbcSqliteDriver` actual will open too — see "Persistence" below.
 
 `TaskStore.completeIfOpen` and `reopenIfDone` return whether *this* call changed the row, and an
 implementation must decide that inside the store — in SQL, in a lock, in whatever it has — never
 against the `Task` it was handed. That is the whole idempotency guarantee; see the completion
 notes below.
 
-`:core` is a Kotlin Multiplatform module with an **android** and a **jvm** target, and all of its
-code lives in a hand-declared `jvmShared` source set that both targets depend on — not in
-`commonMain`. Both targets are the JVM, so `jvmShared` may use the JDK, which is why
-`RecurrenceEngine` still speaks `java.time` rather than `kotlinx-datetime`. `commonMain` stays
-empty on purpose; it starts earning its keep the day a browser target exists (ADR 0001, phase 7),
-and moving code there before that would buy a portability nothing needs at the price of
-rewriting every date in the app.
+`:core` is a Kotlin Multiplatform module with an **android** and a **jvm** target, and all
+hand-written code lives in a hand-declared `jvmShared` source set that both targets depend on —
+not in `commonMain`. Both targets are the JVM, so `jvmShared` may use the JDK, which is why
+`RecurrenceEngine` still speaks `java.time` rather than `kotlinx-datetime`. `commonMain` carries
+no hand-written code on purpose; it starts earning its keep the day a browser target exists (ADR
+0001, phase 7), and moving code there before that would buy a portability nothing needs at the
+price of rewriting every date in the app. The one exception is *generated*: SQLDelight compiles
+`data/db/*.sq` into query code under `commonMain` by default, which is fine — that generated code
+touches no JDK API, only `app.cash.sqldelight`'s own multiplatform runtime. `DatabaseDriverFactory`
+(`data/db/DatabaseDriverFactory.kt`) is the actual JDK/Android boundary, and it is `jvmShared`'s
+first `expect`/`actual` pair: `expect class DatabaseDriverFactory` declares no constructor, so the
+`androidMain` actual can take a `Context` and the `jvmMain` one a data directory `File` without
+either matching the other's shape — still Beta as of Kotlin 2.0, hence
+`-Xexpect-actual-classes` in `core/build.gradle.kts`.
 
 Consequence worth knowing: **smart casts do not cross a module boundary.** `if (task.dueDate !=
 null) task.dueDate.isAfter(…)` compiled while everything was one module and does not now. Bind a
@@ -98,16 +107,35 @@ than reaching for `!!`.
 
 ### Persistence gotchas
 
-- Database version is **4** with `exportSchema = false` and **no destructive fallback** — the
-  migrations live next to the `@Database` class in `CadenceDatabase.kt`. Any entity change
-  therefore needs its own `Migration` and a version bump; without one the app crashes on open
-  rather than silently emptying itself.
-- `TaskEntity` stores dates as **epoch day** (`Long`) and times as **second of day** (`Int`);
-  conversion to `LocalDate`/`LocalTime` happens in the `toDomain`/`toEntity` extensions in
-  `data/db/Entities.kt`. Nothing outside that file should touch the raw numbers.
+- Every id — task, project — is a **UUIDv7 string**, minted by `CadenceRepository` (not by
+  storage) via `domain/id/UuidV7.kt` the moment a new row is created; `Task.id`/`Project.id`
+  default to `""`, and `upsertTask`/`upsertProject` mint a real id exactly when that default is
+  still blank. A recurring task's successor id is *derived*, not minted —
+  `UuidV7.successorId(spawnedFromId, occurrenceDate)` — so two devices completing the same
+  occurrence offline produce the same id once the phase-6 merge engine exists (ADR 0001,
+  decision 4). `TaskStore.insert`/`ProjectStore.insert` therefore take a row that already carries
+  its final id and return nothing.
+- `taskRow`/`projectRow` are the schema's table names, not `task`/`project` — SQLDelight names the
+  generated row class after the table, and `Task`/`Project` were already taken by the domain
+  model. The tables live in `data/db/Task.sq` and `data/db/Project.sq`; there is a fresh schema
+  at version 1 with no migration chain yet, since the Room migration chain 1→4 was deleted rather
+  than carried forward onto UUID keys (ADR 0001, decision 7) — a schema change today just edits
+  the `.sq` file, but the day a shipped install exists, it needs a SQLDelight `.sqm` migration
+  file instead, the same way `MIGRATION_3_4` used to work.
+- Every row carries `updatedAt` (epoch millis) and `deletedAt` (epoch millis, nullable) columns
+  for the phase-6 merge engine; nothing reads `deletedAt` yet; every delete today is still a real
+  `DELETE`, not a tombstone.
+- `taskRow` stores dates as **epoch day** (`Long`) and times as **second of day** (`Long`);
+  conversion to `LocalDate`/`LocalTime` happens in the private mappers in
+  `data/db/SqlDelightStores.kt`. Nothing outside that file should touch the raw numbers.
 - Recurrence rules are serialised into a **single TEXT column** as `v1;key=value;…` by
-  `RecurrenceCodec`. Adding a rule field means extending the codec (and its `VERSION` handling),
-  not adding a column. Malformed input decodes to `null`, never throws.
+  `RecurrenceCodec` (now in `:core`, since storage is). Adding a rule field means extending the
+  codec (and its `VERSION` handling), not adding a column. Malformed input decodes to `null`,
+  never throws.
+- `TaskQueries.completeIfOpen`/`reopenIfDone` report nothing directly — SQLDelight has no
+  Room-style "return the row count" on an `UPDATE`. The store runs the update and
+  `TaskQueries.changes()` (SQLite's `SELECT changes()`) inside one `database.transactionWithResult
+  { }`, so the two run on the same connection and `changes()` reads back *this* statement's count.
 
 ### Behaviour worth knowing before editing
 

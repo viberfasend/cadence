@@ -231,57 +231,63 @@ class CadenceRepositoryTest {
 /** An in-memory [TaskStore] with SQLite's semantics for the guarded writes. */
 private class FakeTaskStore : TaskStore {
 
-    private val table = MutableStateFlow<Map<Long, Task>>(emptyMap())
-    private var nextId = 1L
+    private val table = MutableStateFlow<Map<String, Task>>(emptyMap())
+    private var nextId = 1
 
-    /** Inserts a task with no id and replaces one that has it, as [TaskStore.insert] promises. */
-    fun put(task: Task): Long {
-        val id = if (task.id == 0L) nextId++ else task.id
+    /**
+     * Test-only setup helper: mints an id when [task] does not carry one, the way
+     * [de.andi1984.cadence.data.CadenceRepository] does for a real insert — [TaskStore.insert]
+     * itself now only ever receives a task that already has its final id.
+     */
+    fun put(task: Task): String {
+        val id = task.id.ifBlank { "fake-task-${nextId++}" }
         table.value = table.value + (id to task.copy(id = id))
         return id
     }
 
-    fun row(id: Long): Task = table.value[id] ?: error("no task with id $id")
+    fun row(id: String): Task = table.value[id] ?: error("no task with id $id")
 
     fun rows(): List<Task> = table.value.values.toList()
 
     override fun observeAll(): Flow<List<Task>> = table.map { it.values.toList() }
 
-    override fun observeById(id: Long): Flow<Task?> = table.map { it[id] }
+    override fun observeById(id: String): Flow<Task?> = table.map { it[id] }
 
     override suspend fun getAll(): List<Task> = rows()
 
-    override suspend fun byId(id: Long): Task? = table.value[id]
+    override suspend fun byId(id: String): Task? = table.value[id]
 
-    override suspend fun subtasksOf(parentId: Long): List<Task> = rows()
+    override suspend fun subtasksOf(parentId: String): List<Task> = rows()
         .filter { it.parentId == parentId }
         .sortedWith(compareBy({ it.sortOrder }, { it.id }))
 
-    override suspend fun insert(task: Task): Long = put(task)
+    override suspend fun insert(task: Task) {
+        put(task)
+    }
 
     override suspend fun update(task: Task) {
         if (table.value.containsKey(task.id)) table.value = table.value + (task.id to task)
     }
 
-    override suspend fun deleteWithSubtasks(id: Long) {
+    override suspend fun deleteWithSubtasks(id: String) {
         table.value = table.value.filterValues { it.id != id && it.parentId != id }
     }
 
-    override suspend fun completeIfOpen(id: Long, completedAt: Instant): Int {
+    override suspend fun completeIfOpen(id: String, completedAt: Instant): Int {
         val task = table.value[id] ?: return 0
         if (task.completedAt != null) return 0
-        table.value = table.value + (id to task.copy(completedAt = completedAt))
+        table.value = table.value + (id to task.copy(completedAt = completedAt, updatedAt = completedAt))
         return 1
     }
 
-    override suspend fun reopenIfDone(id: Long): Int {
+    override suspend fun reopenIfDone(id: String, updatedAt: Instant): Int {
         val task = table.value[id] ?: return 0
         if (task.completedAt == null) return 0
-        table.value = table.value + (id to task.copy(completedAt = null))
+        table.value = table.value + (id to task.copy(completedAt = null, updatedAt = updatedAt))
         return 1
     }
 
-    override suspend fun openSuccessorsOf(id: Long): List<Long> = rows()
+    override suspend fun openSuccessorsOf(id: String): List<String> = rows()
         .filter { it.spawnedFromId == id && it.completedAt == null }
         .map { it.id }
 }
@@ -293,13 +299,13 @@ private class FakeProjectStore : ProjectStore {
 
     override suspend fun getAll(): List<Project> = emptyList()
 
-    override suspend fun insert(project: Project): Long = project.id
+    override suspend fun insert(project: Project) = Unit
 
     override suspend fun update(project: Project) = Unit
 
-    override suspend fun taskIdsIn(id: Long): List<Long> = emptyList()
+    override suspend fun taskIdsIn(id: String): List<String> = emptyList()
 
-    override suspend fun deleteWithChildren(id: Long, deleteTasks: Boolean) = Unit
+    override suspend fun deleteWithChildren(id: String, deleteTasks: Boolean) = Unit
 }
 
 private class FakeBackupStore : BackupStore {
