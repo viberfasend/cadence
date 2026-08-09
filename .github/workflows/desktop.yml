@@ -173,7 +173,7 @@ jobs:
           done
           # Not part of the glob above: a literal filename that nullglob can't drop when absent,
           # so it needs its own existence check rather than joining the loop.
-          [ -f cadence-linux-x64.tar.gz ] && cp cadence-linux-x64.tar.gz dist/
+          [ -f cadence-linux-x64.tar.gz ] && cp cadence-linux-x64.tar.gz dist/ || true
           ls -lh dist
 
       - name: Upload installers
