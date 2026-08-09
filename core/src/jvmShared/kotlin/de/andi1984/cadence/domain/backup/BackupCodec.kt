@@ -63,7 +63,7 @@ sealed interface BackupReadResult {
 object BackupCodec {
 
     const val FORMAT = "cadence.backup"
-    const val VERSION = 1
+    const val VERSION = 2
 
     private val json = Json {
         prettyPrint = true
@@ -93,9 +93,10 @@ object BackupCodec {
         // missing its id is not dropped — unlike the old autoincrement column, nothing assigns
         // one implicitly on insert now, so decode mints a fresh one, the same substitute Room's
         // `id = 0` used to trigger.
-        val projects = document.projects.filter { it.id.isNotBlank() }.map { it.toDomain() }
+        // Tombstones (deletedAt != null) are filtered out during import.
+        val projects = document.projects.filter { it.id.isNotBlank() && it.deletedAt == null }.map { it.toDomain() }
         val knownProjects = projects.map { it.id }.toSet()
-        val decoded = document.tasks.filter { it.title.isNotBlank() }.map { it.toDomain() }
+        val decoded = document.tasks.filter { it.title.isNotBlank() && it.deletedAt == null }.map { it.toDomain() }
         val knownTasks = decoded.mapTo(mutableSetOf()) { it.id }
         val tasks = decoded
             .map { task ->
@@ -165,6 +166,10 @@ internal data class BackupProject(
     val colorHex: String = "#006A60",
     val parentId: String? = null,
     val sortOrder: Int = 0,
+    /** ISO instant, e.g. `2026-08-05T07:12:00Z`. */
+    val updatedAt: String? = null,
+    /** ISO instant, e.g. `2026-08-05T07:12:00Z`, or null for active records. */
+    val deletedAt: String? = null,
 )
 
 @Serializable
@@ -189,6 +194,10 @@ internal data class BackupTask(
     val createdAt: String? = null,
     val sortOrder: Int = 0,
     val recurrence: BackupRecurrence? = null,
+    /** ISO instant, e.g. `2026-08-05T07:12:00Z`. */
+    val updatedAt: String? = null,
+    /** ISO instant, e.g. `2026-08-05T07:12:00Z`, or null for active records. */
+    val deletedAt: String? = null,
 )
 
 @Serializable
@@ -211,6 +220,8 @@ private fun Project.toBackup() = BackupProject(
     colorHex = colorHex,
     parentId = parentId,
     sortOrder = sortOrder,
+    updatedAt = updatedAt.toString(),
+    deletedAt = deletedAt?.toString(),
 )
 
 private fun BackupProject.toDomain() = Project(
@@ -219,6 +230,8 @@ private fun BackupProject.toDomain() = Project(
     colorHex = colorHex,
     parentId = parentId?.takeIf { it.isNotBlank() },
     sortOrder = sortOrder,
+    updatedAt = updatedAt.parseOrNull { Instant.parse(it) } ?: Instant.EPOCH,
+    deletedAt = deletedAt.parseOrNull { Instant.parse(it) },
 )
 
 private fun Task.toBackup() = BackupTask(
@@ -236,6 +249,8 @@ private fun Task.toBackup() = BackupTask(
     createdAt = createdAt.toString(),
     sortOrder = sortOrder,
     recurrence = recurrence?.toBackup(),
+    updatedAt = updatedAt.toString(),
+    deletedAt = deletedAt?.toString(),
 )
 
 private fun BackupTask.toDomain() = Task(
@@ -255,6 +270,8 @@ private fun BackupTask.toDomain() = Task(
     createdAt = createdAt.parseOrNull { Instant.parse(it) } ?: Instant.EPOCH,
     sortOrder = sortOrder,
     recurrence = recurrence?.toDomain(),
+    updatedAt = updatedAt.parseOrNull { Instant.parse(it) } ?: Instant.EPOCH,
+    deletedAt = deletedAt.parseOrNull { Instant.parse(it) },
 )
 
 private fun RecurrenceRule.toBackup() = BackupRecurrence(

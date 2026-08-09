@@ -194,6 +194,7 @@ class SqlDelightBackupStore(
      * [de.andi1984.cadence.data.CadenceRepository.restore] sweeps the now-orphaned blobs
      * afterwards.
      */
+    @Deprecated("Use mergeAll instead for phase 6 sync")
     override suspend fun replaceAll(projects: List<Project>, tasks: List<Task>) =
         withContext(ioDispatcher) {
             database.transaction {
@@ -202,6 +203,77 @@ class SqlDelightBackupStore(
                 database.projectQueries.deleteAll()
                 projects.forEach { database.projectQueries.insertRow(it) }
                 tasks.forEach { database.taskQueries.insertRow(it) }
+            }
+        }
+
+    /**
+     * Merge the given projects and tasks into the current database using last-writer-wins
+     * conflict resolution. This is the phase 6 implementation that replaces the destructive
+     * replaceAll with a proper merge.
+     * 
+     * The merge works as follows:
+     * 1. For each project/task, if it exists locally, compare updatedAt timestamps
+     * 2. If the incoming record has a newer updatedAt, replace the local record
+     * 3. If the incoming record has deletedAt set (tombstone), delete the local record
+     * 4. If timestamps are equal, keep the local record (tie-break by preferring existing data)
+     * 5. If the record doesn't exist locally, insert it
+     * 
+     * All operations happen in a single transaction to ensure atomicity.
+     */
+    override suspend fun mergeAll(projects: List<Project>, tasks: List<Task>) =
+        withContext(ioDispatcher) {
+            database.transaction {
+                // Merge projects
+                for (project in projects) {
+                    val existing = database.projectQueries.selectById(project.id).executeAsOneOrNull()
+                    
+                    if (existing != null) {
+                        // Record exists, check if we should replace it
+                        val existingUpdatedAt = Instant.ofEpochMilli(existing.updatedAt)
+                        val incomingUpdatedAt = project.updatedAt
+                        
+                        if (project.deletedAt != null) {
+                            // Incoming is a tombstone - delete the local record
+                            database.projectQueries.deleteById(project.id)
+                        } else if (incomingUpdatedAt > existingUpdatedAt) {
+                            // Incoming is newer - replace the local record
+                            database.projectQueries.insertRow(project)
+                        }
+                        // If timestamps are equal or incoming is older, keep existing
+                    } else {
+                        // Record doesn't exist locally
+                        if (project.deletedAt == null) {
+                            // Insert new record (ignore tombstones for non-existent records)
+                            database.projectQueries.insertRow(project)
+                        }
+                    }
+                }
+
+                // Merge tasks
+                for (task in tasks) {
+                    val existing = database.taskQueries.selectById(task.id).executeAsOneOrNull()
+                    
+                    if (existing != null) {
+                        // Record exists, check if we should replace it
+                        val existingUpdatedAt = Instant.ofEpochMilli(existing.updatedAt)
+                        val incomingUpdatedAt = task.updatedAt
+                        
+                        if (task.deletedAt != null) {
+                            // Incoming is a tombstone - delete the local record
+                            database.taskQueries.deleteById(task.id)
+                        } else if (incomingUpdatedAt > existingUpdatedAt) {
+                            // Incoming is newer - replace the local record
+                            database.taskQueries.insertRow(task)
+                        }
+                        // If timestamps are equal or incoming is older, keep existing
+                    } else {
+                        // Record doesn't exist locally
+                        if (task.deletedAt == null) {
+                            // Insert new record (ignore tombstones for non-existent records)
+                            database.taskQueries.insertRow(task)
+                        }
+                    }
+                }
             }
         }
 }

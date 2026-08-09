@@ -16,6 +16,9 @@ CREATE TABLE projectRow (
 CREATE INDEX idx_project_parent ON projectRow(parentId);
 CREATE INDEX idx_project_sort ON projectRow(sortOrder);
 
+selectById:
+SELECT * FROM projectRow WHERE id = :id;
+
 selectAll:
 SELECT * FROM projectRow ORDER BY sortOrder;
 
@@ -42,6 +45,9 @@ WHERE projectId = :id OR projectId IN (SELECT id FROM projectRow WHERE parentId 
 
 deleteWithChildrenRows:
 DELETE FROM projectRow WHERE id = :id OR parentId = :id;
+
+deleteById:
+DELETE FROM projectRow WHERE id = :id;
 
 deleteAll:
 DELETE FROM projectRow;
