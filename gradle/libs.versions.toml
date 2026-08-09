@@ -6,21 +6,20 @@
 
 [versions]
 agp = "8.7.3"
-kotlin = "2.0.21"
-ksp = "2.0.21-1.0.28"
+kotlin = "2.4.10"
 
 activity-compose = "1.9.3"
 compose-bom = "2024.12.01"
 # Compose Multiplatform ships :ui to both Android and the desktop JVM; it tracks Kotlin
 # closely, so bumping `kotlin` above means checking the compatibility table for this one too.
-compose-multiplatform = "1.7.3"
+compose-multiplatform = "1.11.1"
 core-ktx = "1.15.0"
-coroutines = "1.9.0"
+coroutines = "1.11.0"
 junit = "4.13.2"
 lifecycle = "2.8.7"
 navigation-compose = "2.8.5"
-serialization-json = "1.7.3"
-sqldelight = "2.0.2"
+serialization-json = "1.11.0"
+sqldelight = "2.1.0"
 test-ext-junit = "1.2.1"
 
 [libraries]
@@ -61,5 +60,4 @@ kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref 
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }

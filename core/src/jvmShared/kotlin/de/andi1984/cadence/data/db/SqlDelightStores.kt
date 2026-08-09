@@ -59,7 +59,7 @@ class SqlDelightTaskStore(
 
     override suspend fun update(task: Task) = insert(task)
 
-    override suspend fun deleteWithSubtasks(id: String) = withContext(ioDispatcher) {
+    override suspend fun deleteWithSubtasks(id: String): Unit = withContext(ioDispatcher) {
         queries.deleteWithSubtasks(id)
     }
 
@@ -102,7 +102,7 @@ class SqlDelightProjectStore(
         queries.insertRow(project)
     }
 
-    override suspend fun update(project: Project) = withContext(ioDispatcher) {
+    override suspend fun update(project: Project): Unit = withContext(ioDispatcher) {
         queries.update(
             name = project.name,
             colorHex = project.colorHex,
@@ -153,11 +153,11 @@ class SqlDelightAttachmentStore(
         queries.insertRow(attachment)
     }
 
-    override suspend fun delete(id: String) = withContext(ioDispatcher) {
+    override suspend fun delete(id: String): Unit = withContext(ioDispatcher) {
         queries.delete(id)
     }
 
-    override suspend fun deleteForTasks(taskIds: List<String>) = withContext(ioDispatcher) {
+    override suspend fun deleteForTasks(taskIds: List<String>): Unit = withContext(ioDispatcher) {
         queries.deleteForTasks(taskIds)
     }
 
