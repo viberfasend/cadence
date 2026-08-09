@@ -28,10 +28,19 @@ class AndroidSyncTransport(
 ) : SyncTransport {
 
     override suspend fun listFiles(): List<SyncFileInfo> = withContext(Dispatchers.IO) {
-        val children = DocumentsContract.listDocuments(context.contentResolver, syncFolderUri)
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            syncFolderUri,
+            DocumentsContract.getTreeDocumentId(syncFolderUri),
+        )
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+            DocumentsContract.Document.COLUMN_SIZE,
+        )
         val files = mutableListOf<SyncFileInfo>()
-        
-        children.use { cursor ->
+
+        context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
             while (cursor.moveToNext()) {
                 val name = cursor.getString(cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
                 if (name.endsWith(".json")) {
@@ -69,7 +78,7 @@ class AndroidSyncTransport(
         }
     }
 
-    override suspend fun writeFile(fileName: String, content: String) = withContext(Dispatchers.IO) {
+    override suspend fun writeFile(fileName: String, content: String): Unit = withContext(Dispatchers.IO) {
         val tempFileName = "$fileName.tmp"
         val targetUri = DocumentsContract.buildDocumentUriUsingTree(syncFolderUri, fileName)
         val tempUri = DocumentsContract.buildDocumentUriUsingTree(syncFolderUri, tempFileName)
@@ -104,7 +113,7 @@ class AndroidSyncTransport(
         }
     }
 
-    override suspend fun deleteFile(fileName: String) = withContext(Dispatchers.IO) {
+    override suspend fun deleteFile(fileName: String): Unit = withContext(Dispatchers.IO) {
         val fileUri = DocumentsContract.buildDocumentUriUsingTree(syncFolderUri, fileName)
         try {
             DocumentsContract.deleteDocument(context.contentResolver, fileUri)
