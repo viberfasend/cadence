@@ -15,19 +15,18 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Test and build APK
+  test:
+    name: Run tests
     runs-on: ubuntu-latest
-
-    env:
-      KEYSTORE_BASE64: ${{ secrets.CADENCE_KEYSTORE_BASE64 }}
+    # Run tests on PRs and all pushes, but skip heavy build steps on PRs
+    if: always()
 
     steps:
       - name: Check out
-        # Full history and tags: the version is derived from the commits since the last release.
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          # Shallow clone for PRs, full history for main/workflow_dispatch
+          fetch-depth: ${{ (github.ref == 'refs/heads/main' || github.event_name != 'pull_request') && 0 || 1 }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -37,6 +36,17 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches/modules-*
+            ~/.gradle/caches/jars-*
+            ~/.gradle/caches/transforms-
+          key: ${{ runner.os }}-gradle-deps-${{ hashFiles('**/*.gradle*', '**/gradle.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-deps-
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
@@ -52,6 +62,60 @@ jobs:
         # Nothing else in this workflow compiles its JVM target, so without this the Android
         # build could stay green while the desktop one stopped building.
         run: ./gradlew :ui:compileKotlinJvm --stacktrace
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: app-android/build/reports/tests/
+
+  build:
+    name: Build APKs
+    runs-on: ubuntu-latest
+    # Only build on push to main or workflow_dispatch, not on PRs
+    if: github.event_name != 'pull_request'
+
+    needs: test
+
+    env:
+      KEYSTORE_BASE64: ${{ secrets.CADENCE_KEYSTORE_BASE64 }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches/modules-*
+            ~/.gradle/caches/jars-*
+            ~/.gradle/caches/transforms-
+          key: ${{ runner.os }}-gradle-deps-${{ hashFiles('**/*.gradle*', '**/gradle.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-deps-
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Clean Gradle cache periodically
+        if: github.ref == 'refs/heads/main'
+        run: |
+          # Clean up old Gradle cache entries to prevent storage bloat
+          find ~/.gradle/caches -name "*.lock" -mtime +7 -delete
+          find ~/.gradle/caches -type d -name "fileHashes" -mtime +7 -exec rm -rf {} + 2>/dev/null || true
 
       # Runs on every branch too, where it is only a preview of what merging would publish.
       - name: Work out the next version
@@ -102,34 +166,3 @@ jobs:
           name: cadence-release-apk
           path: dist/cadence-release.apk
           if-no-files-found: error
-
-      - name: Upload test report
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-report
-          path: app-android/build/reports/tests/
-
-      # Merging to main publishes a release. The action creates the tag from this commit, so the
-      # next run derives its version from the commits that land after it.
-      - name: Publish release
-        if: >-
-          github.event_name == 'push' &&
-          github.ref == 'refs/heads/main' &&
-          steps.version.outputs.skip == 'false'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Cadence ${{ steps.version.outputs.version }}
-          make_latest: true
-          body: |
-            ${{ steps.version.outputs.notes }}
-
-            **Install `cadence-debug.apk`** — it is signed with the standard debug key and
-            installs alongside a release build.
-
-            Permanent links, always pointing at the newest release:
-
-            - https://github.com/${{ github.repository }}/releases/latest/download/cadence-debug.apk
-            - https://github.com/${{ github.repository }}/releases/latest/download/cadence-release.apk
-          files: dist/*.apk
