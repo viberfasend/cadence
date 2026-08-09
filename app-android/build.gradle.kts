@@ -40,12 +40,12 @@ val cadenceVersionCode: Int = System.getenv("CADENCE_VERSION_CODE")?.toIntOrNull
 
 android {
     namespace = "de.andi1984.cadence"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "de.andi1984.cadence"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = cadenceVersionCode
         versionName = cadenceVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
