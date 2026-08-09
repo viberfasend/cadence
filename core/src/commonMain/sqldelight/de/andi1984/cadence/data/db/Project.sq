@@ -7,9 +7,9 @@ CREATE TABLE projectRow (
     -- Self-referencing. Nesting is one level deep, enforced by the repository, not this table.
     parentId TEXT REFERENCES projectRow(id) ON DELETE CASCADE,
     sortOrder INTEGER NOT NULL,
-    -- Last write, local or merged in. The phase-6 merge engine resolves conflicts by this.
+    -- Last write, local or merged in. The merge engine resolves conflicts by this.
     updatedAt INTEGER NOT NULL,
-    -- Tombstone, unused today — see taskRow.deletedAt.
+    -- Tombstone — see taskRow.deletedAt.
     deletedAt INTEGER
 );
 
@@ -17,10 +17,14 @@ CREATE INDEX idx_project_parent ON projectRow(parentId);
 CREATE INDEX idx_project_sort ON projectRow(sortOrder);
 
 selectById:
+SELECT * FROM projectRow WHERE id = :id AND deletedAt IS NULL;
+
+-- See taskRow.selectByIdIncludingDeleted: the merge must be able to see a local tombstone.
+selectByIdIncludingDeleted:
 SELECT * FROM projectRow WHERE id = :id;
 
 selectAll:
-SELECT * FROM projectRow ORDER BY sortOrder;
+SELECT * FROM projectRow WHERE deletedAt IS NULL ORDER BY sortOrder;
 
 insertOrReplace:
 INSERT OR REPLACE INTO projectRow(id, name, colorHex, parentId, sortOrder, updatedAt, deletedAt)
@@ -31,23 +35,37 @@ UPDATE projectRow SET name = ?, colorHex = ?, parentId = ?, sortOrder = ?, updat
 WHERE id = ?;
 
 -- Everything filed under the project, including its subprojects — nesting is one level.
+-- A tombstoned subproject is not "under" anything any more, so it is excluded on both sides.
 selectTaskIdsIn:
 SELECT id FROM taskRow
-WHERE projectId = :id OR projectId IN (SELECT id FROM projectRow WHERE parentId = :id);
+WHERE deletedAt IS NULL
+  AND (projectId = :id
+       OR projectId IN (SELECT id FROM projectRow WHERE parentId = :id AND deletedAt IS NULL));
 
 moveTasksToInbox:
 UPDATE taskRow SET projectId = NULL, updatedAt = :updatedAt
-WHERE projectId = :id OR projectId IN (SELECT id FROM projectRow WHERE parentId = :id);
+WHERE deletedAt IS NULL
+  AND (projectId = :id
+       OR projectId IN (SELECT id FROM projectRow WHERE parentId = :id AND deletedAt IS NULL));
 
-deleteTasksIn:
-DELETE FROM taskRow
-WHERE projectId = :id OR projectId IN (SELECT id FROM projectRow WHERE parentId = :id);
+-- Tasks of a deleted project, when the user chose to delete them with it. Subtasks come along:
+-- their parent is in the same project, so `parentId IN (...)` would be redundant here.
+tombstoneTasksIn:
+UPDATE taskRow SET deletedAt = :at, updatedAt = :at
+WHERE deletedAt IS NULL
+  AND (projectId = :id
+       OR projectId IN (SELECT id FROM projectRow WHERE parentId = :id AND deletedAt IS NULL));
 
-deleteWithChildrenRows:
-DELETE FROM projectRow WHERE id = :id OR parentId = :id;
+tombstoneWithChildrenRows:
+UPDATE projectRow SET deletedAt = :at, updatedAt = :at
+WHERE (id = :id OR parentId = :id) AND deletedAt IS NULL;
 
-deleteById:
-DELETE FROM projectRow WHERE id = :id;
+-- Sync's two views, and the only ones that see tombstones.
+selectChangedSince:
+SELECT * FROM projectRow WHERE updatedAt > :since ORDER BY updatedAt;
 
-deleteAll:
-DELETE FROM projectRow;
+selectAllIncludingDeleted:
+SELECT * FROM projectRow ORDER BY updatedAt;
+
+collectTombstones:
+DELETE FROM projectRow WHERE deletedAt IS NOT NULL AND deletedAt < :before;

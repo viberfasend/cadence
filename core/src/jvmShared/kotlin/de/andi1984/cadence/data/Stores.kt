@@ -43,8 +43,17 @@ interface TaskStore {
 
     suspend fun update(task: Task)
 
-    /** Removes a task and its steps — a step without its task has no meaning. */
-    suspend fun deleteWithSubtasks(id: String)
+    /**
+     * Tombstones a task and its steps — a step without its task has no meaning.
+     *
+     * A tombstone rather than a `DELETE` because a delete has to travel: another device that
+     * merely fails to find the row cannot tell "deleted" from "never heard of it", and helpfully
+     * puts it back (docs/adr/0002-supabase-sync.md, decision 4). Every read filters tombstones
+     * out, so nothing above this port can tell the difference.
+     *
+     * Idempotent: tombstoning an already-tombstoned row must not restamp it.
+     */
+    suspend fun tombstoneWithSubtasks(id: String, at: Instant)
 
     /**
      * Closes a task only if it is still open, and reports whether this call is the one that did it.
@@ -80,39 +89,31 @@ interface ProjectStore {
     suspend fun taskIdsIn(id: String): List<String>
 
     /**
-     * Removes the project and its subprojects, and either moves their tasks to the Inbox or
-     * deletes them.
+     * Tombstones the project and its subprojects, and either moves their tasks to the Inbox or
+     * tombstones those too.
      *
      * Both halves happen together or not at all: a task left naming a project no one answers to
      * disappears from every list, which is worse than either outcome the flag chooses between.
      */
-    suspend fun deleteWithChildren(id: String, deleteTasks: Boolean)
+    suspend fun tombstoneWithChildren(id: String, deleteTasks: Boolean, at: Instant)
 }
 
 interface BackupStore {
 
     /**
-     * All or nothing: a failed restore must not leave the app half-empty.
-     * 
-     * Phase 6 (ADR 0001): replaceAll becomes a merge. Importing a snapshot merges it into
-     * the current database by the rules in the merge engine, which makes import idempotent
-     * and makes importing a friend's file a sensible operation rather than a data-loss event.
-     * 
-     * @deprecated Use mergeAll instead. This method will be removed when phase 6 is complete.
-     */
-    @Deprecated("Use mergeAll instead for phase 6 sync")
-    suspend fun replaceAll(projects: List<Project>, tasks: List<Task>)
-
-    /**
-     * Merge the given projects and tasks into the current database using last-writer-wins
-     * conflict resolution based on updatedAt timestamps.
-     * 
-     * This is the phase 6 replacement for replaceAll, implementing the merge engine from
-     * ADR 0001 decision 6. Records are keyed by UUID, and the record with the greatest
-     * updatedAt wins. Ties break on device ID lexicographically.
-     * 
-     * Tombstones (deletedAt != null) are respected: a deleted record on one device
-     * will delete the corresponding record on other devices if it has a newer timestamp.
+     * Folds [projects] and [tasks] into what is already stored, and reports nothing: a merge has
+     * no failure mode short of the whole transaction rolling back.
+     *
+     * This replaced a `replaceAll` that deleted every row and reinserted, which is why importing
+     * a backup used to be a data-loss event and why two devices sharing a file could each undo
+     * the other. There is now no operation anywhere that empties the database — the actual point
+     * of ADR 0001, finally implemented by ADR 0002.
+     *
+     * The rule, per record, keyed by id: the greater [Task.updatedAt] wins the whole record, ties
+     * keep what is already stored, and a tombstone competes on its timestamp like any other
+     * version rather than being special-cased. Field-level merge is deliberately not attempted.
+     *
+     * All or nothing: a failed merge must not leave the app half-written.
      */
     suspend fun mergeAll(projects: List<Project>, tasks: List<Task>)
 }

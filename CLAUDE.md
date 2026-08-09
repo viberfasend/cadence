@@ -180,9 +180,14 @@ than reaching for `!!`.
   than carried forward onto UUID keys (ADR 0001, decision 7) — a schema change today just edits
   the `.sq` file, but the day a shipped install exists, it needs a SQLDelight `.sqm` migration
   file instead, the same way `MIGRATION_3_4` used to work.
-- Every row carries `updatedAt` (epoch millis) and `deletedAt` (epoch millis, nullable) columns
-  for the phase-6 merge engine; nothing reads `deletedAt` yet; every delete today is still a real
-  `DELETE`, not a tombstone.
+- Every row carries `updatedAt` (epoch millis) and `deletedAt` (epoch millis, nullable). **Deleting
+  is a tombstone, not a `DELETE`** (`docs/adr/0002-supabase-sync.md`): the row stays, `deletedAt` is
+  stamped, and every read in `Task.sq`/`Project.sq` filters `deletedAt IS NULL`. A delete has to
+  travel — another device that merely fails to find a row cannot tell "deleted" from "never heard
+  of it", and puts it back. Two consequences when adding a query: filter tombstones unless you are
+  sync, and use `selectByIdIncludingDeleted` when you need to compare against one. `updatedAt` is
+  stamped by `CadenceRepository.now()`, truncated to milliseconds so a row cannot ping-pong against
+  Postgres's microsecond timestamps.
 - `taskRow` stores dates as **epoch day** (`Long`) and times as **second of day** (`Long`);
   conversion to `LocalDate`/`LocalTime` happens in the private mappers in
   `data/db/SqlDelightStores.kt`. Nothing outside that file should touch the raw numbers.
@@ -256,9 +261,13 @@ than reaching for `!!`.
   occurrence the file lacks is dropped, and a subtask whose parent the file
   lacks — or one in a chain or cycle — is set free by `normalisedParents`. It uses
   kotlinx.serialization (pure Kotlin, so the codec stays JVM-testable — `org.json` is stubbed
-  in unit tests). Importing **replaces** both tables via `BackupStore.replaceAll` in one
-  transaction, so ids come straight from the file and task→project links need no remapping;
-  tasks referencing a project the file lacks fall back to the Inbox.
+  in unit tests). Importing **merges** via `BackupStore.mergeAll` in one transaction — it used to
+  replace both tables, which is why importing was a data-loss event. Ids come straight from the
+  file and task→project links need no remapping; tasks referencing a project the file lacks fall
+  back to the Inbox. There is no operation anywhere that empties the database any more. One rule
+  decides every record: greater `updatedAt` wins, ties keep what is stored, and a tombstone
+  competes on its timestamp like any other version rather than being special-cased — a v1 file,
+  whose rows decode to `Instant.EPOCH`, therefore loses every conflict.
 - **Automatic backup sync is opt-in, and asked exactly once.** The offer appears after the first
   *successful* manual export or import (`SettingsScreen` holds the picked uri back until the
   outcome is `Exported`/`Imported`), and `AutoBackupSettings.offered` makes sure a "not now" is

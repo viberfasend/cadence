@@ -78,7 +78,7 @@ class SqlDelightStoreTest {
         projectStore.insert(Project(id = "p1", name = "Home", updatedAt = now))
         taskStore.insert(Task(id = "t1", title = "Water the plants", projectId = "p1", createdAt = now, updatedAt = now))
 
-        projectStore.deleteWithChildren("p1", deleteTasks = false)
+        projectStore.tombstoneWithChildren("p1", deleteTasks = false, at = now)
 
         assertNull(taskStore.byId("t1")?.projectId)
         assertTrue(projectStore.getAll().isEmpty())
@@ -92,26 +92,123 @@ class SqlDelightStoreTest {
         projectStore.insert(Project(id = "p1", name = "Home", updatedAt = now))
         taskStore.insert(Task(id = "t1", title = "Water the plants", projectId = "p1", createdAt = now, updatedAt = now))
 
-        projectStore.deleteWithChildren("p1", deleteTasks = true)
+        projectStore.tombstoneWithChildren("p1", deleteTasks = true, at = now)
 
         assertNull(taskStore.byId("t1"))
     }
 
     @Test
-    fun `restoring a backup replaces every task and project`() = runTest {
+    fun `restoring a backup merges into what is already stored`() = runTest {
         val database = newDatabase()
         val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
         val projectStore = SqlDelightProjectStore(database, Dispatchers.Unconfined)
         val backupStore = SqlDelightBackupStore(database, Dispatchers.Unconfined)
         taskStore.insert(Task(id = "stale", title = "Old task", createdAt = now, updatedAt = now))
 
-        backupStore.replaceAll(
+        backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "Home", updatedAt = now)),
             tasks = listOf(Task(id = "t1", title = "Fresh task", projectId = "p1", createdAt = now, updatedAt = now)),
         )
 
-        assertNull(taskStore.byId("stale"))
+        // The row the file knows nothing about survives. This assertion was the exact opposite
+        // before ADR 0002: importing replaced both tables, so anything added since the file was
+        // written was silently discarded — the reason two devices sharing one file each undid
+        // the other.
+        assertEquals("Old task", taskStore.byId("stale")?.title)
         assertEquals("Fresh task", taskStore.byId("t1")?.title)
         assertEquals(listOf("p1"), projectStore.getAll().map { it.id })
+    }
+
+    @Test
+    fun `merging keeps whichever version was written last`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        val backupStore = SqlDelightBackupStore(database, Dispatchers.Unconfined)
+        val later = now.plusSeconds(60)
+        taskStore.insert(Task(id = "t1", title = "Local wins", createdAt = now, updatedAt = later))
+
+        // Older than what is stored, so it loses; a tie would also keep the stored row.
+        backupStore.mergeAll(
+            projects = emptyList(),
+            tasks = listOf(Task(id = "t1", title = "Stale", createdAt = now, updatedAt = now)),
+        )
+        assertEquals("Local wins", taskStore.byId("t1")?.title)
+
+        backupStore.mergeAll(
+            projects = emptyList(),
+            tasks = listOf(Task(id = "t1", title = "Newer", createdAt = now, updatedAt = later.plusSeconds(1))),
+        )
+        assertEquals("Newer", taskStore.byId("t1")?.title)
+    }
+
+    @Test
+    fun `a tombstone competes on its timestamp like any other version`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        val backupStore = SqlDelightBackupStore(database, Dispatchers.Unconfined)
+        val later = now.plusSeconds(60)
+        taskStore.insert(Task(id = "t1", title = "Edited here", createdAt = now, updatedAt = later))
+
+        // A delete older than the local edit must lose. The first cut of mergeAll special-cased
+        // deletedAt into an unconditional delete, so a stale delete beat a newer edit.
+        backupStore.mergeAll(
+            projects = emptyList(),
+            tasks = listOf(Task(id = "t1", title = "Deleted there", createdAt = now, updatedAt = now, deletedAt = now)),
+        )
+        assertEquals("Edited here", taskStore.byId("t1")?.title)
+
+        // A newer one wins, and the row goes invisible without being removed.
+        val deletedAt = later.plusSeconds(1)
+        backupStore.mergeAll(
+            projects = emptyList(),
+            tasks = listOf(
+                Task(id = "t1", title = "Deleted there", createdAt = now, updatedAt = deletedAt, deletedAt = deletedAt),
+            ),
+        )
+        assertNull(taskStore.byId("t1"))
+    }
+
+    @Test
+    fun `a tombstone for a task we have never seen is stored, not dropped`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        val backupStore = SqlDelightBackupStore(database, Dispatchers.Unconfined)
+
+        backupStore.mergeAll(
+            projects = emptyList(),
+            tasks = listOf(Task(id = "t1", title = "Gone", createdAt = now, updatedAt = now, deletedAt = now)),
+        )
+        assertNull(taskStore.byId("t1"))
+
+        // Keeping it is what stops a resurrection: an older copy of the same task arriving by any
+        // other route now loses to the tombstone instead of re-creating the row.
+        backupStore.mergeAll(
+            projects = emptyList(),
+            tasks = listOf(Task(id = "t1", title = "Gone", createdAt = now, updatedAt = now.minusSeconds(1))),
+        )
+        assertNull(taskStore.byId("t1"))
+    }
+
+    @Test
+    fun `a tombstoned task is invisible to every read`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        taskStore.insert(Task(id = "parent", title = "Parent", createdAt = now, updatedAt = now))
+        taskStore.insert(Task(id = "step", title = "Step", parentId = "parent", createdAt = now, updatedAt = now))
+        taskStore.insert(
+            Task(id = "next", title = "Next", spawnedFromId = "parent", createdAt = now, updatedAt = now),
+        )
+
+        taskStore.tombstoneWithSubtasks("parent", now)
+
+        assertNull(taskStore.byId("parent"))
+        assertTrue(taskStore.getAll().none { it.id == "parent" || it.id == "step" })
+        // The step went with its task — a step without its task has no meaning.
+        assertTrue(taskStore.subtasksOf("parent").isEmpty())
+        // Completing one is not merely a no-op, it must *report* that it did nothing, or the
+        // caller schedules a successor for a task nobody can see.
+        assertEquals(0, taskStore.completeIfOpen("parent", now))
+        // The successor is a separate row and is untouched.
+        assertEquals(listOf("next"), taskStore.openSuccessorsOf("parent"))
     }
 }

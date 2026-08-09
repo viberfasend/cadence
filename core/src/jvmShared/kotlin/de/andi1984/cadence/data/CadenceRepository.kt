@@ -52,7 +52,7 @@ class CadenceRepository(
     /** Mints a UUIDv7 for a new task, or stamps an edit — either way `updatedAt` moves to now,
      *  which is what the phase-6 merge engine will resolve conflicts by. */
     suspend fun upsertTask(task: Task): String {
-        val now = Instant.now()
+        val now = now()
         val stamped = task.copy(
             createdAt = if (task.createdAt == Instant.EPOCH) now else task.createdAt,
             updatedAt = now,
@@ -80,7 +80,7 @@ class CadenceRepository(
         val ids = listOf(id) + taskStore.subtasksOf(id).map { it.id }
         val hashes = attachmentStore.hashesForTasks(ids)
         attachmentStore.deleteForTasks(ids)
-        taskStore.deleteWithSubtasks(id)
+        taskStore.tombstoneWithSubtasks(id, now())
         reclaim(hashes)
     }
 
@@ -109,7 +109,7 @@ class CadenceRepository(
         }
 
         return try {
-            val now = Instant.now()
+            val now = now()
             val newTask = Task(
                 id = UuidV7.random(),
                 title = trimmed,
@@ -128,7 +128,7 @@ class CadenceRepository(
 
     /** A task and its steps live in the same project, so moving one moves the whole checklist. */
     suspend fun moveToProject(task: Task, projectId: String?) {
-        val now = Instant.now()
+        val now = now()
         taskStore.update(task.copy(projectId = projectId, updatedAt = now))
         taskStore.subtasksOf(task.id)
             .forEach { taskStore.update(it.copy(projectId = projectId, updatedAt = now)) }
@@ -167,12 +167,13 @@ class CadenceRepository(
         today: LocalDate = LocalDate.now(),
     ): List<String> {
         if (!completed) {
-            if (taskStore.reopenIfDone(task.id, Instant.now()) == 0) return emptyList()
+            if (taskStore.reopenIfDone(task.id, now()) == 0) return emptyList()
             val successors = taskStore.openSuccessorsOf(task.id)
-            successors.forEach { taskStore.deleteWithSubtasks(it) }
+            val at = now()
+            successors.forEach { taskStore.tombstoneWithSubtasks(it, at) }
             return successors
         }
-        val now = Instant.now()
+        val now = now()
         if (taskStore.completeIfOpen(task.id, now) == 0) return emptyList()
 
         // Read the row back rather than trust the snapshot: the rule, the due date and the
@@ -226,16 +227,16 @@ class CadenceRepository(
     /** Moves a task's due date by [days], used by snooze and the overdue triage action. */
     suspend fun shiftDueDate(task: Task, days: Long, from: LocalDate = LocalDate.now()) {
         val base = task.dueDate?.takeIf { it.isAfter(from) } ?: from
-        taskStore.update(task.copy(dueDate = base.plusDays(days), updatedAt = Instant.now()))
+        taskStore.update(task.copy(dueDate = base.plusDays(days), updatedAt = now()))
     }
 
     suspend fun setDueDate(task: Task, dueDate: LocalDate?) {
-        taskStore.update(task.copy(dueDate = dueDate, updatedAt = Instant.now()))
+        taskStore.update(task.copy(dueDate = dueDate, updatedAt = now()))
     }
 
     /** "Reschedule all" on the overdue block: everything overdue lands on today. */
     suspend fun rescheduleOverdueToToday(today: LocalDate = LocalDate.now()) {
-        val now = Instant.now()
+        val now = now()
         taskStore.getAll()
             .filter { it.isOverdue(today) }
             .forEach { taskStore.update(it.copy(dueDate = today, updatedAt = now)) }
@@ -265,7 +266,7 @@ class CadenceRepository(
         }
 
         return try {
-            val stamped = project.copy(updatedAt = Instant.now())
+            val stamped = project.copy(updatedAt = now())
             val id = if (stamped.id.isBlank()) {
                 val minted = stamped.copy(id = UuidV7.random())
                 projectStore.insert(minted)
@@ -328,7 +329,7 @@ class CadenceRepository(
         val affected = if (deleteTasks) projectStore.taskIdsIn(id) else emptyList()
         val hashes = if (deleteTasks) attachmentStore.hashesForTasks(affected) else emptyList()
         if (deleteTasks) attachmentStore.deleteForTasks(affected)
-        projectStore.deleteWithChildren(id, deleteTasks)
+        projectStore.tombstoneWithChildren(id, deleteTasks, now())
         reclaim(hashes)
         return affected
     }
@@ -364,7 +365,7 @@ class CadenceRepository(
                         mimeType = mimeType,
                         sha256 = result.sha256,
                         sizeBytes = result.sizeBytes,
-                        createdAt = Instant.now(),
+                        createdAt = now(),
                         sortOrder = existing.size,
                     ),
                 )
@@ -390,7 +391,7 @@ class CadenceRepository(
                 name = name.trim().ifBlank { trimmedUrl },
                 mimeType = "text/uri-list",
                 url = trimmedUrl,
-                createdAt = Instant.now(),
+                createdAt = now(),
                 sortOrder = existing.size,
             ),
         )
@@ -431,22 +432,40 @@ class CadenceRepository(
     )
 
     /**
-     * Restores a backup by *replacing* both tables — importing is not a merge, so ids stay the
-     * ones in the file and task→project links survive without remapping. Settings in the
-     * snapshot are ignored here and handled by the app-specific `BackupIo`.
+     * Folds a backup into what is already here. Ids stay the ones in the file and task→project
+     * links survive without remapping; settings in the snapshot are ignored and handled by the
+     * shell's `BackupIo`.
      *
-     * `BackupDao.replaceAll` becomes a merge in phase 6 (ADR 0001, decision 5); until then a
-     * restore is still the destructive operation it always was. The backup format does not carry
-     * attachments yet either (`docs/attachments-and-share.md`, phase 4), so a restore also clears
-     * every attachment row and sweeps every blob that leaves unreferenced — the same full-replace
-     * promise the rest of the snapshot already makes, rather than quietly leaving rows that name
-     * tasks the file just replaced out from under them.
+     * This used to replace both tables outright, which made importing a data-loss event: a device
+     * that imported a file older than itself lost everything added since that file was written,
+     * and two devices sharing one file each undid the other. Importing is a merge now (ADR 0001
+     * decision 5, implemented by ADR 0002), so it is idempotent, safe to run twice, and importing
+     * someone else's file adds to yours rather than becoming it.
+     *
+     * A v1 file carries no `updatedAt` and decodes to `Instant.EPOCH`, so it loses every conflict
+     * against a row you already have — which is the right answer for a file written before the
+     * app tracked when anything changed.
+     *
+     * Blobs are swept afterwards because the merge can leave attachment rows naming tasks that
+     * lost — see `mergeAll`, which does not touch attachments itself.
      */
     suspend fun restore(snapshot: BackupSnapshot) {
-        backupStore.replaceAll(
+        backupStore.mergeAll(
             projects = snapshot.projects,
             tasks = snapshot.tasks,
         )
         sweepOrphanBlobs()
     }
+
+    /**
+     * Every timestamp this repository stamps, truncated to the millisecond.
+     *
+     * Local storage is epoch millis, Postgres `timestamptz` is microseconds, and `Instant.now()`
+     * on JDK 17 has microsecond precision. Left alone, a row pushed to the server and pulled
+     * back returns with a strictly greater `updatedAt` than the local copy — so the merge
+     * overwrites it, which bumps `updatedAt`, which pushes it again, forever. Truncating at the
+     * source is what makes the database, the wire and the merge agree exactly
+     * (docs/adr/0002-supabase-sync.md, decision 8).
+     */
+    private fun now(): Instant = Instant.now().truncatedTo(ChronoUnit.MILLIS)
 }

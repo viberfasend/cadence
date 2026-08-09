@@ -23,10 +23,12 @@ CREATE TABLE taskRow (
     sortOrder INTEGER NOT NULL,
     -- Packed `v1;key=value;...` — see RecurrenceCodec.
     recurrence TEXT,
-    -- Last write, local or merged in. The phase-6 merge engine resolves conflicts by this.
+    -- Last write, local or merged in. The merge engine resolves conflicts by this.
     updatedAt INTEGER NOT NULL,
-    -- Tombstone: set instead of a hard delete once phase 6 needs one device's delete to reach
-    -- another's. Unused today — every delete is still a real DELETE.
+    -- Tombstone: set instead of a hard delete, so one device's delete reaches the other rather
+    -- than reading as "a row I have never heard of" and being helpfully re-created
+    -- (docs/adr/0002-supabase-sync.md, decision 4). Every read below filters these out; only the
+    -- sync push and the 90-day sweep look at them.
     deletedAt INTEGER
 );
 
@@ -38,13 +40,18 @@ CREATE INDEX idx_task_completed ON taskRow(completedAt);
 CREATE INDEX idx_task_sort ON taskRow(sortOrder);
 
 selectAll:
-SELECT * FROM taskRow;
+SELECT * FROM taskRow WHERE deletedAt IS NULL;
 
 selectById:
+SELECT * FROM taskRow WHERE id = :id AND deletedAt IS NULL;
+
+-- The merge's view of a row. It has to see tombstones: comparing an incoming edit against a
+-- local tombstone is the whole point, and `selectById` hiding it would let a stale edit win.
+selectByIdIncludingDeleted:
 SELECT * FROM taskRow WHERE id = :id;
 
 selectSubtasksOf:
-SELECT * FROM taskRow WHERE parentId = :parentId ORDER BY sortOrder, id;
+SELECT * FROM taskRow WHERE parentId = :parentId AND deletedAt IS NULL ORDER BY sortOrder, id;
 
 insertOrReplace:
 INSERT OR REPLACE INTO taskRow(
@@ -56,14 +63,16 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- Closes a task only if it is still open. Follow with `changes` to learn whether this call was
 -- the one that did it — the guard the whole idempotent-completion rule depends on.
+-- A tombstoned row must report 0 here, not 1: it is gone as far as every list is concerned, and
+-- reporting 1 would have the caller schedule a successor for a task nobody can see.
 completeIfOpen:
 UPDATE taskRow SET completedAt = :completedAt, updatedAt = :completedAt
-WHERE id = :id AND completedAt IS NULL;
+WHERE id = :id AND completedAt IS NULL AND deletedAt IS NULL;
 
 -- The mirror of completeIfOpen: reopens a done task. Follow with `changes`.
 reopenIfDone:
 UPDATE taskRow SET completedAt = NULL, updatedAt = :updatedAt
-WHERE id = :id AND completedAt IS NOT NULL;
+WHERE id = :id AND completedAt IS NOT NULL AND deletedAt IS NULL;
 
 -- SQLite's own count of rows touched by the statement just run on this connection —
 -- completeIfOpen and reopenIfDone read this back to report whether *this* call changed the row.
@@ -72,14 +81,25 @@ SELECT changes();
 
 -- The occurrences a completion inserted that nobody has ticked off yet.
 selectOpenSuccessorsOf:
-SELECT id FROM taskRow WHERE spawnedFromId = :id AND completedAt IS NULL;
+SELECT id FROM taskRow WHERE spawnedFromId = :id AND completedAt IS NULL AND deletedAt IS NULL;
 
 -- Deleting a task takes its subtasks with it — a step without its task has no meaning.
-deleteById:
-DELETE FROM taskRow WHERE id = :id;
+-- `deletedAt IS NULL` in the WHERE keeps this idempotent: deleting twice must not restamp the
+-- tombstone, or the second delete would win a merge it has no business winning.
+tombstoneWithSubtasks:
+UPDATE taskRow SET deletedAt = :at, updatedAt = :at
+WHERE (id = :id OR parentId = :id) AND deletedAt IS NULL;
 
-deleteWithSubtasks:
-DELETE FROM taskRow WHERE id = :id OR parentId = :id;
+-- Sync's two views, and the only ones that see tombstones.
+-- What to push: everything written since the last successful push, deletions included.
+selectChangedSince:
+SELECT * FROM taskRow WHERE updatedAt > :since ORDER BY updatedAt;
 
-deleteAll:
-DELETE FROM taskRow;
+-- A fresh device has pushed nothing, so it pushes everything it has.
+selectAllIncludingDeleted:
+SELECT * FROM taskRow ORDER BY updatedAt;
+
+-- The 90-day sweep (ADR 0001 decision 6, kept by ADR 0002). Only ever run after a push that
+-- succeeded: collecting a tombstone this device has not yet handed over loses the deletion.
+collectTombstones:
+DELETE FROM taskRow WHERE deletedAt IS NOT NULL AND deletedAt < :before;

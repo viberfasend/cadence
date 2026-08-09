@@ -384,17 +384,19 @@ private class FakeTaskStore : TaskStore {
         return id
     }
 
+    /** The raw row, tombstone included — how a test asserts that a delete stamped rather than removed. */
     fun row(id: String): Task = table.value[id] ?: error("no task with id $id")
 
-    fun rows(): List<Task> = table.value.values.toList()
+    /** What the app can see. Every read below goes through this, as `deletedAt IS NULL` does in SQL. */
+    fun rows(): List<Task> = table.value.values.filter { it.deletedAt == null }
 
-    override fun observeAll(): Flow<List<Task>> = table.map { it.values.toList() }
+    override fun observeAll(): Flow<List<Task>> = table.map { m -> m.values.filter { it.deletedAt == null } }
 
-    override fun observeById(id: String): Flow<Task?> = table.map { it[id] }
+    override fun observeById(id: String): Flow<Task?> = table.map { m -> m[id]?.takeIf { it.deletedAt == null } }
 
     override suspend fun getAll(): List<Task> = rows()
 
-    override suspend fun byId(id: String): Task? = table.value[id]
+    override suspend fun byId(id: String): Task? = table.value[id]?.takeIf { it.deletedAt == null }
 
     override suspend fun subtasksOf(parentId: String): List<Task> = rows()
         .filter { it.parentId == parentId }
@@ -408,19 +410,27 @@ private class FakeTaskStore : TaskStore {
         if (table.value.containsKey(task.id)) table.value = table.value + (task.id to task)
     }
 
-    override suspend fun deleteWithSubtasks(id: String) {
-        table.value = table.value.filterValues { it.id != id && it.parentId != id }
+    override suspend fun tombstoneWithSubtasks(id: String, at: Instant) {
+        // Models the store faithfully: the row stays, stamped, and every read below hides it —
+        // a fake that removed the row would let a tombstone bug through unnoticed.
+        table.value = table.value.mapValues { (_, task) ->
+            if ((task.id == id || task.parentId == id) && task.deletedAt == null) {
+                task.copy(deletedAt = at, updatedAt = at)
+            } else {
+                task
+            }
+        }
     }
 
     override suspend fun completeIfOpen(id: String, completedAt: Instant): Int {
-        val task = table.value[id] ?: return 0
+        val task = table.value[id]?.takeIf { it.deletedAt == null } ?: return 0
         if (task.completedAt != null) return 0
         table.value = table.value + (id to task.copy(completedAt = completedAt, updatedAt = completedAt))
         return 1
     }
 
     override suspend fun reopenIfDone(id: String, updatedAt: Instant): Int {
-        val task = table.value[id] ?: return 0
+        val task = table.value[id]?.takeIf { it.deletedAt == null } ?: return 0
         if (task.completedAt == null) return 0
         table.value = table.value + (id to task.copy(completedAt = null, updatedAt = updatedAt))
         return 1
@@ -444,12 +454,10 @@ private class FakeProjectStore(private val tasksIn: List<String> = emptyList()) 
 
     override suspend fun taskIdsIn(id: String): List<String> = tasksIn
 
-    override suspend fun deleteWithChildren(id: String, deleteTasks: Boolean) = Unit
+    override suspend fun tombstoneWithChildren(id: String, deleteTasks: Boolean, at: Instant) = Unit
 }
 
 private class FakeBackupStore : BackupStore {
-
-    override suspend fun replaceAll(projects: List<Project>, tasks: List<Task>) = Unit
 
     override suspend fun mergeAll(projects: List<Project>, tasks: List<Task>) = Unit
 }

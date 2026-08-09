@@ -180,7 +180,23 @@ the local copy, so the merge would overwrite it, which bumps `updatedAt`, which 
 forever. `CadenceRepository` stamps `Instant.now().truncatedTo(ChronoUnit.MILLIS)` at every call
 site, and then the database, the wire and the merge agree exactly.
 
-### 9. What this deletes
+### 9. Reminders become a per-device setting
+
+Once a task exists on two devices, both schedule a reminder for it: an AlarmManager notification on
+the phone and a tray balloon on the desktop, for the same task at the same minute. Nothing about the
+sync design causes this — it falls out of `ReminderScheduler.sync(tasks)` reconciling against a task
+list that is now shared.
+
+So reminders gain a per-device switch, on by default on Android and **off** by default on the
+desktop, and it stays out of sync like every other setting (ADR 0001 decision 9). Off means the
+desktop's scheduler is not started at all rather than started and told to stay quiet: it is a
+30-second poll plus a tray icon, and there is no reason to burn either to decide not to notify.
+
+The alternative — a synced "this reminder already fired" marker so the first device suppresses the
+rest — needs both devices online at the moment the reminder is due, which is exactly when the
+desktop is most likely closed. A missed reminder is worse than a doubled one.
+
+### 10. What this deletes
 
 On top of ADR 0001 decision 7's list, which stands:
 
@@ -210,8 +226,12 @@ to something that is not Cadence, and neither has anything to do with keeping tw
 - Attachments do not sync. A task that crosses over arrives without its files. Supabase Storage is
   the obvious home and is deferred wholesale; ADR 0001 decision 10's `blobs/` folder is superseded
   along with the folder it sat in.
-- A free-tier project pauses after roughly a week with no requests. Either device being opened
-  weekly prevents it; if it ever bites, the app cannot cleanly tell a paused project from no network.
+- A free-tier project pauses after roughly a week with no requests, and **restore is manual** —
+  no incoming request wakes it, someone has to click Resume in the dashboard. A paused project
+  answers with Supabase's custom **HTTP 540**, and a paused project still resolves DNS and
+  completes TLS, so this *is* distinguishable from having no network — the app says which. A
+  weekly scheduled ping keeps the project alive; the 540 wording is what saves us if that ping
+  ever stops.
 - The headline changes from "no cloud, no account" to "local-first, with an optional account for
   syncing your own devices; no analytics". README, CLAUDE.md, ROADMAP and the desktop package
   description all state the old claim and all have to change with the code.
@@ -251,10 +271,25 @@ Each ends on a green build — `./gradlew testDebugUnitTest :core:jvmTest` and
 | 1 | Soft delete at every call site, the single merge rule, millisecond truncation, `syncStateRow` and the schema migration on both platforms, import becomes a merge, `replaceAll` deleted, tombstone GC. **No network.** | ~500 lines changed |
 | 2 | Supabase project and its committed migration SQL. Ktor client, session handling, pull and push, `syncOnce()`. Settings gains sign-in and **Sync now**. The file-sync stack and the dead phase-6 code go in the same change. | ~900 new, ~700 deleted |
 | 3 | Automatic triggers: start and foreground, debounced two seconds after an edit, flush on stop and close, a five-minute poll on the desktop only. Status line, last-synced, sign-out. | ~250 lines |
-| 4 | Hardening: server-side tombstone collection, paging past the first thousand rows, the clock-skew warning, Security Advisor clean, and every document that still says "no cloud". | small |
+| 4 | Hardening: server-side tombstone collection, paging past the first thousand rows, the clock-skew warning, the weekly keep-alive ping, Security Advisor clean, and every document that still says "no cloud". | small |
+| 5 | Attachments through Supabase Storage. `storage-kt` ships in the same BOM and covers both targets; content-addressed blobs never conflict, so the protocol is "upload the hashes the server lacks, download the ones you lack" and nothing more. Free tier allows 1 GB with a 50 MB per-object cap. | new |
 
 Phase 1 must ship before phase 2. Without it the first sync reads a missing row as a row that never
 existed and puts deleted tasks back on the other device.
 
 Phase 2 is the one that matters to the user: at the end of it the phone and the desktop sync, by
 hand. Phase 3 only removes the "by hand".
+
+## Still open
+
+Recorded rather than silently assumed. None blocks phase 1.
+
+- Whether the weekly keep-alive ping lives in this repo's Actions or is skipped in favour of
+  relying on daily use plus the 540 message.
+- What signing out clears. The intent is: session, cursor and push watermark, and no local data —
+  but it is not yet decided whether the app should offer to delete server-side data at all.
+- How loudly a failed background sync complains, and whether "last synced more than a week ago"
+  earns a mark on the Settings entry.
+- Whether attachment *metadata* should sync ahead of the bytes, so the other device can at least
+  say a file exists. The cost is that every attachment row grows a "do I have the blob" state and
+  the orphan sweeper has to learn not to reclaim hashes it has never seen.
