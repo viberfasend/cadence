@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -38,12 +40,12 @@ val cadenceVersionCode: Int = System.getenv("CADENCE_VERSION_CODE")?.toIntOrNull
 
 android {
     namespace = "de.andi1984.cadence"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "de.andi1984.cadence"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = cadenceVersionCode
         versionName = cadenceVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -93,10 +95,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -106,6 +104,14 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+}
+
+// Outside `android {}` deliberately: `kotlinOptions` inside it became an error in Kotlin 2.2,
+// and the compilerOptions DSL that replaces it hangs off the Kotlin extension, not AGP's.
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
