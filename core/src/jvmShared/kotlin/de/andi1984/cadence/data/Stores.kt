@@ -91,8 +91,30 @@ interface ProjectStore {
 
 interface BackupStore {
 
-    /** All or nothing: a failed restore must not leave the app half-empty. */
+    /**
+     * All or nothing: a failed restore must not leave the app half-empty.
+     * 
+     * Phase 6 (ADR 0001): replaceAll becomes a merge. Importing a snapshot merges it into
+     * the current database by the rules in the merge engine, which makes import idempotent
+     * and makes importing a friend's file a sensible operation rather than a data-loss event.
+     * 
+     * @deprecated Use mergeAll instead. This method will be removed when phase 6 is complete.
+     */
+    @Deprecated("Use mergeAll instead for phase 6 sync")
     suspend fun replaceAll(projects: List<Project>, tasks: List<Task>)
+
+    /**
+     * Merge the given projects and tasks into the current database using last-writer-wins
+     * conflict resolution based on updatedAt timestamps.
+     * 
+     * This is the phase 6 replacement for replaceAll, implementing the merge engine from
+     * ADR 0001 decision 6. Records are keyed by UUID, and the record with the greatest
+     * updatedAt wins. Ties break on device ID lexicographically.
+     * 
+     * Tombstones (deletedAt != null) are respected: a deleted record on one device
+     * will delete the corresponding record on other devices if it has a newer timestamp.
+     */
+    suspend fun mergeAll(projects: List<Project>, tasks: List<Task>)
 }
 
 /**

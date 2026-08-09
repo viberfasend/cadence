@@ -41,7 +41,7 @@ selectAll:
 SELECT * FROM taskRow;
 
 selectById:
-SELECT * FROM taskRow WHERE id = ?;
+SELECT * FROM taskRow WHERE id = :id;
 
 selectSubtasksOf:
 SELECT * FROM taskRow WHERE parentId = :parentId ORDER BY sortOrder, id;
@@ -75,6 +75,9 @@ selectOpenSuccessorsOf:
 SELECT id FROM taskRow WHERE spawnedFromId = :id AND completedAt IS NULL;
 
 -- Deleting a task takes its subtasks with it — a step without its task has no meaning.
+deleteById:
+DELETE FROM taskRow WHERE id = :id;
+
 deleteWithSubtasks:
 DELETE FROM taskRow WHERE id = :id OR parentId = :id;
 

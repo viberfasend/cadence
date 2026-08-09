@@ -266,7 +266,7 @@ class BackupCodecTest {
 
     @Test
     fun `a backup from a newer version is refused rather than guessed at`() {
-        val result = BackupCodec.decode("""{"format": "cadence.backup", "version": 2}""")
+        val result = BackupCodec.decode("""{"format": "cadence.backup", "version": 3}""")
 
         assertEquals(BackupError.NEWER_VERSION, (result as BackupReadResult.Failed).reason)
     }
