@@ -177,7 +177,7 @@ jobs:
                    app-desktop/build/compose/binaries/main/msi/*.msi; do
             cp "$f" dist/
           done
-          [ -f cadence-linux-x64.tar.gz ] && cp cadence-linux-x64.tar.gz dist/
+          [ -f cadence-linux-x64.tar.gz ] && cp cadence-linux-x64.tar.gz dist/ || true
 
       - name: Upload installers
         uses: actions/upload-artifact@v4
