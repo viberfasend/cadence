@@ -7,8 +7,12 @@ import de.andi1984.cadence.domain.model.RecurrenceMode
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Task
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.DayOfWeek
 import java.time.Instant
@@ -126,5 +130,73 @@ class RemoteRecordsTest {
         assertNull(task.dueDate)
         assertEquals("Water the plants", task.title)
         assertEquals(now, task.updatedAt)
+    }
+
+    /**
+     * The bug this guards against: `sort_order integer not null` has no database default, and a
+     * task whose sort order is the Kotlin default of 0 had the key left out of the payload
+     * entirely, so every first push died with "null value in column sort_order violates not-null
+     * constraint" and sync never worked at all.
+     */
+    @Test
+    fun `a field still holding its default is written, not left out of the payload`() {
+        val task = Task(id = "t1", title = "Water the plants", createdAt = now, updatedAt = now)
+
+        val json = SyncJson.encodeToJsonElement(RemoteTask.serializer(), task.toRemote())
+
+        assertEquals(0, (json as JsonObject)["sort_order"]?.jsonPrimitive?.content?.toInt())
+        assertEquals(Priority.DEFAULT.level, json["priority"]?.jsonPrimitive?.content?.toInt())
+    }
+
+    @Test
+    fun `a project's default sort order is written too`() {
+        val project = Project(id = "p1", name = "Home", colorHex = "#3F51B5", updatedAt = now)
+
+        val json = SyncJson.encodeToJsonElement(RemoteProject.serializer(), project.toRemote())
+
+        assertEquals(0, (json as JsonObject)["sort_order"]?.jsonPrimitive?.content?.toInt())
+    }
+
+    /**
+     * An upsert only touches the columns it names, so a cleared field has to arrive as an
+     * explicit null — omitted, it would read as "no opinion" and the server would keep the due
+     * date the user just removed.
+     */
+    @Test
+    fun `a cleared field travels as an explicit null so the upsert overwrites it`() {
+        val task = Task(id = "t1", title = "Water the plants", createdAt = now, updatedAt = now)
+
+        val json = SyncJson.encodeToJsonElement(RemoteTask.serializer(), task.toRemote()) as JsonObject
+
+        assertEquals(JsonNull, json["due_date"])
+        assertEquals(JsonNull, json["notes"])
+        assertEquals(JsonNull, json["deleted_at"])
+    }
+
+    /**
+     * PostgREST refuses a bulk insert whose objects disagree about which keys they carry
+     * (`PGRST102`), and the push sends up to 500 rows in one statement.
+     */
+    @Test
+    fun `every task in a batch carries the same keys whatever it happens to have filled in`() {
+        val bare = Task(id = "t1", title = "Bare", createdAt = now, updatedAt = now)
+        val full = Task(
+            id = "t2",
+            title = "Full",
+            notes = "Notes",
+            priority = Priority.fromLevel(1),
+            dueDate = LocalDate.of(2026, 8, 20),
+            dueTime = LocalTime.of(9, 30),
+            sortOrder = 7,
+            createdAt = now,
+            updatedAt = now,
+            deletedAt = now,
+        )
+
+        val keys = listOf(bare, full).map {
+            (SyncJson.encodeToJsonElement(RemoteTask.serializer(), it.toRemote()) as JsonObject).keys
+        }
+
+        assertTrue("batch keys differ: ${keys.first() - keys.last()}", keys.first() == keys.last())
     }
 }

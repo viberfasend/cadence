@@ -101,9 +101,9 @@ class CadenceSyncEngine(
 ) {
 
     private val client: SupabaseClient = createSupabaseClient(url, anonKey) {
-        // Unknown keys are ignored so a column added server-side does not break an older
-        // install, which is the same courtesy the backup format extends to older files.
-        defaultSerializer = KotlinXSerializer(Json { ignoreUnknownKeys = true })
+        // Both halves of the wire contract — unknown keys ignored on the way in, defaults still
+        // written on the way out — live with the records themselves; see [SyncJson].
+        defaultSerializer = KotlinXSerializer(SyncJson)
         install(Auth) {
             // The session belongs next to the cursor it has to stay consistent with, not in
             // `java.util.prefs`, which is where this library's JVM default would put it.
