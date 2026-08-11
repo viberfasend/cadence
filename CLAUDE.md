@@ -302,7 +302,7 @@ than reaching for `!!`.
   decides every record: greater `updatedAt` wins, ties keep what is stored, and a tombstone
   competes on its timestamp like any other version rather than being special-cased — a v1 file,
   whose rows decode to `Instant.EPOCH`, therefore loses every conflict.
-- **Sync is one round, run by hand, and every step of it is idempotent** (`data/sync/
+- **Sync runs itself, and every step of a round is idempotent** (`data/sync/
   CadenceSyncEngine.kt`, ADR 0002). Signed out it does nothing at all and no request is made.
   Signed in, `syncOnce()` holds a `Mutex` and does: pull rows at or after the stored cursor →
   merge each page and advance the cursor **in the same transaction** → push everything written
@@ -330,6 +330,28 @@ than reaching for `!!`.
     `BackupCodec`'s on purpose, so a Postgres column rename cannot change the shape of an
     exported backup file. Timestamps truncate to milliseconds in both directions, or a row
     pushed and pulled back returns strictly newer than its local copy and ping-pongs forever.
+- **Nobody presses anything to sync** (ADR 0002, decisions 11, 13 and 14). Rounds start on app
+  start and every return to the foreground, two seconds after a write, fire-and-forget on stop
+  and window close, and — on the desktop only — every 15 minutes. There is no `WorkManager` and
+  no Android poll: the phone is stale only while nobody is looking at it. Three things to know
+  before adding a trigger or a list:
+  - **The debounce is armed by the mutation, not by the task flow.** `CadenceViewModel.armSync()`
+    is called from each task and project mutation; a row merged *in* from a pull lands in
+    `repository.tasks` exactly like a local edit does, and a debounce watching that flow would
+    have two devices pushing each other awake forever. Settings never arm it — they are
+    per-device. A new mutation method therefore has to call `armSync()` itself.
+  - **The lifecycle triggers hang off the shell, not the ViewModel**, and go through
+    `CadenceSyncEngine.syncInBackground()`, which runs on the *application* scope:
+    `:app-android`'s `CadenceApplication` observes `ProcessLifecycleOwner` (the Activity's
+    lifecycle would sync on every rotation), `:app-desktop`'s `main()` syncs at startup, on
+    `onCloseRequest` and on the poll it passes as `syncPollInterval`.
+  - **The header shows where sync stands, and shows nothing at all signed out.**
+    `ui/components/SyncControls.kt` holds the indicator, the pull-to-refresh wrapper and the
+    failure snackbar; a shell hands the four top-level screens one `SyncControls` and the two
+    flags in it are the whole platform difference (Android pulls, the desktop gets a button and
+    `Ctrl`/`Cmd`+`R`). Every failed round raises a snackbar, `OFFLINE` included, and a new
+    failure replaces the one on screen — which is why the engine publishes `failures` as a
+    `SharedFlow` beside `status`: identical consecutive failures would collapse in a `StateFlow`.
 - **Reminders are a per-device setting** (`CadenceSettings.remindersEnabled`), on by default on
   Android and off on the desktop — the default lives in each shell's `SettingsStore`, since that
   is the only thing that differs. Once a task exists on both devices both would otherwise fire

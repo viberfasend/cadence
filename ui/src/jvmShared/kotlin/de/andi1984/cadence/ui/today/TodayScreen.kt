@@ -40,6 +40,9 @@ import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.EmptyState
 import de.andi1984.cadence.ui.components.ScreenHeader
+import de.andi1984.cadence.ui.components.SyncActions
+import de.andi1984.cadence.ui.components.SyncControls
+import de.andi1984.cadence.ui.components.SyncRefreshBox
 import de.andi1984.cadence.ui.components.SectionHeader
 import de.andi1984.cadence.ui.components.TaskRow
 import de.andi1984.cadence.ui.format.formatDate
@@ -59,6 +62,7 @@ fun TodayScreen(
     onSortChange: (SortMode) -> Unit,
     onSearch: () -> Unit,
     onSettings: () -> Unit,
+    syncControls: SyncControls = SyncControls(),
 ) {
     val sortMode = state.settings.sortMode
     val overdue = state.overdue(today).sortedFor(sortMode)
@@ -75,6 +79,7 @@ fun TodayScreen(
             title = stringResource(Res.string.today_title),
             subtitle = "${formatDate(today)} · ${pluralTasks(openCount)}",
         ) {
+            SyncActions(status = state.sync.status, controls = syncControls)
             IconButton(onClick = onSearch) {
                 Icon(AppIcons.Search, contentDescription = stringResource(Res.string.action_search))
             }
@@ -116,53 +121,55 @@ fun TodayScreen(
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                start = 12.dp,
-                end = 12.dp,
-                top = 12.dp,
-                bottom = 96.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            if (overdue.isNotEmpty()) {
-                item(key = "overdue") {
-                    OverdueBlock(
-                        tasks = overdue,
-                        state = state,
-                        today = today,
-                        expanded = overdueExpanded,
-                        onExpand = { overdueExpanded = true },
-                        onRescheduleAll = onRescheduleAll,
-                        onTaskClick = onTaskClick,
-                        onToggle = onToggle,
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
+        SyncRefreshBox(status = state.sync.status, controls = syncControls) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    start = 12.dp,
+                    end = 12.dp,
+                    top = 12.dp,
+                    bottom = 96.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                if (overdue.isNotEmpty()) {
+                    item(key = "overdue") {
+                        OverdueBlock(
+                            tasks = overdue,
+                            state = state,
+                            today = today,
+                            expanded = overdueExpanded,
+                            onExpand = { overdueExpanded = true },
+                            onRescheduleAll = onRescheduleAll,
+                            onTaskClick = onTaskClick,
+                            onToggle = onToggle,
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
                 }
-            }
 
-            if (dueToday.isEmpty() && overdue.isEmpty()) {
-                item(key = "empty") {
-                    EmptyState(
-                        title = stringResource(Res.string.today_empty_title),
-                        supporting = stringResource(Res.string.today_empty_supporting),
-                    )
-                }
-            } else {
-                item(key = "due-today-header") {
-                    SectionHeader(stringResource(Res.string.today_section_due))
-                }
-                items(dueToday, key = { it.id }) { task ->
-                    TaskRow(
-                        task = task,
-                        projectLabel = state.projectLabel(task),
-                        today = today,
-                        onToggle = { onToggle(task) },
-                        onClick = { onTaskClick(task) },
-                        parentTitle = state.parentOf(task)?.title,
-                        subtaskProgress = state.subtaskProgress(task.id),
-                    )
+                if (dueToday.isEmpty() && overdue.isEmpty()) {
+                    item(key = "empty") {
+                        EmptyState(
+                            title = stringResource(Res.string.today_empty_title),
+                            supporting = stringResource(Res.string.today_empty_supporting),
+                        )
+                    }
+                } else {
+                    item(key = "due-today-header") {
+                        SectionHeader(stringResource(Res.string.today_section_due))
+                    }
+                    items(dueToday, key = { it.id }) { task ->
+                        TaskRow(
+                            task = task,
+                            projectLabel = state.projectLabel(task),
+                            today = today,
+                            onToggle = { onToggle(task) },
+                            onClick = { onTaskClick(task) },
+                            parentTitle = state.parentOf(task)?.title,
+                            subtaskProgress = state.subtaskProgress(task.id),
+                        )
+                    }
                 }
             }
         }

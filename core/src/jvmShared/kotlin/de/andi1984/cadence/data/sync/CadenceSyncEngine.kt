@@ -20,8 +20,12 @@ import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.serializer.KotlinXSerializer
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -120,6 +124,21 @@ class CadenceSyncEngine(
 
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
 
+    private val _failures = MutableSharedFlow<SyncFailure>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    /**
+     * One event per failed round, whoever started it (ADR 0002, decision 14).
+     *
+     * [status] cannot stand in for this: it is a `StateFlow`, so a second round failing exactly
+     * the way the first one did is an equal value and never re-emitted — and a phone in a tunnel
+     * fails identically every time. The screen needs to hear about each round, so each round says
+     * so here.
+     */
+    val failures: SharedFlow<SyncFailure> = _failures.asSharedFlow()
+
     init {
         // The signed-in/out half of the status comes from the library — it loads the stored
         // session at start and drops it when a refresh finally fails — while the "when did this
@@ -176,6 +195,20 @@ class CadenceSyncEngine(
         _status.value = SyncStatus.SignedOut
     }
 
+    /**
+     * A round nobody waits for — the app-start, foreground, stop and window-close triggers
+     * (ADR 0002, decision 11).
+     *
+     * It runs on this engine's own scope, which is the *application* scope in both shells, rather
+     * than on the caller's: the caller here is a lifecycle callback or a window that is closing,
+     * and a round hung off either would be cancelled by the very event that started it. A process
+     * that dies before the round finishes loses nothing — the local database is the source of
+     * truth and the push ships on the next start.
+     */
+    fun syncInBackground() {
+        scope.launch { syncOnce() }
+    }
+
     suspend fun syncOnce(): SyncOutcome = mutex.withLock {
         val session = client.auth.sessionStatus.value as? SessionStatus.Authenticated
             ?: return SyncOutcome.SignedOut
@@ -192,6 +225,7 @@ class CadenceSyncEngine(
         } catch (e: Throwable) {
             val reason = e.toFailure()
             _status.value = SyncStatus.Failed(reason, email, store.state().lastSyncedAt)
+            _failures.tryEmit(reason)
             SyncOutcome.Failed(reason)
         }
     }

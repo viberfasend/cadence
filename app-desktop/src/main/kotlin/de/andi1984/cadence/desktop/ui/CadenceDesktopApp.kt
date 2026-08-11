@@ -16,6 +16,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,6 +31,8 @@ import de.andi1984.cadence.desktop.data.DesktopBackupFilePicker
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.CadenceViewModel
 import de.andi1984.cadence.ui.components.AppIcons
+import de.andi1984.cadence.ui.components.SyncControls
+import de.andi1984.cadence.ui.components.SyncFailureSnackbar
 import de.andi1984.cadence.ui.detail.TaskDetailScreen
 import de.andi1984.cadence.ui.inbox.InboxScreen
 import de.andi1984.cadence.ui.inbox.TriageScreen
@@ -77,6 +81,7 @@ fun CadenceDesktopApp(
     onQuickAddHandled: () -> Unit,
 ) {
     val backupFilePicker = remember { DesktopBackupFilePicker() }
+    val snackbarHostState = remember { SnackbarHostState() }
     var backStack by remember { mutableStateOf<List<Route>>(listOf(Route.Today)) }
     val current = backStack.last()
     val today = remember { LocalDate.now() }
@@ -110,9 +115,23 @@ fun CadenceDesktopApp(
     )
     val inboxCount = state.inboxTasks().count { !it.isDone }
 
+    // The desktop has no pull gesture and no discoverable `Ctrl`+`R`, so the header carries a
+    // button; `Ctrl`/`Cmd`+`R` in `main()` runs the same round (ADR 0002, decision 13).
+    val syncControls = remember(viewModel) {
+        SyncControls(
+            onRefresh = { viewModel.syncNow() },
+            onOpenSettings = { push(Route.Settings) },
+            showRefreshControl = true,
+        )
+    }
+
+    // Every failed round says so, wherever the user happens to be (ADR 0002, decision 14).
+    SyncFailureSnackbar(failures = viewModel.syncFailures, hostState = snackbarHostState)
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Row(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
@@ -170,6 +189,7 @@ fun CadenceDesktopApp(
                         onSortChange = viewModel::setSortMode,
                         onSearch = { push(Route.Search) },
                         onSettings = { push(Route.Settings) },
+                        syncControls = syncControls,
                     )
 
                     Route.Upcoming -> UpcomingScreen(
@@ -177,6 +197,7 @@ fun CadenceDesktopApp(
                         today = today,
                         onTaskClick = { push(Route.TaskDetail(it.id)) },
                         onToggle = viewModel::toggleTask,
+                        syncControls = syncControls,
                     )
 
                     Route.Inbox -> InboxScreen(
@@ -185,6 +206,7 @@ fun CadenceDesktopApp(
                         onTaskClick = { push(Route.TaskDetail(it.id)) },
                         onToggle = viewModel::toggleTask,
                         onTriage = { push(Route.Triage) },
+                        syncControls = syncControls,
                     )
 
                     Route.Projects -> ProjectsScreen(
@@ -197,6 +219,7 @@ fun CadenceDesktopApp(
                         onEditProject = viewModel::editProject,
                         onDeleteProject = viewModel::deleteProject,
                         onSettings = { push(Route.Settings) },
+                        syncControls = syncControls,
                     )
 
                     Route.Search -> SearchScreen(

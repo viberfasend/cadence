@@ -2,6 +2,9 @@ package de.andi1984.cadence
 
 import android.app.Application
 import android.content.Context
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import de.andi1984.cadence.data.BlobStore
 import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.data.backup.BackupIo
@@ -77,5 +80,35 @@ class CadenceApplication : Application() {
         super.onCreate()
         container = AppContainer(this)
         AlarmReminderScheduler.createChannel(this)
+        syncWithTheApp()
+    }
+
+    /**
+     * Sync on start, on every return to the foreground, and on the way out (ADR 0002, decision
+     * 11). Signed out each of these reaches the engine and makes no request at all.
+     *
+     * The *process* lifecycle, not the Activity's: a rotation stops and starts the Activity, and
+     * a device that syncs every time the phone is turned sideways is doing work nobody asked for.
+     * `ProcessLifecycleOwner` waits out that gap and reports only the ones that mean "the app
+     * came to the front" and "the app left it".
+     *
+     * Both rounds are fire-and-forget on the container's application scope. `onStop` carries no
+     * completion guarantee on Android anyway, and a push that misses its window ships on the next
+     * start — the local database is the source of truth until then. There is deliberately no
+     * `WorkManager` and no background poll behind this: the phone is stale only while nobody is
+     * looking at it.
+     */
+    private fun syncWithTheApp() {
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) {
+                    container.syncEngine.syncInBackground()
+                }
+
+                override fun onStop(owner: LifecycleOwner) {
+                    container.syncEngine.syncInBackground()
+                }
+            },
+        )
     }
 }

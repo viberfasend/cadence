@@ -11,6 +11,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -31,6 +33,8 @@ import androidx.navigation.compose.rememberNavController
 import de.andi1984.cadence.ui.backup.rememberSafBackupFilePicker
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.FittedLabel
+import de.andi1984.cadence.ui.components.SyncControls
+import de.andi1984.cadence.ui.components.SyncFailureSnackbar
 import de.andi1984.cadence.ui.detail.TaskDetailScreen
 import de.andi1984.cadence.ui.platform.AppInfo
 import de.andi1984.cadence.ui.inbox.InboxScreen
@@ -82,6 +86,7 @@ fun CadenceApp(
 ) {
     val navController = rememberNavController()
     val backupFilePicker = rememberSafBackupFilePicker()
+    val snackbarHostState = remember { SnackbarHostState() }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val today = remember { LocalDate.now() }
@@ -98,9 +103,23 @@ fun CadenceApp(
     val showChrome = currentRoute in destinations.map { it.route }
     val inboxCount = state.inboxTasks().count { !it.isDone }
 
+    // Android's manual gesture is the pull, so no refresh icon joins sort and search up there
+    // (ADR 0002, decision 13). Signed out, `SyncControls` renders nothing and arms no gesture.
+    val syncControls = remember(viewModel, navController) {
+        SyncControls(
+            onRefresh = { viewModel.syncNow() },
+            onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+            pullToRefresh = true,
+        )
+    }
+
+    // Every failed round says so, wherever the user happens to be (ADR 0002, decision 14).
+    SyncFailureSnackbar(failures = viewModel.syncFailures, hostState = snackbarHostState)
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (showChrome) {
                 NavigationBar(
@@ -166,6 +185,7 @@ fun CadenceApp(
                         onSortChange = viewModel::setSortMode,
                         onSearch = { navController.navigate(Routes.SEARCH) },
                         onSettings = { navController.navigate(Routes.SETTINGS) },
+                        syncControls = syncControls,
                     )
                 }
                 composable(Routes.UPCOMING) {
@@ -174,6 +194,7 @@ fun CadenceApp(
                         today = today,
                         onTaskClick = { navController.navigate(Routes.task(it.id)) },
                         onToggle = viewModel::toggleTask,
+                        syncControls = syncControls,
                     )
                 }
                 composable(Routes.INBOX) {
@@ -183,6 +204,7 @@ fun CadenceApp(
                         onTaskClick = { navController.navigate(Routes.task(it.id)) },
                         onToggle = viewModel::toggleTask,
                         onTriage = { navController.navigate(Routes.TRIAGE) },
+                        syncControls = syncControls,
                     )
                 }
                 composable(Routes.PROJECTS) {
@@ -196,6 +218,7 @@ fun CadenceApp(
                         onEditProject = viewModel::editProject,
                         onDeleteProject = viewModel::deleteProject,
                         onSettings = { navController.navigate(Routes.SETTINGS) },
+                        syncControls = syncControls,
                     )
                 }
                 composable(Routes.SEARCH) {

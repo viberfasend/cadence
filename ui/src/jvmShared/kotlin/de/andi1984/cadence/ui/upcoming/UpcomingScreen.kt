@@ -36,6 +36,9 @@ import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.DayHeader
 import de.andi1984.cadence.ui.components.EmptyState
 import de.andi1984.cadence.ui.components.ScreenHeader
+import de.andi1984.cadence.ui.components.SyncActions
+import de.andi1984.cadence.ui.components.SyncControls
+import de.andi1984.cadence.ui.components.SyncRefreshBox
 import de.andi1984.cadence.ui.components.TaskRow
 import de.andi1984.cadence.ui.format.currentLocale
 import de.andi1984.cadence.ui.format.dayHeader
@@ -58,6 +61,7 @@ fun UpcomingScreen(
     today: LocalDate,
     onTaskClick: (Task) -> Unit,
     onToggle: (Task) -> Unit,
+    syncControls: SyncControls = SyncControls(),
 ) {
     val upcoming = state.tasks
         .filter { task -> !task.isDone && task.dueDate?.isAfter(today) == true }
@@ -84,7 +88,9 @@ fun UpcomingScreen(
         ScreenHeader(
             title = stringResource(Res.string.upcoming_title),
             subtitle = stringResource(Res.string.upcoming_subtitle, pluralTasks(nextWeekCount)),
-        )
+        ) {
+            SyncActions(status = state.sync.status, controls = syncControls)
+        }
 
         Row(
             modifier = Modifier
@@ -114,41 +120,43 @@ fun UpcomingScreen(
             return@Column
         }
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            items(
-                count = agenda.size,
-                key = { index ->
+        SyncRefreshBox(status = state.sync.status, controls = syncControls) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                items(
+                    count = agenda.size,
+                    key = { index ->
+                        when (val item = agenda[index]) {
+                            is AgendaItem.Header -> "h-${item.date}"
+                            is AgendaItem.Entry -> "t-${item.task.id}"
+                        }
+                    },
+                ) { index ->
                     when (val item = agenda[index]) {
-                        is AgendaItem.Header -> "h-${item.date}"
-                        is AgendaItem.Entry -> "t-${item.task.id}"
-                    }
-                },
-            ) { index ->
-                when (val item = agenda[index]) {
-                    // "Tomorrow" is the one header that does not already say its date.
-                    is AgendaItem.Header -> DayHeader(
-                        title = dayHeader(item.date, today),
-                        trailing = if (item.date == today.plusDays(1)) {
-                            "${formatDate(item.date)} · ${item.count}"
-                        } else {
-                            "${item.count}"
-                        },
-                    )
+                        // "Tomorrow" is the one header that does not already say its date.
+                        is AgendaItem.Header -> DayHeader(
+                            title = dayHeader(item.date, today),
+                            trailing = if (item.date == today.plusDays(1)) {
+                                "${formatDate(item.date)} · ${item.count}"
+                            } else {
+                                "${item.count}"
+                            },
+                        )
 
-                    is AgendaItem.Entry -> TaskRow(
-                        task = item.task,
-                        projectLabel = state.projectLabel(item.task),
-                        today = today,
-                        onToggle = { onToggle(item.task) },
-                        onClick = { onTaskClick(item.task) },
-                        parentTitle = state.parentOf(item.task)?.title,
-                        subtaskProgress = state.subtaskProgress(item.task.id),
-                    )
+                        is AgendaItem.Entry -> TaskRow(
+                            task = item.task,
+                            projectLabel = state.projectLabel(item.task),
+                            today = today,
+                            onToggle = { onToggle(item.task) },
+                            onClick = { onTaskClick(item.task) },
+                            parentTitle = state.parentOf(item.task)?.title,
+                            subtaskProgress = state.subtaskProgress(item.task.id),
+                        )
+                    }
                 }
             }
         }

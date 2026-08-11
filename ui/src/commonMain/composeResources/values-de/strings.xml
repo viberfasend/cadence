@@ -11,6 +11,7 @@
     <!-- ── Gemeinsame Aktionen ─────────────────────────────────────────────────────── -->
     <string name="action_back">Zurück</string>
     <string name="action_search">Suchen</string>
+    <string name="action_refresh">Aktualisieren</string>
     <string name="action_settings">Einstellungen</string>
     <string name="action_sort_and_settings">Sortierung und Einstellungen</string>
     <string name="action_more">Mehr</string>
@@ -352,6 +353,12 @@
     <string name="settings_sync_failed_asleep">Letzter Abgleich fehlgeschlagen: das Supabase-Projekt pausiert. Setz es im Supabase-Dashboard fort.</string>
     <string name="settings_sync_failed_session">Letzter Abgleich fehlgeschlagen: die Sitzung ist abgelaufen. Melde dich erneut an.</string>
     <string name="settings_sync_failed_server">Letzter Abgleich fehlgeschlagen: der Server hat einen Fehler gemeldet.</string>
+
+    <!-- Die vier Zustände der Anzeige in der Kopfzeile; abgemeldet fehlt sie ganz. -->
+    <string name="sync_status_idle">Abgleich: aktuell</string>
+    <string name="sync_status_syncing">Abgleich läuft…</string>
+    <string name="sync_status_failed">Abgleich: der letzte Durchlauf ist fehlgeschlagen</string>
+    <string name="sync_status_stale">Abgleich: seit über einem Tag nichts abgeglichen</string>
 
     <!-- ── Erinnerungen ────────────────────────────────────────────────────────────── -->
     <string name="settings_reminders">Erinnerungen auf diesem Gerät</string>
