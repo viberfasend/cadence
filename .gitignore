@@ -14,6 +14,9 @@
 .cxx
 local.properties
 # Release keys stay out of the repository — they arrive through the CADENCE_* secrets.
+# Where .github/scripts/build.sh stages the finished artefacts, locally as well as on a runner.
+/dist/
+
 *.keystore
 *.jks
 # …but the debug key is checked in on purpose: it is what makes one build installable
