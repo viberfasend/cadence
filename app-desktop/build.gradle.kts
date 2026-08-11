@@ -65,7 +65,7 @@ compose.desktop {
             modules("java.sql")
             packageName = "Cadence"
             packageVersion = cadenceVersionName
-            description = "A local-first todo app. No cloud, no account, no analytics."
+            description = "A local-first todo app. No analytics, and optional sync between your own devices."
             vendor = "Andreas Sander"
 
             linux {

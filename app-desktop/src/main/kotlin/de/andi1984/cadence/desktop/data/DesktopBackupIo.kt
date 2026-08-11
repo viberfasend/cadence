@@ -1,7 +1,6 @@
 package de.andi1984.cadence.desktop.data
 
 import de.andi1984.cadence.data.CadenceRepository
-import de.andi1984.cadence.domain.backup.AutoBackupPolicy
 import de.andi1984.cadence.domain.backup.BackupCodec
 import de.andi1984.cadence.domain.backup.BackupError
 import de.andi1984.cadence.domain.backup.BackupFailure
@@ -74,21 +73,6 @@ class DesktopBackupIo(
             is Read.Ok -> restore(read)
         }
     }
-
-    /** Same "only if newer" rule automatic sync uses on Android — see
-     *  [de.andi1984.cadence.domain.backup.AutoBackupPolicy]. */
-    suspend fun importIfNewer(target: BackupTarget, lastSyncedAt: Instant?): BackupOutcome? =
-        withContext(Dispatchers.IO) {
-            when (val read = read(target)) {
-                is Read.Failed -> BackupOutcome.Failed(read.reason)
-                is Read.Ok ->
-                    if (AutoBackupPolicy.shouldImport(read.exportedAt, lastSyncedAt)) {
-                        restore(read)
-                    } else {
-                        null
-                    }
-            }
-        }
 
     private sealed interface Read {
         data class Ok(val snapshot: BackupSnapshot, val exportedAt: Instant?) : Read

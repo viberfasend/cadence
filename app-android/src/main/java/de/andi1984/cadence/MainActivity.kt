@@ -49,9 +49,6 @@ class MainActivity : ComponentActivity() {
 
             // Automatic backup sync, when the user has switched it on, reads the file as the
             // app comes up and writes it as the app leaves. Both are no-ops otherwise.
-            LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.onAppForegrounded() }
-            LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onAppBackgrounded() }
-
             val context = LocalContext.current
             // Diagnostics for the About section. The database file is the shell's business —
             // `:core` names it, Android is what knows where it landed.

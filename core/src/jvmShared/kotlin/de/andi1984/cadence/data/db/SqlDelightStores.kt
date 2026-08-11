@@ -208,29 +208,35 @@ class SqlDelightBackupStore(
      */
     override suspend fun mergeAll(projects: List<Project>, tasks: List<Task>): Unit =
         withContext(ioDispatcher) {
-            database.transaction {
-                for (project in projects) {
-                    val existing = database.projectQueries
-                        .selectByIdIncludingDeleted(project.id)
-                        .executeAsOneOrNull()
-                    if (existing == null || project.updatedAt > Instant.ofEpochMilli(existing.updatedAt)) {
-                        database.projectQueries.insertRow(project)
-                    }
-                }
-                for (task in tasks) {
-                    val existing = database.taskQueries
-                        .selectByIdIncludingDeleted(task.id)
-                        .executeAsOneOrNull()
-                    if (existing == null || task.updatedAt > Instant.ofEpochMilli(existing.updatedAt)) {
-                        database.taskQueries.insertRow(task)
-                    }
-                }
-            }
+            database.transaction { database.mergeRecords(projects, tasks) }
         }
 
 }
 
-private fun TaskQueries.insertRow(task: Task) {
+/**
+ * The merge rule itself, without a transaction of its own so a caller can put more in the same
+ * one — which is exactly what sync does, advancing its cursor beside the rows the cursor
+ * describes ([de.andi1984.cadence.data.sync.SyncStore.mergeAndAdvance]).
+ *
+ * Both callers apply the same rule because there is only one: a backup file and a pulled page are
+ * the same thing arriving by different roads.
+ */
+internal fun CadenceDatabase.mergeRecords(projects: List<Project>, tasks: List<Task>) {
+    for (project in projects) {
+        val existing = projectQueries.selectByIdIncludingDeleted(project.id).executeAsOneOrNull()
+        if (existing == null || project.updatedAt > Instant.ofEpochMilli(existing.updatedAt)) {
+            projectQueries.insertRow(project)
+        }
+    }
+    for (task in tasks) {
+        val existing = taskQueries.selectByIdIncludingDeleted(task.id).executeAsOneOrNull()
+        if (existing == null || task.updatedAt > Instant.ofEpochMilli(existing.updatedAt)) {
+            taskQueries.insertRow(task)
+        }
+    }
+}
+
+internal fun TaskQueries.insertRow(task: Task) {
     insertOrReplace(
         id = task.id,
         title = task.title,
@@ -251,7 +257,7 @@ private fun TaskQueries.insertRow(task: Task) {
     )
 }
 
-private fun ProjectQueries.insertRow(project: Project) {
+internal fun ProjectQueries.insertRow(project: Project) {
     insertOrReplace(
         id = project.id,
         name = project.name,
@@ -278,7 +284,7 @@ private fun AttachmentQueries.insertRow(attachment: Attachment) {
     )
 }
 
-private fun toTask(
+internal fun toTask(
     id: String,
     title: String,
     notes: String?,
@@ -314,7 +320,7 @@ private fun toTask(
     deletedAt = deletedAt?.let { Instant.ofEpochMilli(it) },
 )
 
-private fun toProject(
+internal fun toProject(
     id: String,
     name: String,
     colorHex: String,

@@ -218,9 +218,10 @@ fun CadenceDesktopApp(
                         onExport = viewModel::exportBackup,
                         onImport = viewModel::importBackup,
                         onClearBackupOutcome = viewModel::clearBackupOutcome,
-                        onEnableAutoBackup = viewModel::enableAutoBackup,
-                        onDisableAutoBackup = viewModel::disableAutoBackup,
-                        onDeclineAutoBackup = viewModel::declineAutoBackup,
+                        onRemindersChange = viewModel::setRemindersEnabled,
+                        onSignIn = viewModel::signIn,
+                        onSyncNow = { viewModel.syncNow() },
+                        onSignOut = { viewModel.signOut() },
                     )
 
                     Route.Triage -> TriageScreen(

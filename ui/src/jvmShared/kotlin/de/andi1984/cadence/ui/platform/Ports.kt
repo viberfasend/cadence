@@ -1,18 +1,19 @@
 package de.andi1984.cadence.ui.platform
 
-import de.andi1984.cadence.domain.backup.BackupFailure
 import de.andi1984.cadence.domain.backup.BackupOutcome
 import de.andi1984.cadence.domain.model.Task
-import kotlinx.coroutines.flow.StateFlow
 
 /**
  * What the ViewModel needs from the machine it is running on.
  *
  * `:core` already states storage as a port rather than a layer; these are the same idea for
  * everything else the app touches that Android and the desktop do differently — alarms, the file
- * a backup is written to, the folder that keeps two devices in step. `:ui` declares them, the
- * shells implement them (`:app` with AlarmManager and the Storage Access Framework today,
- * `:app-desktop` with a timer and `java.nio` in phase 5), and no screen learns which it got.
+ * a backup is written to, the dialog that picks it. `:ui` declares them, the shells implement
+ * them (`:app-android` with AlarmManager and the Storage Access Framework, `:app-desktop` with a
+ * poll, a tray icon and `java.nio`), and no screen learns which it got.
+ *
+ * Sync is deliberately *not* here: HTTPS and JSON are the same on both platforms, so
+ * `CadenceSyncEngine` is a plain class in `:core` (ADR 0002, decision 7).
  */
 
 /**
@@ -39,30 +40,6 @@ interface BackupGateway {
     suspend fun export(target: BackupTarget): BackupOutcome
 
     suspend fun import(target: BackupTarget): BackupOutcome
-}
-
-/**
- * The "keep this file up to date by yourself" feature, as the ViewModel sees it. The rules about
- * *when* it writes and reads are the implementation's; this is only the switch and the health
- * light. Superseded in phase 6 by the per-device sync folder (ADR 0001, decision 5).
- */
-interface AutoBackupController {
-    /** Why the last automatic write or read did not happen, or null while it is working. */
-    val failure: StateFlow<BackupFailure?>
-
-    fun enable(target: BackupTarget)
-
-    fun disable()
-
-    /** Records the user's answer when they turn the one-off offer down. */
-    fun declineOffer()
-
-    /** A manual export or import counts as a sync when it used the synced file. */
-    fun noteManualBackup(target: BackupTarget, outcome: BackupOutcome)
-
-    fun onAppForegrounded()
-
-    fun onAppBackgrounded()
 }
 
 /**

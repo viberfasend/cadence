@@ -58,6 +58,13 @@ kotlin {
             // api, not implementation: the store ports hand back Flow, so anything implementing
             // one — the Android app today, the desktop app next — needs the type on its path.
             api(libs.kotlinx.coroutines.core)
+            // Sync (ADR 0002, decision 6). HTTPS and JSON are not a platform difference, so the
+            // client is a plain class here rather than a port either shell implements; the only
+            // thing that could have differed — the Ktor engine — is one dependency both targets
+            // share, because OkHttp is the engine that runs on Android and the desktop alike.
+            implementation(libs.supabase.auth)
+            implementation(libs.supabase.postgrest)
+            implementation(libs.ktor.client.okhttp)
         }
         jvmSharedTest.dependencies {
             implementation(libs.test.junit)

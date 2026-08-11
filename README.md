@@ -1,10 +1,13 @@
 # Cadence
 
-A native Android todo app built from the "Cadence" design: **importance first, due date breaks
-ties**, with recurrence that understands both calendar rules and "n days after completion".
+A native Android and desktop todo app built from the "Cadence" design: **importance first, due
+date breaks ties**, with recurrence that understands both calendar rules and "n days after
+completion".
 
-Kotlin · Jetpack Compose · Material 3 · Room. No cloud, no account, no analytics — everything
-lives in a local database.
+Kotlin · Compose Multiplatform · Material 3 · SQLDelight. Local-first and no analytics: the
+database on each device is the source of truth, and the app is fully usable signed out and
+offline. Syncing your own devices is one optional sign-in in Settings
+([ADR 0002](docs/adr/0002-supabase-sync.md)); nothing leaves the device until you do.
 
 ## Getting the APK on your phone
 

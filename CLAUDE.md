@@ -4,13 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Cadence — a local-first native Android todo app (Kotlin, Jetpack Compose, Material 3, SQLDelight).
-No cloud, no account, no analytics. Package `de.andi1984.cadence` throughout.
+Cadence — a local-first native Android and desktop todo app (Kotlin, Compose Multiplatform,
+Material 3, SQLDelight). No analytics. Package `de.andi1984.cadence` throughout.
+
+**Local-first, with an optional account.** The SQLite database on each device is the source of
+truth and the app is fully usable signed out and offline; signing in (Settings) syncs your own
+devices through a Supabase project, hub-and-spoke, last-writer-wins
+([ADR 0002](docs/adr/0002-supabase-sync.md)). The synced-`backup.json` design ADR 0001 chose was
+tried and removed — two devices writing one file is a conflict no program resolves.
 
 Four modules: `:core` (Kotlin Multiplatform, the domain layer), `:ui` (Compose Multiplatform —
 theme, components, formatters, every screen, the ViewModel), `:app-android` (the Android shell,
 renamed from `:app` in ADR 0001 phase 4) and `:app-desktop` (the JVM shell for Ubuntu/macOS/
-Windows, added in ADR 0001 phase 5 — **first runnable desktop build**, no sync yet). Both shells
+Windows, added in ADR 0001 phase 5). Both shells
 are built out of `:core` and `:ui` in the steps laid out in
 [`docs/adr/0001-desktop-app-and-multi-device-sync.md`](docs/adr/0001-desktop-app-and-multi-device-sync.md).
 
@@ -46,6 +52,13 @@ therefore also runs `:ui:compileKotlinJvm` on its own: without it the Android bu
 green while the module the desktop app is mostly made of stopped compiling for the JVM.
 
 JDK 17, compileSdk/targetSdk 35, minSdk 26. No lint or format task is wired up.
+
+The server half of sync is `supabase/migrations/*.sql` — two tables, forced RLS and the
+stale-write trigger. It is committed rather than left in the dashboard because it is the one part
+of the system the Kotlin suite cannot reach; apply it with `supabase db push` or by pasting it
+into a fresh project's SQL editor. `SupabaseConfig` reads `CADENCE_SUPABASE_URL` and
+`CADENCE_SUPABASE_ANON_KEY` from the environment when set, so pointing a build at another project
+edits no Kotlin. The anon key is committed on purpose: RLS is what protects the rows.
 
 ```bash
 ./gradlew connectedDebugAndroidTest   # needs a device; CI has no emulator
@@ -96,20 +109,22 @@ palette, are left for later — phase 5's bar is a *working* shell, not a *finis
 ```
 :core         domain/     pure Kotlin — model, RecurrenceEngine, QuickAddParser, BackupCodec. NO
                           Android imports; this is what the JVM unit tests exercise. Keep it that way.
-              data/       CadenceRepository, the TaskStore/ProjectStore/BackupStore ports it needs, and
-                          the SQLDelight-backed implementations of those ports (data/db/)
+              data/       CadenceRepository, the TaskStore/ProjectStore/BackupStore/SyncStore ports it
+                          needs, and the SQLDelight-backed implementations of those ports (data/db/)
+              data/sync/  CadenceSyncEngine (supabase-kt: sign in, pull, merge, push), the wire DTOs
+                          and SupabaseConfig — a plain class, not a port (ADR 0002, decision 7)
 :ui           ui/         theme, shared components, ui/format/, one package per screen, CadenceViewModel
               ui/platform/ the ports the ViewModel needs from the machine — ReminderScheduler,
-                          BackupGateway, AutoBackupController, BackupFilePicker
+                          BackupGateway, BackupFilePicker
               composeResources/ strings.xml and values-de/, reached as Res.string.x
 :app-android  ui/         CadenceApp (NavHost, bottom bar, FAB), CadenceViewModelHost, the SAF picker
-              data/backup/BackupIo (SAF read/write), AutoBackupSync
+              data/backup/BackupIo (SAF read/write)
               data/settings/SharedPrefsSettingsStore
               reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
 :app-desktop  Main.kt     application {}/Window, wires CadenceViewModel, Ctrl/Cmd+N
               AppContainer.kt hand-rolled DI, same shape as :app-android's
               ui/         CadenceDesktopApp (hand-rolled back stack, NavigationRail sidebar)
-              data/       DesktopBackupIo (java.nio), DesktopAutoBackupSync, DesktopSettingsStore
+              data/       DesktopBackupIo (java.nio), DesktopSettingsStore
                           (JSON file), DesktopBackupFilePicker (JFileChooser), DesktopReminderScheduler
                           (coroutine poll + system tray, no AlarmManager here)
               platform/   PlatformDirs — the per-OS data directory (ADR 0001 §8)
@@ -117,13 +132,14 @@ palette, are left for later — phase 5's bar is a *working* shell, not a *finis
 
 **`:ui` states its platform needs as ports too.** `:core` already treats storage that way; the
 same idea covers everything else the app touches that Android and the desktop do differently.
-`ui/platform/Ports.kt` declares `ReminderScheduler`, `BackupGateway`, `AutoBackupController` and
-`BackupFilePicker`, plus `BackupTarget` — an opaque string that is a SAF content uri on Android
-and a plain absolute path on the desktop, which `:ui` only ever hands back. `:app-android`
-implements all four (`AlarmReminderScheduler`, `BackupIo`, `AutoBackupSync`,
-`rememberSafBackupFilePicker`) and `:app-desktop` implements the same four
-(`DesktopReminderScheduler`, `DesktopBackupIo`, `DesktopAutoBackupSync`,
-`DesktopBackupFilePicker`), and no screen learns which shell it got. `SettingsStore` is a port
+`ui/platform/Ports.kt` declares `ReminderScheduler`, `BackupGateway` and `BackupFilePicker`, plus
+`BackupTarget` — an opaque string that is a SAF content uri on Android and a plain absolute path
+on the desktop, which `:ui` only ever hands back. `:app-android` implements all three
+(`AlarmReminderScheduler`, `BackupIo`, `rememberSafBackupFilePicker`) and `:app-desktop`
+implements the same three (`DesktopReminderScheduler`, `DesktopBackupIo`,
+`DesktopBackupFilePicker`), and no screen learns which shell it got. **Sync is deliberately not a
+port**: HTTPS and JSON are identical on both platforms, so `CadenceSyncEngine` is a concrete class
+in `:core` that each `AppContainer` constructs on its application scope (ADR 0002, decision 7). `SettingsStore` is a port
 for the same reason, declared next to the settings types in `ui/settings/SettingsStore.kt` —
 `SharedPrefsSettingsStore` on Android, `DesktopSettingsStore` (a JSON file under `PlatformDirs`)
 on the desktop.
@@ -175,11 +191,14 @@ than reaching for `!!`.
   its final id and return nothing.
 - `taskRow`/`projectRow` are the schema's table names, not `task`/`project` — SQLDelight names the
   generated row class after the table, and `Task`/`Project` were already taken by the domain
-  model. The tables live in `data/db/Task.sq` and `data/db/Project.sq`; there is a fresh schema
-  at version 1 with no migration chain yet, since the Room migration chain 1→4 was deleted rather
-  than carried forward onto UUID keys (ADR 0001, decision 7) — a schema change today just edits
-  the `.sq` file, but the day a shipped install exists, it needs a SQLDelight `.sqm` migration
-  file instead, the same way `MIGRATION_3_4` used to work.
+  model. The tables live in `data/db/Task.sq`, `data/db/Project.sq`, `data/db/Attachment.sq` and
+  `data/db/SyncState.sq`. **The schema is at version 2 and now has a migration chain**: shipped
+  installs of version 1 exist, so a schema change means both editing the `.sq` file *and* adding
+  an `N.sqm` beside it (`1.sqm` migrates 1→2 and adds `syncStateRow`), the way `MIGRATION_3_4`
+  used to work under Room. `AndroidSqliteDriver` runs migrations from its callback; the desktop's
+  `JdbcSqliteDriver` has no such lifecycle, so `DatabaseDriverFactory` tracks the version in
+  SQLite's own `PRAGMA user_version` — where **0 means "version 1, from before we counted"**,
+  because nothing set it until now and the file already has the version-1 tables.
 - Every row carries `updatedAt` (epoch millis) and `deletedAt` (epoch millis, nullable). **Deleting
   is a tombstone, not a `DELETE`** (`docs/adr/0002-supabase-sync.md`): the row stays, `deletedAt` is
   stamped, and every read in `Task.sq`/`Project.sq` filters `deletedAt IS NULL`. A delete has to
@@ -268,36 +287,44 @@ than reaching for `!!`.
   decides every record: greater `updatedAt` wins, ties keep what is stored, and a tombstone
   competes on its timestamp like any other version rather than being special-cased — a v1 file,
   whose rows decode to `Instant.EPOCH`, therefore loses every conflict.
-- **Automatic backup sync is opt-in, and asked exactly once.** The offer appears after the first
-  *successful* manual export or import (`SettingsScreen` holds the picked uri back until the
-  outcome is `Exported`/`Imported`), and `AutoBackupSettings.offered` makes sure a "not now" is
-  never asked again — `AutoBackupSection` in Settings is the only way in and out from then on.
-  Manual export and import stay untouched whichever way it is answered. `AutoBackupSync` then
-  writes the file on every change (debounced 2s) and on `ON_STOP`, and reads it on `ON_START`.
-  Four things are load-bearing:
-  - **Choosing and changing the file are buttons, not the switch.** A switch that silently opens
-    a system file picker reads as broken, so `AutoBackupSection` only shows the switch once a
-    file is named — pause/resume is genuinely all it does then — and puts picking or re-picking
-    the file behind its own "Choose a file to sync" / "Change file" actions, both wired to the
-    same export-and-enable flow as the switch used to trigger. "Change file" is always visible
-    once a file exists, including next to the failure message, because a file that stopped
-    working (moved, deleted, permission revoked) used to be a dead end: resuming always replayed
-    the same broken uri, and nothing in the UI could point sync at a different file.
-  - **It never reads back a file it wrote itself.** `AutoBackupPolicy.shouldImport` compares the
-    file's `exportedAt` against `AutoBackupSettings.lastSyncedAt` — the timestamp of the last file
-    this device wrote *or* imported — because an import replaces every row and re-reading our own
-    export would undo everything added since. A device that has never synced with the file
-    (`lastSyncedAt == null`) refuses to import it; a foreign file only ever arrives through an
-    explicit manual import, which records the timestamp and lets every later open follow along.
-  - **The picker's uri grant dies with the process**, so the export contract is subclassed
-    (`PersistableCreateDocument`) to ask for a persistable one and `AutoBackupSync.enable` takes
-    it. If that fails the switch stays off and says why rather than promising a sync that stops
-    at the next restart.
-  - **It runs on an application-scoped coroutine** in `AppContainer`, not `viewModelScope`: the
-    write that starts as the user leaves has to outlive the screen it started from. A `Mutex`
-    serialises reads against writes.
+- **Sync is one round, run by hand, and every step of it is idempotent** (`data/sync/
+  CadenceSyncEngine.kt`, ADR 0002). Signed out it does nothing at all and no request is made.
+  Signed in, `syncOnce()` holds a `Mutex` and does: pull rows at or after the stored cursor →
+  merge each page and advance the cursor **in the same transaction** → push everything written
+  since the watermark, tombstones included → collect tombstones past 90 days, at most daily and
+  only after a round that pushed. Five things are load-bearing:
+  - **The cursor is the server's clock, the merge is the device's.** `server_updated_at` is
+    written only by the server's trigger, so a device whose clock is wrong can lose a conflict
+    but can never make itself invisible to the other device. The pull deliberately re-reads a
+    five-second overlap, because Postgres's `now()` is transaction-start time and a transaction
+    that began earlier may commit later, landing behind a cursor already advanced past it.
+  - **There is no `dirty` column, and it is the server that makes that safe.** The push sends
+    everything above the watermark, so a row that arrived *from* the server gets pushed straight
+    back; the `BEFORE INSERT OR UPDATE` trigger in `supabase/migrations/` sees a timestamp that
+    is not strictly greater and returns `NULL`, which skips *that row* without failing the batch.
+    Ties keep the incumbent, on both sides.
+  - **The new watermark is the newest `updatedAt` actually sent**, never "now": a row written
+    while the push was in flight stands above it and waits for the next round rather than being
+    skipped by a clock that ran ahead of the data.
+  - **The session lives in `syncStateRow`, not in the settings file**, via a `SessionManager`
+    handed to supabase-kt — it has to stay consistent with the cursors beside it. Signing out
+    clears session, cursors and watermark and deletes **nothing**: the local database is the
+    source of truth.
+  - **The wire is the published shape, not the storage shape.** `data/sync/RemoteRecords.kt`
+    speaks ISO dates and a `jsonb` recurrence object, and its DTOs are separate types from
+    `BackupCodec`'s on purpose, so a Postgres column rename cannot change the shape of an
+    exported backup file. Timestamps truncate to milliseconds in both directions, or a row
+    pushed and pulled back returns strictly newer than its local copy and ping-pongs forever.
+- **Reminders are a per-device setting** (`CadenceSettings.remindersEnabled`), on by default on
+  Android and off on the desktop — the default lives in each shell's `SettingsStore`, since that
+  is the only thing that differs. Once a task exists on both devices both would otherwise fire
+  for it at the same minute. Switching it off hands `ReminderScheduler.sync` the same tasks with
+  their reminder times stripped, so it *cancels* what it had scheduled; an empty list would leave
+  those alarms standing.
 - Settings persist to `SharedPreferences` via `SharedPrefsSettingsStore` (not DataStore), the
-  Android implementation of `:ui`'s `SettingsStore` port, exposed as a `StateFlow`.
+  Android implementation of `:ui`'s `SettingsStore` port, exposed as a `StateFlow`. They stay
+  per-device and out of sync — theme, density, language and reminders describe a screen or a
+  machine, not a task list.
 
 ### UI conventions
 

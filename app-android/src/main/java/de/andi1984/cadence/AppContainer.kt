@@ -4,14 +4,15 @@ import android.app.Application
 import android.content.Context
 import de.andi1984.cadence.data.BlobStore
 import de.andi1984.cadence.data.CadenceRepository
-import de.andi1984.cadence.data.backup.AutoBackupSync
 import de.andi1984.cadence.data.backup.BackupIo
 import de.andi1984.cadence.data.db.CadenceDatabase
 import de.andi1984.cadence.data.db.DatabaseDriverFactory
 import de.andi1984.cadence.data.db.SqlDelightAttachmentStore
 import de.andi1984.cadence.data.db.SqlDelightBackupStore
 import de.andi1984.cadence.data.db.SqlDelightProjectStore
+import de.andi1984.cadence.data.db.SqlDelightSyncStore
 import de.andi1984.cadence.data.db.SqlDelightTaskStore
+import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.data.settings.SharedPrefsSettingsStore
 import de.andi1984.cadence.reminders.AlarmReminderScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -53,11 +54,10 @@ class AppContainer(context: Context) {
      */
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    val autoBackupSync = AutoBackupSync(
-        context = context,
-        backupIo = backupIo,
-        settingsStore = settingsStore,
-        repository = repository,
+    /** On the application scope, not a ViewModel's: a round that starts as the user leaves the
+     *  screen has to be allowed to finish, and the session it refreshes outlives every screen. */
+    val syncEngine = CadenceSyncEngine(
+        store = SqlDelightSyncStore(database),
         scope = applicationScope,
     )
 

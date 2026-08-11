@@ -2,7 +2,9 @@ package de.andi1984.cadence.ui
 
 import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.data.RepositoryResult
-import de.andi1984.cadence.domain.backup.BackupFailure
+import de.andi1984.cadence.data.sync.CadenceSyncEngine
+import de.andi1984.cadence.data.sync.SignInResult
+import de.andi1984.cadence.data.sync.SyncStatus
 import de.andi1984.cadence.domain.backup.BackupOutcome
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
@@ -12,12 +14,13 @@ import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.model.projectPath
 import de.andi1984.cadence.domain.model.withoutSupersededOccurrences
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
-import de.andi1984.cadence.ui.platform.AutoBackupController
 import de.andi1984.cadence.ui.platform.BackupGateway
 import de.andi1984.cadence.ui.platform.BackupTarget
 import de.andi1984.cadence.ui.platform.ReminderScheduler
 import de.andi1984.cadence.ui.settings.CadenceSettings
 import de.andi1984.cadence.ui.settings.Density
+import de.andi1984.cadence.ui.settings.SignInError
+import de.andi1984.cadence.ui.settings.SyncUiState
 import de.andi1984.cadence.ui.settings.SettingsStore
 import de.andi1984.cadence.ui.settings.SortMode
 import de.andi1984.cadence.ui.settings.ThemeChoice
@@ -55,8 +58,8 @@ data class CadenceUiState(
     val settings: CadenceSettings = CadenceSettings(),
     /** Result of the last export or import, shown once under the Settings buttons. */
     val backupOutcome: BackupOutcome? = null,
-    /** Why automatic sync last failed, or null while it is working. */
-    val autoBackupFailure: BackupFailure? = null,
+    /** Sign-in state and where the last sync round got to. */
+    val sync: SyncUiState = SyncUiState(),
     /** Current snackbar message to display, if any. */
     val snackbarMessage: SnackbarMessage? = null,
 ) {
@@ -168,22 +171,23 @@ class CadenceViewModel(
     private val settingsStore: SettingsStore,
     private val reminderScheduler: ReminderScheduler,
     private val backupGateway: BackupGateway,
-    private val autoBackupSync: AutoBackupController,
+    private val syncEngine: CadenceSyncEngine,
     private val scope: CoroutineScope,
 ) {
 
     private val backupOutcome = MutableStateFlow<BackupOutcome?>(null)
     private val snackbarMessage = MutableStateFlow<SnackbarMessage?>(null)
 
-    /** Settings and the health of automatic sync always travel together into the Data section,
-     *  and `combine` takes five flows at most. */
-    private val settingsWithSync = combine(
-        settingsStore.state,
-        autoBackupSync.failure,
-    ) { settings, failure -> settings to failure }
+    /** What a sign-in attempt is doing, folded together with the engine's own status — the
+     *  screen wants one value, and `combine` takes five flows at most. */
+    private val signInState = MutableStateFlow(SyncUiState())
 
-    /** Paired for the same reason as [settingsWithSync] — one more flow (attachments, phase 1)
-     *  would push the state combine past `combine`'s five-flow overload. */
+    private val syncState = combine(
+        syncEngine.status,
+        signInState,
+    ) { status, attempt -> attempt.copy(status = status) }
+
+    /** Paired so the state combine stays inside `combine`'s five-flow overload. */
     private val backupAndSnackbar = combine(
         backupOutcome,
         snackbarMessage,
@@ -192,15 +196,16 @@ class CadenceViewModel(
     val state: StateFlow<CadenceUiState> = combine(
         repository.tasks,
         repository.projects,
-        settingsWithSync,
+        settingsStore.state,
+        syncState,
         backupAndSnackbar,
-    ) { tasks, projects, (settings, autoFailure), (backup, snackMessage) ->
+    ) { tasks, projects, settings, sync, (backup, snackMessage) ->
         CadenceUiState(
             tasks = tasks,
             projects = projects,
             settings = settings,
             backupOutcome = backup,
-            autoBackupFailure = autoFailure,
+            sync = sync,
             snackbarMessage = snackMessage,
         )
     }.stateIn(
@@ -210,8 +215,15 @@ class CadenceViewModel(
     )
 
     init {
+        // Reminders reconcile on every emission, and on whether this device fires them at all:
+        // with the task list shared between two devices, both would otherwise go off for the same
+        // task at the same minute (ADR 0002, decision 9). Switching them off hands the scheduler
+        // the same tasks with their reminder times stripped, so it *cancels* what it had
+        // scheduled — passing an empty list would leave those alarms standing.
         scope.launch {
-            repository.tasks.collect { tasks -> reminderScheduler.sync(tasks) }
+            combine(repository.tasks, settingsStore.state) { tasks, settings ->
+                if (settings.remindersEnabled) tasks else tasks.map { it.copy(reminderTime = null) }
+            }.collect { tasks -> reminderScheduler.sync(tasks) }
         }
     }
 
@@ -391,38 +403,51 @@ class CadenceViewModel(
 
     fun setShowCompleted(show: Boolean) = settingsStore.setShowCompleted(show)
 
+    fun setRemindersEnabled(enabled: Boolean) = settingsStore.setRemindersEnabled(enabled)
+
     // ── Backup ─────────────────────────────────────────────────────────────────────
 
     fun exportBackup(target: BackupTarget) = scope.launch {
-        val outcome = backupGateway.export(target)
-        backupOutcome.value = outcome
-        autoBackupSync.noteManualBackup(target, outcome)
+        backupOutcome.value = backupGateway.export(target)
     }
 
-    /** Replaces every task and project with the file's contents; reminders resync themselves. */
+    /** Folds the file into what is already here; reminders resync themselves. */
     fun importBackup(target: BackupTarget) = scope.launch {
-        val outcome = backupGateway.import(target)
-        backupOutcome.value = outcome
-        autoBackupSync.noteManualBackup(target, outcome)
+        backupOutcome.value = backupGateway.import(target)
     }
 
     fun clearBackupOutcome() {
         backupOutcome.value = null
     }
 
-    // ── Automatic backup sync ──────────────────────────────────────────────────────
+    // ── Sync ───────────────────────────────────────────────────────────────────────
 
-    /** Turns sync on for the file the user just exported to, or picked from Settings. */
-    fun enableAutoBackup(target: BackupTarget) = autoBackupSync.enable(target)
+    /** Signs in and immediately syncs: the point of signing in is the data, and making the user
+     *  press a second button to get it would be asking them to finish the job by hand. */
+    fun signIn(email: String, password: String) = scope.launch {
+        signInState.value = SyncUiState(signingIn = true)
+        when (val result = syncEngine.signIn(email, password)) {
+            SignInResult.Ok -> {
+                signInState.value = SyncUiState()
+                syncEngine.syncOnce()
+            }
+            SignInResult.WrongCredentials ->
+                signInState.value = SyncUiState(error = SignInError.WRONG_CREDENTIALS)
+            SignInResult.Offline ->
+                signInState.value = SyncUiState(error = SignInError.OFFLINE)
+            is SignInResult.Failed ->
+                signInState.value = SyncUiState(error = SignInError.SERVER)
+        }
+    }
 
-    fun disableAutoBackup() = autoBackupSync.disable()
+    fun syncNow() = scope.launch { syncEngine.syncOnce() }
 
-    /** "Not now" — the offer is answered, and manual export and import carry on as before. */
-    fun declineAutoBackup() = autoBackupSync.declineOffer()
-
-    fun onAppForegrounded() = autoBackupSync.onAppForegrounded()
-
-    fun onAppBackgrounded() = autoBackupSync.onAppBackgrounded()
+    /** Signs out. Nothing local is deleted — the database on this device is the source of
+     *  truth, and this only forgets the account and where the last round got to. */
+    fun signOut() = scope.launch {
+        syncEngine.signOut()
+        signInState.value = SyncUiState()
+    }
 
     /** Show a snackbar message with optional undo action. */
     fun showSnackbar(text: String, undoAction: UndoAction? = null, duration: Long = 5000L) {

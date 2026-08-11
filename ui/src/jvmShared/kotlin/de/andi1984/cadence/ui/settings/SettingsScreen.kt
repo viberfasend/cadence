@@ -14,26 +14,30 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import de.andi1984.cadence.domain.backup.BackupFailure
-import de.andi1984.cadence.domain.backup.BackupOutcome
+import de.andi1984.cadence.data.sync.SyncFailure
+import de.andi1984.cadence.data.sync.SyncStatus
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.CadenceChip
-import de.andi1984.cadence.ui.format.backupFailureText
 import de.andi1984.cadence.ui.format.backupOutcomeText
 import de.andi1984.cadence.ui.format.formatFileSize
 import de.andi1984.cadence.ui.format.relativeTime
@@ -44,7 +48,6 @@ import de.andi1984.cadence.ui.resources.Res
 import de.andi1984.cadence.ui.resources.*
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
-import java.net.URLDecoder
 import java.time.LocalDate
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -57,12 +60,13 @@ fun SettingsScreen(
     onThemeChange: (ThemeChoice) -> Unit,
     onDensityChange: (Density) -> Unit,
     onShowCompletedChange: (Boolean) -> Unit,
+    onRemindersChange: (Boolean) -> Unit,
     onExport: (BackupTarget) -> Unit,
     onImport: (BackupTarget) -> Unit,
     onClearBackupOutcome: () -> Unit,
-    onEnableAutoBackup: (BackupTarget) -> Unit,
-    onDisableAutoBackup: () -> Unit,
-    onDeclineAutoBackup: () -> Unit,
+    onSignIn: (String, String) -> Unit,
+    onSyncNow: () -> Unit,
+    onSignOut: () -> Unit,
 ) {
     val settings = state.settings
 
@@ -149,6 +153,32 @@ fun SettingsScreen(
                 }
             }
 
+            SettingSection(stringResource(Res.string.settings_reminders))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Switch(
+                    checked = settings.remindersEnabled,
+                    onCheckedChange = onRemindersChange,
+                )
+                Text(
+                    text = stringResource(Res.string.settings_reminders_supporting),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            SettingSection(stringResource(Res.string.settings_sync))
+            SyncSection(
+                sync = state.sync,
+                onSignIn = onSignIn,
+                onSyncNow = onSyncNow,
+                onSignOut = onSignOut,
+            )
+
             SettingSection(stringResource(Res.string.settings_data))
             BackupControls(
                 state = state,
@@ -156,9 +186,6 @@ fun SettingsScreen(
                 onExport = onExport,
                 onImport = onImport,
                 onClearBackupOutcome = onClearBackupOutcome,
-                onEnableAutoBackup = onEnableAutoBackup,
-                onDisableAutoBackup = onDisableAutoBackup,
-                onDeclineAutoBackup = onDeclineAutoBackup,
             )
 
             SettingSection(stringResource(Res.string.settings_about))
@@ -205,15 +232,13 @@ private fun AppMetadata(state: CadenceUiState, appInfo: AppInfo) {
 }
 
 /**
- * Export and import go through the Storage Access Framework, so the user names the file and the
- * app needs no storage permission. Import replaces everything, hence the confirmation dialog.
+ * Export and import go through the platform's file picker, so the user names the file and the app
+ * needs no storage permission.
  *
- * The first successful export *or* import is also a moment the app offers to keep that file up
- * to date by itself: until there is a file, the offer would have nothing to point at, and a file
- * just imported is exactly the file a user picking up automatic sync already trusts. Whatever
- * the answer, it is asked once — from then on [AutoBackupSection] is the way in and out, and its
- * own "Change file" action (not the switch) is what re-runs this same picker later, so a file
- * that stops working is never a dead end.
+ * Import used to replace both tables and therefore needed a warning; since ADR 0002 phase 1 it is
+ * a merge, so the dialog now says what actually happens — nothing here is deleted, and the newer
+ * version of a task wins. The dialog stays, because folding somebody else's file into your own
+ * data is still not something to do by a stray tap.
  */
 @Composable
 private fun BackupControls(
@@ -222,50 +247,15 @@ private fun BackupControls(
     onExport: (BackupTarget) -> Unit,
     onImport: (BackupTarget) -> Unit,
     onClearBackupOutcome: () -> Unit,
-    onEnableAutoBackup: (BackupTarget) -> Unit,
-    onDisableAutoBackup: () -> Unit,
-    onDeclineAutoBackup: () -> Unit,
 ) {
-    val autoBackup = state.settings.autoBackup
     var pendingImport by remember { mutableStateOf<BackupTarget?>(null) }
-    var offerFor by remember { mutableStateOf<BackupTarget?>(null) }
-    // The file the offer would be about, held back until the export/import actually went
-    // through — offering to keep a file in sync that was never written or read would be a lie.
-    var offerCandidate by remember { mutableStateOf<BackupTarget?>(null) }
     val suggestedName = stringResource(Res.string.backup_file_name, LocalDate.now().toString())
-
-    // [enableSync] tells the two reasons for opening the same picker apart: choosing or changing
-    // the sync file first means the export that follows is recorded as a sync, so the next launch
-    // knows this file as one of its own and leaves the data alone.
-    fun pickExportTarget(enableSync: Boolean) {
-        filePicker.pickExportTarget(suggestedName) { target ->
-            if (enableSync) {
-                onEnableAutoBackup(target)
-            } else if (!autoBackup.offered) {
-                offerCandidate = target
-            }
-            onExport(target)
-        }
-    }
-
-    LaunchedEffect(state.backupOutcome, offerCandidate) {
-        val candidate = offerCandidate ?: return@LaunchedEffect
-        when (state.backupOutcome) {
-            is BackupOutcome.Exported, is BackupOutcome.Imported -> {
-                offerFor = candidate
-                offerCandidate = null
-            }
-
-            is BackupOutcome.Failed -> offerCandidate = null
-            else -> Unit
-        }
-    }
 
     // The result line belongs to this visit to Settings, not to the app.
     DisposableEffect(Unit) { onDispose(onClearBackupOutcome) }
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        OutlinedButton(onClick = { pickExportTarget(enableSync = false) }) {
+        OutlinedButton(onClick = { filePicker.pickExportTarget(suggestedName, onExport) }) {
             Icon(AppIcons.Download, contentDescription = null)
             Text(
                 text = stringResource(Res.string.settings_export),
@@ -302,34 +292,6 @@ private fun BackupControls(
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
-
-        AutoBackupSection(
-            settings = autoBackup,
-            failure = state.autoBackupFailure,
-            onToggle = { checked ->
-                if (checked) {
-                    // A file is already named: ticking the box again resumes it rather than
-                    // sending the user back through the picker.
-                    onEnableAutoBackup(BackupTarget(autoBackup.fileUri.orEmpty()))
-                } else {
-                    onDisableAutoBackup()
-                }
-            },
-            onChooseFile = { pickExportTarget(enableSync = true) },
-        )
-    }
-
-    offerFor?.let { target ->
-        AutoBackupOfferDialog(
-            onEnable = {
-                offerFor = null
-                onEnableAutoBackup(target)
-            },
-            onDecline = {
-                offerFor = null
-                onDeclineAutoBackup()
-            },
-        )
     }
 
     pendingImport?.let { target ->
@@ -341,7 +303,6 @@ private fun BackupControls(
                 TextButton(
                     onClick = {
                         pendingImport = null
-                        if (!autoBackup.offered) offerCandidate = target
                         onImport(target)
                     },
                 ) {
@@ -358,132 +319,151 @@ private fun BackupControls(
 }
 
 /**
- * Automatic sync has exactly two controls, kept visibly distinct so neither is mistaken for the
- * other: a button when there is no file yet, because picking one opens a whole system dialog and
- * a switch should never do that invisibly, and a switch once there is one, because from then on
- * the action really is just pause/resume. "Change file" stays reachable from both the normal and
- * the failed state — nothing here used to let a broken or unwanted file be swapped out short of
- * losing sync entirely, which was the sharp edge users actually hit.
+ * Sign in, sync now, sign out — the whole of sync's UI in phase 2, and deliberately manual.
+ *
+ * There is a form and no "create account" link because there is exactly one account and sign-ups
+ * are disabled server-side (ADR 0002, decision 2): a registration form here could only ever
+ * produce an error. Automatic triggers — on start, after an edit, on close — are phase 3; what
+ * this screen proves is that the phone and the desktop reach the same data at all.
  */
 @Composable
-private fun AutoBackupSection(
-    settings: AutoBackupSettings,
-    failure: BackupFailure?,
-    onToggle: (Boolean) -> Unit,
-    onChooseFile: () -> Unit,
+private fun SyncSection(
+    sync: SyncUiState,
+    onSignIn: (String, String) -> Unit,
+    onSyncNow: () -> Unit,
+    onSignOut: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier.padding(top = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
-            text = stringResource(Res.string.settings_auto_backup),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = stringResource(Res.string.settings_auto_backup_supporting),
+            text = stringResource(Res.string.settings_sync_supporting),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        if (settings.fileUri == null) {
-            OutlinedButton(onClick = onChooseFile, modifier = Modifier.padding(top = 6.dp)) {
-                Icon(AppIcons.Upload, contentDescription = null)
-                Text(
-                    text = stringResource(Res.string.settings_auto_backup_choose),
-                    modifier = Modifier.padding(start = 10.dp),
-                )
-            }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Switch(checked = settings.enabled, onCheckedChange = onToggle)
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(Res.string.settings_auto_backup_file, backupFileName(settings.fileUri)),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    settings.lastSyncedAt?.let { at ->
-                        Text(
-                            text = stringResource(
-                                Res.string.settings_auto_backup_last_synced,
-                                relativeTime(at),
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-            TextButton(onClick = onChooseFile) {
-                Text(stringResource(Res.string.settings_auto_backup_change))
-            }
-        }
-
-        // Sync is invisible while it works, so it has to speak up when it stops — a file that
-        // was moved or deleted, most likely. "Change file" is what actually gets someone unstuck.
-        failure?.let { reason ->
-            Text(
-                text = stringResource(Res.string.settings_auto_backup_failed, backupFailureText(reason)),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
+        when (val status = sync.status) {
+            is SyncStatus.SignedOut -> SignInForm(sync = sync, onSignIn = onSignIn)
+            is SyncStatus.Syncing -> SignedIn(
+                email = status.email,
+                busy = true,
+                line = stringResource(Res.string.settings_sync_running),
+                onSyncNow = onSyncNow,
+                onSignOut = onSignOut,
             )
-            TextButton(onClick = onChooseFile) {
-                Text(stringResource(Res.string.settings_auto_backup_change))
-            }
+            is SyncStatus.Idle -> SignedIn(
+                email = status.email,
+                busy = false,
+                line = status.lastSyncedAt
+                    ?.let { stringResource(Res.string.settings_sync_last_synced, relativeTime(it)) }
+                    ?: stringResource(Res.string.settings_sync_never),
+                onSyncNow = onSyncNow,
+                onSignOut = onSignOut,
+            )
+            is SyncStatus.Failed -> SignedIn(
+                email = status.email,
+                busy = false,
+                line = syncFailureText(status.reason),
+                isError = true,
+                onSyncNow = onSyncNow,
+                onSignOut = onSignOut,
+            )
         }
     }
 }
 
-/** Asked once, right after the first export produced a file worth keeping up to date. */
 @Composable
-private fun AutoBackupOfferDialog(onEnable: () -> Unit, onDecline: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDecline,
-        icon = { Icon(AppIcons.Download, contentDescription = null) },
-        title = { Text(stringResource(Res.string.auto_backup_offer_title)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(stringResource(Res.string.auto_backup_offer_text))
-                Text(
-                    text = stringResource(Res.string.auto_backup_offer_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onEnable) {
-                Text(stringResource(Res.string.auto_backup_offer_enable))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDecline) {
-                Text(stringResource(Res.string.auto_backup_offer_decline))
-            }
-        },
+private fun SignInForm(sync: SyncUiState, onSignIn: (String, String) -> Unit) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+
+    OutlinedTextField(
+        value = email,
+        onValueChange = { email = it },
+        label = { Text(stringResource(Res.string.settings_sync_email)) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+        modifier = Modifier.fillMaxWidth(),
     )
+    OutlinedTextField(
+        value = password,
+        onValueChange = { password = it },
+        label = { Text(stringResource(Res.string.settings_sync_password)) },
+        singleLine = true,
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Button(
+        onClick = { onSignIn(email, password) },
+        enabled = !sync.signingIn && email.isNotBlank() && password.isNotBlank(),
+    ) {
+        Text(
+            text = if (sync.signingIn) {
+                stringResource(Res.string.settings_sync_signing_in)
+            } else {
+                stringResource(Res.string.settings_sync_sign_in)
+            },
+        )
+    }
+    sync.error?.let { error ->
+        Text(
+            text = signInErrorText(error),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
 }
 
-/**
- * The document's own name, which is all of a content uri a person recognises.
- *
- * A SAF uri ends in one percent-encoded segment that itself holds a path
- * (`…/document/primary%3ADownload%2Fcadence.json`), so the last `/` is looked for twice: once in
- * the uri, once inside the decoded segment. A plain desktop path falls out of the first step.
- * `+` is escaped before decoding because it means a literal plus in a path and a space in a query.
- */
-private fun backupFileName(uri: String): String = uri
-    .substringBefore('?')
-    .substringAfterLast('/')
-    .let { runCatching { URLDecoder.decode(it.replace("+", "%2B"), "UTF-8") }.getOrDefault(it) }
-    .substringAfterLast('/')
-    .ifBlank { uri }
+@Composable
+private fun SignedIn(
+    email: String?,
+    busy: Boolean,
+    line: String,
+    isError: Boolean = false,
+    onSyncNow: () -> Unit,
+    onSignOut: () -> Unit,
+) {
+    email?.let {
+        Text(
+            text = stringResource(Res.string.settings_sync_signed_in_as, it),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+    Text(
+        text = line,
+        style = MaterialTheme.typography.bodySmall,
+        color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Button(onClick = onSyncNow, enabled = !busy) {
+            Text(stringResource(Res.string.settings_sync_now))
+        }
+        if (busy) {
+            CircularProgressIndicator(modifier = Modifier.padding(start = 4.dp))
+        }
+        TextButton(onClick = onSignOut, enabled = !busy) {
+            Text(stringResource(Res.string.settings_sync_sign_out))
+        }
+    }
+}
+
+@Composable
+private fun signInErrorText(error: SignInError): String = when (error) {
+    SignInError.WRONG_CREDENTIALS -> stringResource(Res.string.settings_sync_error_credentials)
+    SignInError.OFFLINE -> stringResource(Res.string.settings_sync_error_offline)
+    SignInError.SERVER -> stringResource(Res.string.settings_sync_error_server)
+}
+
+@Composable
+private fun syncFailureText(reason: SyncFailure): String = when (reason) {
+    SyncFailure.OFFLINE -> stringResource(Res.string.settings_sync_failed_offline)
+    SyncFailure.PROJECT_ASLEEP -> stringResource(Res.string.settings_sync_failed_asleep)
+    SyncFailure.SESSION_EXPIRED -> stringResource(Res.string.settings_sync_failed_session)
+    SyncFailure.SERVER -> stringResource(Res.string.settings_sync_failed_server)
+}
 
 @Composable
 private fun SettingSection(title: String) {

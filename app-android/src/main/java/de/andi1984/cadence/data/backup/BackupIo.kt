@@ -3,7 +3,6 @@ package de.andi1984.cadence.data.backup
 import android.content.Context
 import android.net.Uri
 import de.andi1984.cadence.data.CadenceRepository
-import de.andi1984.cadence.domain.backup.AutoBackupPolicy
 import de.andi1984.cadence.domain.backup.BackupCodec
 import de.andi1984.cadence.domain.backup.BackupError
 import de.andi1984.cadence.domain.backup.BackupFailure
@@ -74,24 +73,6 @@ class BackupIo(
             is Read.Ok -> restore(read)
         }
     }
-
-    /**
-     * The import automatic sync performs on its own: the file only replaces what is on the
-     * device when [AutoBackupPolicy] recognises it as newer than the last one this device wrote
-     * or read. Returns null when there was nothing to do, so a quiet open stays quiet.
-     */
-    suspend fun importIfNewer(target: BackupTarget, lastSyncedAt: Instant?): BackupOutcome? =
-        withContext(Dispatchers.IO) {
-            when (val read = read(Uri.parse(target.value))) {
-                is Read.Failed -> BackupOutcome.Failed(read.reason)
-                is Read.Ok ->
-                    if (AutoBackupPolicy.shouldImport(read.exportedAt, lastSyncedAt)) {
-                        restore(read)
-                    } else {
-                        null
-                    }
-            }
-        }
 
     /**
      * A file that has been read but not written to the database yet. Reading and restoring are

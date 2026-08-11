@@ -1,0 +1,21 @@
+-- 1 → 2: the sync state row (ADR 0002, phase 2).
+--
+-- The first migration this app has ever had. Version 1 was declared fresh when SQLDelight
+-- replaced Room and the 1→4 Room chain was dropped (ADR 0001, decision 7); from here on a schema
+-- change is a file like this one, because installs of version 1 exist in the wild.
+--
+-- Nothing else changes: tombstones and millisecond timestamps landed in phase 1 without touching
+-- the schema at all, and this table is additive.
+
+CREATE TABLE syncStateRow (
+    id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+    session TEXT,
+    taskCursor TEXT,
+    projectCursor TEXT,
+    pushWatermark INTEGER NOT NULL DEFAULT 0,
+    lastSyncedAt INTEGER,
+    lastSweepAt INTEGER
+);
+
+INSERT INTO syncStateRow(id, session, taskCursor, projectCursor, pushWatermark, lastSyncedAt, lastSweepAt)
+VALUES (1, NULL, NULL, NULL, 0, NULL, NULL);
