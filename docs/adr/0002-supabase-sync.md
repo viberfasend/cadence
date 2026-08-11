@@ -210,6 +210,91 @@ On top of ADR 0001 decision 7's list, which stands:
 Manual export and import stay. They are the offline escape hatch and the only way to hand the data
 to something that is not Cadence, and neither has anything to do with keeping two devices in step.
 
+### 11. Sync runs itself, and the manual gesture is the one people already know
+
+Phase 2 shipped a **Sync now** button in Settings, which is a chore disguised as a feature: a user
+who forgets to press it sees stale data and concludes sync is broken. Sync becomes automatic, on
+these triggers and no others:
+
+- on app start, and on every return to the foreground;
+- debounced two seconds after a write — every task and project mutation arms it, a checkbox tick
+  included. Settings never do, since they are per-device. A row merged *in* from a pull never
+  re-arms it, or two devices push each other awake forever;
+- on stop and on window close, **fire-and-forget**: the process does not wait for the round. The
+  local database is the source of truth, so a push that misses its window ships on the next start,
+  and an app that hesitates when you close it feels worse than one that syncs four seconds late.
+  Android's `onStop` carries no completion guarantee anyway;
+- a poll on the **desktop only**, every 15 minutes, as the safety net for a socket that believes it
+  is connected and is not.
+
+**No `WorkManager`, and no Android poll.** Nothing here is time-critical: the phone is stale only
+while nobody is looking at it, and it syncs on foreground before the user reads a row. A background
+job buys a fresher database nobody is reading, and pays for it in a doze-mode fight.
+
+The manual path stays, but as a gesture rather than a chore: pull-to-refresh on Android's four
+top-level lists, a refresh control and `Ctrl`/`Cmd`+`R` on the desktop, and Settings keeps its
+**Sync now** button for the case where someone went looking for it.
+
+### 12. Realtime is an accelerant, and it never touches the cursor
+
+`postgres_changes` over `realtime-kt` gets a change onto the other device in about a second, which
+is what "fluent" actually means to a user with a phone in one hand and a desktop on the next
+screen. It is bolted on *beside* the existing round, never in place of it:
+
+- the payload row decodes with the same `RemoteTask`/`RemoteProject` the pull already uses, and is
+  merged through the same `mergeAndAdvance` and the same last-writer-wins rule;
+- **the cursor is advanced only by a real pull.** Realtime is at-most-once — a dropped socket loses
+  events silently, and a cursor advanced past an event that never arrived has skipped that row
+  forever. Merging a payload is idempotent and therefore safe; advancing from one is not. The
+  merge call passes a null cursor, and the next pull re-fetches the same rows harmlessly;
+- every reconnect runs a full `syncOnce()`, because the socket's downtime is exactly the gap the
+  cursor already covers;
+- one channel for both tables, filtered server-side on `user_id`. Without the filter the socket
+  carries every user's rows and RLS filters them at delivery, which is waste plus one more thing to
+  get wrong. Needs the migration to add both tables to the `supabase_realtime` publication and to
+  set `replica identity full` for update payloads under RLS;
+- the socket is open **only in the foreground on Android** — a background websocket is the wakelock
+  `WorkManager` was rejected to avoid — and for the whole process lifetime on the desktop,
+  minimised included. A desktop that drops the socket on alt-tab drops it exactly when the phone is
+  being used, which is the one case realtime exists for.
+
+Soft delete means a deletion is an `UPDATE`, so `INSERT` and `UPDATE` events cover everything and
+`DELETE` needs no handling.
+
+### 13. Sync gets a place in the header, and is invisible without an account
+
+Neither shell has a `TopAppBar`; what exists is `ScreenHeader`, pinned above the list on Today,
+Upcoming, Inbox and Projects, with an `actions` slot. That slot is where sync becomes visible:
+
+- a **status indicator** on all four screens, in four looks — absent (signed out), spinner
+  (syncing), plain (idle), error tint (offline, failed, or last synced more than 24 hours ago).
+  Tapping it opens Settings, where the actual reason is spelled out in words;
+- a **refresh control** beside it on the desktop only. Android has the pull gesture and does not
+  need a fourth icon next to sort and search; the desktop has neither a pull gesture nor a
+  discoverable `Ctrl`+`R`, so it does. Same `:ui` code, one flag from the shell;
+- **signed out, none of it exists** — no greyed icon, no inert pull gesture. A fresh install looks
+  exactly as it does today, and the app does not advertise machinery behind an account nobody has.
+
+"Stale" is a tint and never a dialog. An app unopened for a week is not an emergency.
+
+### 14. Every failed round is reported, offline included
+
+The alternative considered was to stay quiet about failures the user cannot act on — a phone in a
+tunnel fails on foreground, on every edit debounce, and says nothing. It was rejected: a sync that
+fails silently is how a user ends up trusting data that is not there. So every round that fails
+raises a snackbar, `OFFLINE` included, with the cause the engine already distinguishes
+(`OFFLINE`, `PROJECT_ASLEEP`, `SESSION_EXPIRED`, `SERVER`).
+
+Two things keep that from being unusable, and neither weakens it. A new failure **replaces** the
+snackbar on screen rather than queueing behind it, so eight failed rounds cost one snackbar's worth
+of screen time instead of minutes of them. And there is no **Retry** action, because the next
+trigger already is one.
+
+A `Connectivity` port — ask the OS before attempting, and never fail at all when offline — was
+considered and **not** built. Android's `ConnectivityManager` would answer honestly and the desktop
+has no equivalent worth the name, so it would buy a quieter phone at the price of a port that lies
+on one of the two platforms.
+
 ## Consequences
 
 - Editing the same task on two devices while both are offline keeps one edit and discards the other,
@@ -270,7 +355,8 @@ Each ends on a green build — `./gradlew testDebugUnitTest :core:jvmTest` and
 |---|---|---|
 | 1 | Soft delete at every call site, the single merge rule, millisecond truncation, `syncStateRow` and the schema migration on both platforms, import becomes a merge, `replaceAll` deleted, tombstone GC. **No network.** | ~500 lines changed |
 | 2 | Supabase project and its committed migration SQL. Ktor client, session handling, pull and push, `syncOnce()`. Settings gains sign-in and **Sync now**. The file-sync stack and the dead phase-6 code go in the same change. | ~900 new, ~700 deleted |
-| 3 | Automatic triggers: start and foreground, debounced two seconds after an edit, flush on stop and close, a five-minute poll on the desktop only. Status line, last-synced, sign-out. | ~250 lines |
+| 3 | **Sync runs itself** (decision 11): start and foreground, debounced two seconds after a write, fire-and-forget flush on stop and close, a 15-minute poll on the desktop only. Plus sync in the header (decision 13) — indicator on the four top-level screens, pull-to-refresh on Android, refresh control and `Ctrl`/`Cmd`+`R` on the desktop — and the failure snackbar of decision 14. | ~450 lines |
+| 3b | **Realtime** (decision 12): `realtime-kt`, the publication and `replica identity` migration, one filtered channel, payload merged without advancing the cursor, full round on every reconnect. Ships after 3 so a bug has one suspect rather than two. | ~150 lines |
 | 4 | Hardening: server-side tombstone collection, paging past the first thousand rows, the clock-skew warning, the weekly keep-alive ping, Security Advisor clean, and every document that still says "no cloud". | small |
 | 5 | Attachments through Supabase Storage. `storage-kt` ships in the same BOM and covers both targets; content-addressed blobs never conflict, so the protocol is "upload the hashes the server lacks, download the ones you lack" and nothing more. Free tier allows 1 GB with a 50 MB per-object cap. | new |
 
@@ -278,7 +364,9 @@ Phase 1 must ship before phase 2. Without it the first sync reads a missing row 
 existed and puts deleted tasks back on the other device.
 
 Phase 2 is the one that matters to the user: at the end of it the phone and the desktop sync, by
-hand. Phase 3 only removes the "by hand".
+hand. Phase 3 removes the "by hand" and gives sync somewhere to stand outside Settings; 3b makes it
+feel immediate. Phase 3 is shippable on its own — after it, nobody has to press anything again —
+which is why 3b is a separate change and not a bigger one.
 
 ## Still open
 
@@ -288,8 +376,9 @@ Recorded rather than silently assumed. None blocks phase 1.
   relying on daily use plus the 540 message.
 - What signing out clears. The intent is: session, cursor and push watermark, and no local data —
   but it is not yet decided whether the app should offer to delete server-side data at all.
-- How loudly a failed background sync complains, and whether "last synced more than a week ago"
-  earns a mark on the Settings entry.
+- ~~How loudly a failed background sync complains~~ — settled in decision 14: every failure, offline
+  included, replacing rather than queueing. Staleness earns an error tint on the header indicator
+  after 24 hours (decision 13), not a mark on the Settings entry.
 - Whether attachment *metadata* should sync ahead of the bytes, so the other device can at least
   say a file exists. The cost is that every attachment row grows a "do I have the blob" state and
   the orphan sweeper has to learn not to reclaim hashes it has never seen.
