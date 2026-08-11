@@ -9,6 +9,7 @@ import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -33,6 +34,32 @@ import java.time.temporal.ChronoUnit
  * it cannot move a row to somebody else either. `server_updated_at` travels as null on the way
  * out — the trigger overwrites it with the server's own clock before the row is stored.
  */
+/**
+ * How those records are written and read, and the reason `encodeDefaults` is on.
+ *
+ * kotlinx.serialization leaves out a property that still holds its declared default, and the
+ * DTOs below are full of them — `sort_order = 0`, the default priority, every nullable field that
+ * happens to be null. Postgres is not reading Kotlin defaults, so an omitted key means three
+ * different kinds of wrong at once:
+ *
+ * - `sort_order integer not null` has no database default, so an insert without the column is a
+ *   not-null violation and the whole round fails.
+ * - An upsert only updates the columns it mentions, so *clearing* a field — dropping a due date,
+ *   emptying the notes — would arrive as "no opinion" and the server would keep the old value.
+ * - PostgREST rejects a bulk insert whose objects do not all carry the same keys (`PGRST102`), and
+ *   whether two tasks in one batch agree would otherwise depend on which fields they filled in.
+ *
+ * Writing every field always is what makes the payload mean what it says. `server_updated_at`
+ * therefore travels as an explicit null, which is harmless: the `BEFORE INSERT OR UPDATE` trigger
+ * overwrites it with the server's clock before the not-null constraint is ever checked.
+ */
+internal val SyncJson: Json = Json {
+    encodeDefaults = true
+    // A column added server-side must not break an older install — the same courtesy the backup
+    // format extends to older files.
+    ignoreUnknownKeys = true
+}
+
 @Serializable
 data class RemoteTask(
     val id: String,
