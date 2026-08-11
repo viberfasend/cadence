@@ -139,42 +139,15 @@ jobs:
         id: version
         run: bash .github/scripts/next-version.sh
 
+      # `desktop` resolves to whatever this OS can package — deb, rpm and a tarball on Linux, a
+      # dmg on macOS, an msi on Windows — so the three legs share one command instead of forking
+      # on runner.os. Tests already ran in the `test` job above.
       - name: Package for this OS
         env:
           # Empty on a run with nothing to release, which leaves the build.gradle.kts fallback
           # ("1.0.0") in place.
           CADENCE_VERSION_NAME: ${{ steps.version.outputs.version }}
-        # createDistributable only matters on Linux (the tar step below), but packageDeb/packageRpm
-        # don't depend on it themselves — they build straight from the runtime image — so it has
-        # to be asked for explicitly rather than assumed to exist afterward.
-        run: |
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            ./gradlew :app-desktop:packageDistributionForCurrentOS :app-desktop:createDistributable --stacktrace
-          else
-            ./gradlew :app-desktop:packageDistributionForCurrentOS --stacktrace
-          fi
-
-      # A plain tarball alongside the deb/rpm, for distro-agnostic use (ADR 0001 §8). Compose
-      # Desktop has no tarball target format of its own, so this tars the app image
-      # createDistributable just built above.
-      - name: Tar the Linux app image
-        if: runner.os == 'Linux'
-        run: tar -C app-desktop/build/compose/binaries/main/app -czf cadence-linux-x64.tar.gz .
-
-      - name: Stage installers
-        run: |
-          mkdir -p dist
-          shopt -s nullglob
-          for f in app-desktop/build/compose/binaries/main/deb/*.deb \
-                   app-desktop/build/compose/binaries/main/rpm/*.rpm \
-                   app-desktop/build/compose/binaries/main/dmg/*.dmg \
-                   app-desktop/build/compose/binaries/main/msi/*.msi; do
-            cp "$f" dist/
-          done
-          # Not part of the glob above: a literal filename that nullglob can't drop when absent,
-          # so it needs its own existence check rather than joining the loop.
-          [ -f cadence-linux-x64.tar.gz ] && cp cadence-linux-x64.tar.gz dist/ || true
-          ls -lh dist
+        run: bash .github/scripts/build.sh desktop --skip-tests
 
       - name: Upload installers
         uses: actions/upload-artifact@v4

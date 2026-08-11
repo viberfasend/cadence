@@ -39,7 +39,22 @@ The product rule the whole app is built on: **importance first, due date breaks 
 # a single test class / method (method names are backticked sentences)
 ./gradlew :core:jvmTest --tests "de.andi1984.cadence.RecurrenceEngineTest"
 ./gradlew :core:jvmTest --tests "*RecurrenceEngineTest.monthly on a fixed day*"
+
+# the whole release, staged into dist/ under the names the release links use
+bash .github/scripts/build.sh              # apk + everything this OS can package
+bash .github/scripts/build.sh deb --skip-tests   # one format, no tests
+bash .github/scripts/build.sh --dry-run    # what it would run, and at which version
 ```
+
+**`build.sh` is the build, and CI only calls it.** `android.yml`, `desktop.yml` and `release.yml`
+each used to carry their own copy of "derive the version, run Gradle, copy the outputs", which is
+how the three drifted apart; now each one runs the same script a laptop does, so a release can be
+cut by hand — `gh release create` over `dist/` — without spending Actions minutes at all. It
+derives the version the way CI does (`next-version.sh`, unless `CADENCE_VERSION_NAME` is already
+set or `--version` overrides it), runs one Gradle invocation for every artefact rather than one
+per target, stages the APKs under the fixed names the download URLs point at, and runs
+`check-signing.sh`. A format whose packaging tool is missing — no `rpmbuild`, no WiX — is skipped
+with a warning when `all`/`desktop` implied it and is a hard error when it was named outright.
 
 `:core`'s tests are one source set compiled twice: `:core:jvmTest` is the desktop compilation and
 `:core:testDebugUnitTest` the Android one. `testDebugUnitTest` alone therefore misses nothing in

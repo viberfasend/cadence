@@ -53,12 +53,6 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Unit tests
-        run: ./gradlew testDebugUnitTest :core:jvmTest --stacktrace
-
-      - name: Compile the desktop target
-        run: ./gradlew :ui:compileKotlinJvm --stacktrace
-
       - name: Work out the next version
         id: version
         run: bash .github/scripts/next-version.sh
@@ -69,23 +63,16 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/cadence.jks"
           echo "CADENCE_KEYSTORE=$RUNNER_TEMP/cadence.jks" >> "$GITHUB_ENV"
 
-      - name: Build APKs
+      # Tests, build, staging under the fixed release names and the signing check, in one script —
+      # the same one a laptop runs to cut a release by hand without spending Actions minutes.
+      - name: Test and build APKs
         env:
           CADENCE_KEYSTORE_PASSWORD: ${{ secrets.CADENCE_KEYSTORE_PASSWORD }}
           CADENCE_KEY_ALIAS: ${{ secrets.CADENCE_KEY_ALIAS }}
           CADENCE_KEY_PASSWORD: ${{ secrets.CADENCE_KEY_PASSWORD }}
           CADENCE_VERSION_NAME: ${{ steps.version.outputs.version }}
           CADENCE_VERSION_CODE: ${{ steps.version.outputs.version_code }}
-        run: ./gradlew assembleDebug assembleRelease --stacktrace
-
-      - name: Stage APKs
-        run: |
-          mkdir -p dist
-          cp app-android/build/outputs/apk/debug/*.apk dist/cadence-debug.apk
-          cp app-android/build/outputs/apk/release/*.apk dist/cadence-release.apk
-
-      - name: Check signing key
-        run: bash .github/scripts/check-signing.sh dist/cadence-debug.apk dist/cadence-release.apk
+        run: bash .github/scripts/build.sh apk
 
       - name: Upload APKs for release
         uses: actions/upload-artifact@v4
@@ -150,34 +137,12 @@ jobs:
           choco install wixtoolset -y
           Add-Content $env:GITHUB_PATH "C:\Program Files (x86)\WiX Toolset v3.14\bin"
 
-      - name: Compile and test the shared modules
-        run: ./gradlew :core:jvmTest :ui:compileKotlinJvm --stacktrace
-
-      - name: Package for this OS
+      # Tests plus whatever this OS can package — deb, rpm and a tarball on Linux, a dmg on macOS,
+      # an msi on Windows — staged into dist/ for the publish job to collect.
+      - name: Test and package for this OS
         env:
           CADENCE_VERSION_NAME: ${{ steps.version.outputs.version }}
-        run: |
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            ./gradlew :app-desktop:packageDistributionForCurrentOS :app-desktop:createDistributable --stacktrace
-          else
-            ./gradlew :app-desktop:packageDistributionForCurrentOS --stacktrace
-          fi
-
-      - name: Tar the Linux app image
-        if: runner.os == 'Linux'
-        run: tar -C app-desktop/build/compose/binaries/main/app -czf cadence-linux-x64.tar.gz .
-
-      - name: Stage installers
-        run: |
-          mkdir -p dist
-          shopt -s nullglob
-          for f in app-desktop/build/compose/binaries/main/deb/*.deb \
-                   app-desktop/build/compose/binaries/main/rpm/*.rpm \
-                   app-desktop/build/compose/binaries/main/dmg/*.dmg \
-                   app-desktop/build/compose/binaries/main/msi/*.msi; do
-            cp "$f" dist/
-          done
-          [ -f cadence-linux-x64.tar.gz ] && cp cadence-linux-x64.tar.gz dist/ || true
+        run: bash .github/scripts/build.sh desktop
 
       - name: Upload installers
         uses: actions/upload-artifact@v4
