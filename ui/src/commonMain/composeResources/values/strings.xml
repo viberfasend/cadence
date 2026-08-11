@@ -329,12 +329,12 @@
     <string name="settings_export">Export backup</string>
     <string name="settings_export_supporting">Writes every task and project into a JSON file you pick. It stays on the device unless you save it somewhere that syncs.</string>
     <string name="settings_import">Import backup</string>
-    <string name="settings_import_supporting">Reads a backup file back in, replacing everything currently in the app.</string>
+    <string name="settings_import_supporting">Reads a backup file back in and folds it into what is already here. Nothing is deleted; where the same task exists twice, the newer version wins.</string>
     <!-- Default name offered by the file picker; %1$s is the date, e.g. 2026-08-05. -->
     <string name="backup_file_name">cadence-backup-%1$s.json</string>
-    <string name="backup_import_confirm_title">Replace all data?</string>
-    <string name="backup_import_confirm_text">Importing deletes every task and project on this device and puts the contents of the backup file in their place. This cannot be undone.</string>
-    <string name="backup_import_confirm_action">Replace</string>
+    <string name="backup_import_confirm_title">Import this backup?</string>
+    <string name="backup_import_confirm_text">The file is merged into what is on this device. Nothing here is deleted, and where a task appears in both the newer version wins.</string>
+    <string name="backup_import_confirm_action">Import</string>
     <!-- "Exported 42 tasks and 6 projects." -->
     <string name="backup_exported">Exported %1$s and %2$s.</string>
     <string name="backup_imported">Imported %1$s and %2$s.</string>
@@ -345,22 +345,32 @@
     <string name="backup_error_not_a_backup">That file is not a Cadence backup.</string>
     <string name="backup_error_newer_version">That backup was written by a newer version of Cadence.</string>
 
-    <!-- ── Automatic backup sync ───────────────────────────────────────────────────── -->
-    <string name="settings_auto_backup">Keep the backup up to date</string>
-    <string name="settings_auto_backup_supporting">Reads the backup file when Cadence opens, and writes it again after every change and when you leave.</string>
-    <string name="settings_auto_backup_choose">Choose a file to sync</string>
-    <string name="settings_auto_backup_change">Change file</string>
-    <!-- %1$s is the file name, e.g. cadence-backup-2026-08-07.json. -->
-    <string name="settings_auto_backup_file">Syncing with %1$s</string>
+    <!-- ── Sync ────────────────────────────────────────────────────────────────────── -->
+    <string name="settings_sync">Sync</string>
+    <string name="settings_sync_supporting">Signing in keeps this device and your others in step through your own Supabase project. Cadence works signed out, and nothing leaves the device until you sign in.</string>
+    <string name="settings_sync_email">Email</string>
+    <string name="settings_sync_password">Password</string>
+    <string name="settings_sync_sign_in">Sign in</string>
+    <string name="settings_sync_signing_in">Signing in…</string>
+    <!-- %1$s is the email address of the signed-in account. -->
+    <string name="settings_sync_signed_in_as">Signed in as %1$s</string>
+    <string name="settings_sync_now">Sync now</string>
+    <string name="settings_sync_running">Syncing…</string>
     <!-- %1$s is a relative time, e.g. "5 minutes ago". -->
-    <string name="settings_auto_backup_last_synced">Last synced %1$s</string>
-    <!-- %1$s is one of the backup_error_* sentences. -->
-    <string name="settings_auto_backup_failed">Automatic sync stopped. %1$s</string>
-    <string name="auto_backup_offer_title">Keep this backup up to date?</string>
-    <string name="auto_backup_offer_text">Cadence can look after this file for you: it reads it when the app opens, and writes it again after every change and when you leave. Put the file in a folder that syncs and your tasks follow you.</string>
-    <string name="auto_backup_offer_note">Opening the app then replaces its data with the file whenever the file is newer — so keep it to one device at a time. You can turn this off again in Settings, and export or import by hand whether it is on or off.</string>
-    <string name="auto_backup_offer_enable">Keep it up to date</string>
-    <string name="auto_backup_offer_decline">Not now</string>
+    <string name="settings_sync_last_synced">Last synced %1$s</string>
+    <string name="settings_sync_never">Not synced yet</string>
+    <string name="settings_sync_sign_out">Sign out</string>
+    <string name="settings_sync_error_credentials">That email and password do not match an account.</string>
+    <string name="settings_sync_error_offline">No connection. Cadence will keep working offline.</string>
+    <string name="settings_sync_error_server">The server could not be reached. Try again later.</string>
+    <string name="settings_sync_failed_offline">Last sync failed: no connection.</string>
+    <string name="settings_sync_failed_asleep">Last sync failed: the Supabase project is paused. Resume it in the Supabase dashboard.</string>
+    <string name="settings_sync_failed_session">Last sync failed: the session expired. Sign in again.</string>
+    <string name="settings_sync_failed_server">Last sync failed: the server returned an error.</string>
+
+    <!-- ── Reminders ───────────────────────────────────────────────────────────────── -->
+    <string name="settings_reminders">Reminders on this device</string>
+    <string name="settings_reminders_supporting">Every device that has the task can remind you about it, so you would get one notification per device. Turn this off where you do not want them.</string>
 
     <!-- ── Sizes and elapsed time ──────────────────────────────────────────────────── -->
     <string name="size_bytes">%1$s B</string>

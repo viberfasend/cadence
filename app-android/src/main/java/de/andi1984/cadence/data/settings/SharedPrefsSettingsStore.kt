@@ -1,7 +1,6 @@
 package de.andi1984.cadence.data.settings
 
 import android.content.Context
-import de.andi1984.cadence.ui.settings.AutoBackupSettings
 import de.andi1984.cadence.ui.settings.CadenceSettings
 import de.andi1984.cadence.ui.settings.Density
 import de.andi1984.cadence.ui.settings.SettingsStore
@@ -10,10 +9,9 @@ import de.andi1984.cadence.ui.settings.ThemeChoice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.time.Instant
 
 /** Android's answer to [SettingsStore]: `SharedPreferences`, not DataStore — the whole file is
- *  four scalars and a uri, read once at startup and written on every change. */
+ *  a handful of scalars, read once at startup and written on every change. */
 class SharedPrefsSettingsStore(context: Context) : SettingsStore {
 
     private val prefs = context.applicationContext
@@ -33,14 +31,9 @@ class SharedPrefsSettingsStore(context: Context) : SettingsStore {
             ?.let { name -> SortMode.entries.firstOrNull { it.name == name } }
             ?: SortMode.IMPORTANCE,
         showCompleted = prefs.getBoolean(KEY_SHOW_COMPLETED, true),
-        autoBackup = AutoBackupSettings(
-            enabled = prefs.getBoolean(KEY_AUTO_BACKUP, false),
-            fileUri = prefs.getString(KEY_AUTO_BACKUP_URI, null),
-            offered = prefs.getBoolean(KEY_AUTO_BACKUP_OFFERED, false),
-            lastSyncedAt = prefs.getLong(KEY_AUTO_BACKUP_SYNCED_AT, NEVER_SYNCED)
-                .takeIf { it != NEVER_SYNCED }
-                ?.let(Instant::ofEpochMilli),
-        ),
+        // On by default here and off on the desktop: this is the device people carry, so it is
+        // the one that should speak up when a task comes due (ADR 0002, decision 9).
+        remindersEnabled = prefs.getBoolean(KEY_REMINDERS, true),
     )
 
     private fun persist(settings: CadenceSettings) {
@@ -49,13 +42,7 @@ class SharedPrefsSettingsStore(context: Context) : SettingsStore {
             .putString(KEY_DENSITY, settings.density.name)
             .putString(KEY_SORT, settings.sortMode.name)
             .putBoolean(KEY_SHOW_COMPLETED, settings.showCompleted)
-            .putBoolean(KEY_AUTO_BACKUP, settings.autoBackup.enabled)
-            .putString(KEY_AUTO_BACKUP_URI, settings.autoBackup.fileUri)
-            .putBoolean(KEY_AUTO_BACKUP_OFFERED, settings.autoBackup.offered)
-            .putLong(
-                KEY_AUTO_BACKUP_SYNCED_AT,
-                settings.autoBackup.lastSyncedAt?.toEpochMilli() ?: NEVER_SYNCED,
-            )
+            .putBoolean(KEY_REMINDERS, settings.remindersEnabled)
             .apply()
         _state.value = settings
     }
@@ -68,38 +55,14 @@ class SharedPrefsSettingsStore(context: Context) : SettingsStore {
 
     override fun setShowCompleted(show: Boolean) = persist(_state.value.copy(showCompleted = show))
 
-    // ── Automatic backup sync ──────────────────────────────────────────────────────
-
-    override fun enableAutoBackup(fileUri: String) = persistAutoBackup { current ->
-        current.copy(
-            enabled = true,
-            fileUri = fileUri,
-            offered = true,
-            lastSyncedAt = current.lastSyncedAt.takeIf { current.fileUri == fileUri },
-        )
-    }
-
-    override fun disableAutoBackup() = persistAutoBackup { it.copy(enabled = false) }
-
-    override fun markAutoBackupOffered() = persistAutoBackup { it.copy(offered = true) }
-
-    override fun recordAutoBackupSync(at: Instant) =
-        persistAutoBackup { it.copy(lastSyncedAt = at) }
-
-    private fun persistAutoBackup(change: (AutoBackupSettings) -> AutoBackupSettings) {
-        val current = _state.value
-        persist(current.copy(autoBackup = change(current.autoBackup)))
-    }
+    override fun setRemindersEnabled(enabled: Boolean) =
+        persist(_state.value.copy(remindersEnabled = enabled))
 
     private companion object {
         const val KEY_THEME = "theme"
         const val KEY_DENSITY = "density"
         const val KEY_SORT = "sort"
         const val KEY_SHOW_COMPLETED = "showCompleted"
-        const val KEY_AUTO_BACKUP = "autoBackup"
-        const val KEY_AUTO_BACKUP_URI = "autoBackupUri"
-        const val KEY_AUTO_BACKUP_OFFERED = "autoBackupOffered"
-        const val KEY_AUTO_BACKUP_SYNCED_AT = "autoBackupSyncedAt"
-        const val NEVER_SYNCED = -1L
+        const val KEY_REMINDERS = "remindersEnabled"
     }
 }

@@ -7,8 +7,9 @@ import de.andi1984.cadence.data.db.DatabaseDriverFactory
 import de.andi1984.cadence.data.db.SqlDelightAttachmentStore
 import de.andi1984.cadence.data.db.SqlDelightBackupStore
 import de.andi1984.cadence.data.db.SqlDelightProjectStore
+import de.andi1984.cadence.data.db.SqlDelightSyncStore
 import de.andi1984.cadence.data.db.SqlDelightTaskStore
-import de.andi1984.cadence.desktop.data.DesktopAutoBackupSync
+import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.desktop.data.DesktopBackupFilePicker
 import de.andi1984.cadence.desktop.data.DesktopBackupIo
 import de.andi1984.cadence.desktop.data.DesktopReminderScheduler
@@ -54,10 +55,10 @@ class AppContainer {
      *  already being torn down. */
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    val autoBackupSync = DesktopAutoBackupSync(
-        backupIo = backupIo,
-        settingsStore = settingsStore,
-        repository = repository,
+    /** Same shape as `:app-android`'s, because sync is not a platform difference (ADR 0002,
+     *  decision 7): the same class over the same database, on the process-wide scope. */
+    val syncEngine = CadenceSyncEngine(
+        store = SqlDelightSyncStore(database),
         scope = applicationScope,
     )
 

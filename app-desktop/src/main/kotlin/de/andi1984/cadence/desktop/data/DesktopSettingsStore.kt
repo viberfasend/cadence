@@ -1,7 +1,6 @@
 package de.andi1984.cadence.desktop.data
 
 import de.andi1984.cadence.desktop.platform.PlatformDirs
-import de.andi1984.cadence.ui.settings.AutoBackupSettings
 import de.andi1984.cadence.ui.settings.CadenceSettings
 import de.andi1984.cadence.ui.settings.Density
 import de.andi1984.cadence.ui.settings.SettingsStore
@@ -13,7 +12,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
-import java.time.Instant
 
 /** The on-disk shape, kept separate from [CadenceSettings] so the app's own types never need a
  *  `@Serializable` annotation just to be written to a file. */
@@ -23,15 +21,14 @@ private data class SettingsFile(
     val density: String = Density.COMFORTABLE.name,
     val sortMode: String = SortMode.IMPORTANCE.name,
     val showCompleted: Boolean = true,
-    val autoBackupEnabled: Boolean = false,
-    val autoBackupFilePath: String? = null,
-    val autoBackupOffered: Boolean = false,
-    val autoBackupLastSyncedAtMillis: Long? = null,
+    // Off by default on the desktop — see CadenceSettings.remindersEnabled. The default lives in
+    // this file rather than in the shared data class precisely because it differs per shell.
+    val remindersEnabled: Boolean = false,
 )
 
 /** The desktop's answer to [SettingsStore]: a JSON file under [PlatformDirs], read once at
- *  startup and rewritten whole on every change — the same "four scalars and a uri" shape as
- *  Android's `SharedPrefsSettingsStore`, just with a file instead of `SharedPreferences`. */
+ *  startup and rewritten whole on every change — the same handful of scalars as Android's
+ *  `SharedPrefsSettingsStore`, just with a file instead of `SharedPreferences`. */
 class DesktopSettingsStore(dataDir: File = PlatformDirs.dataDir()) : SettingsStore {
 
     private val file = File(dataDir, "settings.json")
@@ -49,12 +46,7 @@ class DesktopSettingsStore(dataDir: File = PlatformDirs.dataDir()) : SettingsSto
             density = Density.entries.firstOrNull { it.name == onDisk.density } ?: Density.COMFORTABLE,
             sortMode = SortMode.entries.firstOrNull { it.name == onDisk.sortMode } ?: SortMode.IMPORTANCE,
             showCompleted = onDisk.showCompleted,
-            autoBackup = AutoBackupSettings(
-                enabled = onDisk.autoBackupEnabled,
-                fileUri = onDisk.autoBackupFilePath,
-                offered = onDisk.autoBackupOffered,
-                lastSyncedAt = onDisk.autoBackupLastSyncedAtMillis?.let(Instant::ofEpochMilli),
-            ),
+            remindersEnabled = onDisk.remindersEnabled,
         )
     }
 
@@ -64,10 +56,7 @@ class DesktopSettingsStore(dataDir: File = PlatformDirs.dataDir()) : SettingsSto
             density = settings.density.name,
             sortMode = settings.sortMode.name,
             showCompleted = settings.showCompleted,
-            autoBackupEnabled = settings.autoBackup.enabled,
-            autoBackupFilePath = settings.autoBackup.fileUri,
-            autoBackupOffered = settings.autoBackup.offered,
-            autoBackupLastSyncedAtMillis = settings.autoBackup.lastSyncedAt?.toEpochMilli(),
+            remindersEnabled = settings.remindersEnabled,
         )
         file.writeText(json.encodeToString(SettingsFile.serializer(), onDisk))
         _state.value = settings
@@ -81,24 +70,6 @@ class DesktopSettingsStore(dataDir: File = PlatformDirs.dataDir()) : SettingsSto
 
     override fun setShowCompleted(show: Boolean) = persist(_state.value.copy(showCompleted = show))
 
-    override fun enableAutoBackup(fileUri: String) = persistAutoBackup { current ->
-        current.copy(
-            enabled = true,
-            fileUri = fileUri,
-            offered = true,
-            lastSyncedAt = current.lastSyncedAt.takeIf { current.fileUri == fileUri },
-        )
-    }
-
-    override fun disableAutoBackup() = persistAutoBackup { it.copy(enabled = false) }
-
-    override fun markAutoBackupOffered() = persistAutoBackup { it.copy(offered = true) }
-
-    override fun recordAutoBackupSync(at: Instant) =
-        persistAutoBackup { it.copy(lastSyncedAt = at) }
-
-    private fun persistAutoBackup(change: (AutoBackupSettings) -> AutoBackupSettings) {
-        val current = _state.value
-        persist(current.copy(autoBackup = change(current.autoBackup)))
-    }
+    override fun setRemindersEnabled(enabled: Boolean) =
+        persist(_state.value.copy(remindersEnabled = enabled))
 }

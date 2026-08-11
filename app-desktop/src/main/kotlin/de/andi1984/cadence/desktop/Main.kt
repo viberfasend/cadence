@@ -43,13 +43,11 @@ fun main() = application {
             settingsStore = container.settingsStore,
             reminderScheduler = container.reminderScheduler,
             backupGateway = container.backupIo,
-            autoBackupSync = container.autoBackupSync,
+            syncEngine = container.syncEngine,
             scope = viewModelScope,
         )
     }
     val state by viewModel.state.collectAsState()
-
-    LaunchedEffect(Unit) { viewModel.onAppForegrounded() }
 
     var quickAddRequested by remember { mutableStateOf(false) }
 
@@ -57,7 +55,6 @@ fun main() = application {
 
     Window(
         onCloseRequest = {
-            runBlocking { container.autoBackupSync.flushBeforeExit().join() }
             viewModel.close()
             exitApplication()
         },

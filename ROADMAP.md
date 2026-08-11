@@ -1,6 +1,7 @@
 # Roadmap
 
-Cadence is a local-first Android todo app (Kotlin, Compose, Room). No cloud, no account today —
+Cadence is a local-first Android and desktop todo app (Kotlin, Compose Multiplatform,
+SQLDelight). Sync through a Supabase project you sign in to is optional and off until you do —
 these are candidate directions, not commitments. Order is rough priority, not a release plan.
 
 Decisions large enough to outlive a single change are written down in [`docs/adr/`](docs/adr/).

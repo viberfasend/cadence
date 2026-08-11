@@ -23,10 +23,15 @@ compose-multiplatform = "1.11.1"
 core-ktx = "1.17.0"
 coroutines = "1.11.0"
 junit = "4.13.2"
+# The engine under supabase-kt's Ktor client, pinned to the version supabase-kt itself resolves —
+# OkHttp is the one engine that covers Android *and* the desktop JVM (ADR 0002, decision 6).
+ktor = "3.5.1"
 lifecycle = "2.10.0"
 navigation-compose = "2.9.8"
 serialization-json = "1.11.0"
 sqldelight = "2.1.0"
+# Sync (ADR 0002). Needs Kotlin 2.1+, which is why the toolchain upgrade had to land first.
+supabase = "3.7.0"
 test-ext-junit = "1.3.0"
 
 [libraries]
@@ -50,6 +55,11 @@ compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview"
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization-json" }
+
+ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+
+supabase-auth = { module = "io.github.jan-tennert.supabase:auth-kt", version.ref = "supabase" }
+supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt", version.ref = "supabase" }
 
 sqldelight-android-driver = { module = "app.cash.sqldelight:android-driver", version.ref = "sqldelight" }
 sqldelight-coroutines-extensions = { module = "app.cash.sqldelight:coroutines-extensions", version.ref = "sqldelight" }

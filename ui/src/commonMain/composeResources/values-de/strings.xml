@@ -314,12 +314,12 @@
     <string name="settings_export">Backup exportieren</string>
     <string name="settings_export_supporting">Schreibt alle Aufgaben und Projekte in eine JSON-Datei deiner Wahl. Sie bleibt auf dem Gerät, solange du sie nicht an einem synchronisierten Ort ablegst.</string>
     <string name="settings_import">Backup importieren</string>
-    <string name="settings_import_supporting">Liest eine Backup-Datei wieder ein und ersetzt dabei alles, was aktuell in der App steht.</string>
+    <string name="settings_import_supporting">Liest eine Backup-Datei ein und führt sie mit dem zusammen, was schon da ist. Es wird nichts gelöscht; wo dieselbe Aufgabe doppelt vorkommt, gewinnt die neuere Fassung.</string>
     <!-- Vom Dateiauswahldialog vorgeschlagener Name; %1$s ist das Datum, z. B. 2026-08-05. -->
     <string name="backup_file_name">cadence-backup-%1$s.json</string>
-    <string name="backup_import_confirm_title">Alle Daten ersetzen?</string>
-    <string name="backup_import_confirm_text">Beim Import werden alle Aufgaben und Projekte auf diesem Gerät gelöscht und durch den Inhalt der Backup-Datei ersetzt. Das lässt sich nicht rückgängig machen.</string>
-    <string name="backup_import_confirm_action">Ersetzen</string>
+    <string name="backup_import_confirm_title">Dieses Backup importieren?</string>
+    <string name="backup_import_confirm_text">Die Datei wird mit den Daten auf diesem Gerät zusammengeführt. Hier wird nichts gelöscht, und wo eine Aufgabe in beiden vorkommt, gewinnt die neuere Fassung.</string>
+    <string name="backup_import_confirm_action">Importieren</string>
     <!-- "42 Aufgaben und 6 Projekte exportiert." -->
     <string name="backup_exported">%1$s und %2$s exportiert.</string>
     <string name="backup_imported">%1$s und %2$s importiert.</string>
@@ -330,22 +330,32 @@
     <string name="backup_error_not_a_backup">Diese Datei ist kein Cadence-Backup.</string>
     <string name="backup_error_newer_version">Dieses Backup stammt aus einer neueren Version von Cadence.</string>
 
-    <!-- ── Automatischer Backup-Abgleich ───────────────────────────────────────────── -->
-    <string name="settings_auto_backup">Backup aktuell halten</string>
-    <string name="settings_auto_backup_supporting">Liest die Backup-Datei beim Öffnen von Cadence und schreibt sie nach jeder Änderung und beim Verlassen wieder.</string>
-    <string name="settings_auto_backup_choose">Sync-Datei auswählen</string>
-    <string name="settings_auto_backup_change">Datei ändern</string>
-    <!-- %1$s ist der Dateiname, z. B. cadence-backup-2026-08-07.json. -->
-    <string name="settings_auto_backup_file">Abgleich mit %1$s</string>
+    <!-- ── Synchronisation ─────────────────────────────────────────────────────────── -->
+    <string name="settings_sync">Synchronisation</string>
+    <string name="settings_sync_supporting">Nach der Anmeldung hält Cadence dieses Gerät über dein eigenes Supabase-Projekt mit deinen anderen im Gleichstand. Ohne Anmeldung funktioniert alles wie bisher, und nichts verlässt das Gerät.</string>
+    <string name="settings_sync_email">E-Mail</string>
+    <string name="settings_sync_password">Passwort</string>
+    <string name="settings_sync_sign_in">Anmelden</string>
+    <string name="settings_sync_signing_in">Anmeldung läuft…</string>
+    <!-- %1$s ist die E-Mail-Adresse des angemeldeten Kontos. -->
+    <string name="settings_sync_signed_in_as">Angemeldet als %1$s</string>
+    <string name="settings_sync_now">Jetzt abgleichen</string>
+    <string name="settings_sync_running">Abgleich läuft…</string>
     <!-- %1$s ist eine relative Zeitangabe, z. B. „vor 5 Minuten“. -->
-    <string name="settings_auto_backup_last_synced">Zuletzt abgeglichen %1$s</string>
-    <!-- %1$s ist einer der backup_error_*-Sätze. -->
-    <string name="settings_auto_backup_failed">Automatischer Abgleich gestoppt. %1$s</string>
-    <string name="auto_backup_offer_title">Dieses Backup aktuell halten?</string>
-    <string name="auto_backup_offer_text">Cadence kann sich um diese Datei kümmern: beim Öffnen der App liest sie sie, nach jeder Änderung und beim Verlassen schreibt sie sie wieder. Leg die Datei in einen synchronisierten Ordner, und deine Aufgaben ziehen mit.</string>
-    <string name="auto_backup_offer_note">Beim Öffnen ersetzt die App ihre Daten durch die Datei, sobald diese neuer ist – nutze sie deshalb auf einem Gerät zur Zeit. Du kannst das in den Einstellungen wieder abschalten und jederzeit von Hand exportieren oder importieren.</string>
-    <string name="auto_backup_offer_enable">Aktuell halten</string>
-    <string name="auto_backup_offer_decline">Jetzt nicht</string>
+    <string name="settings_sync_last_synced">Zuletzt abgeglichen %1$s</string>
+    <string name="settings_sync_never">Noch nicht abgeglichen</string>
+    <string name="settings_sync_sign_out">Abmelden</string>
+    <string name="settings_sync_error_credentials">E-Mail und Passwort passen zu keinem Konto.</string>
+    <string name="settings_sync_error_offline">Keine Verbindung. Cadence funktioniert offline weiter.</string>
+    <string name="settings_sync_error_server">Der Server war nicht erreichbar. Versuch es später erneut.</string>
+    <string name="settings_sync_failed_offline">Letzter Abgleich fehlgeschlagen: keine Verbindung.</string>
+    <string name="settings_sync_failed_asleep">Letzter Abgleich fehlgeschlagen: das Supabase-Projekt pausiert. Setz es im Supabase-Dashboard fort.</string>
+    <string name="settings_sync_failed_session">Letzter Abgleich fehlgeschlagen: die Sitzung ist abgelaufen. Melde dich erneut an.</string>
+    <string name="settings_sync_failed_server">Letzter Abgleich fehlgeschlagen: der Server hat einen Fehler gemeldet.</string>
+
+    <!-- ── Erinnerungen ────────────────────────────────────────────────────────────── -->
+    <string name="settings_reminders">Erinnerungen auf diesem Gerät</string>
+    <string name="settings_reminders_supporting">Jedes Gerät, das die Aufgabe kennt, kann an sie erinnern – du bekämst also eine Benachrichtigung pro Gerät. Schalte sie dort ab, wo du sie nicht brauchst.</string>
 
     <!-- ── Größen und vergangene Zeit ──────────────────────────────────────────────── -->
     <string name="size_bytes">%1$s B</string>
