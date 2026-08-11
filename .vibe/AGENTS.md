@@ -129,9 +129,12 @@ ui/         → Theme, shared components, one package per screen
 
 ## CI/CD
 
-- CI runs tests and builds APKs on every push
+- No workflow runs automatically: all three are `workflow_dispatch` only, to keep Actions
+  minutes at zero. Run tests locally (`./gradlew testDebugUnitTest :core:jvmTest`) before pushing
+- `bash .github/scripts/build.sh` produces the whole release into `dist/` on a laptop; the
+  workflows call the same script
 - Version derived from Conventional Commits since last tag
-- Push to `main` triggers release publication
+- Releases are published by hand (`gh release create`) or by dispatching `release.yml`
 - Debug and release builds have different application IDs
 
 ## Mistral Vibe Specific Instructions

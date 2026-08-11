@@ -63,7 +63,8 @@ carry the detail and the up-to-date checked/unchecked state.
 
 - [x] Core app: Today/Upcoming/Inbox/Triage/Projects, quick-add parser, recurrence engine
 - [x] Accessibility pass (contrast, touch targets, font scaling)
-- [x] CI: rolling GitHub Release build on every push
+- [x] CI: GitHub Release build, since made `workflow_dispatch`-only — `build.sh` cuts the same
+      release on a laptop, so no run is automatic any more
 - [x] German translation of the full UI (`values-de/`, per-app language picker on Android 13+)
 - [x] Nth-weekday and spelled-out numbers in quick-add (`every 2nd monday`, `jeden letzten
       Freitag`, `alle drei Tage`) — number words live in `QuickAddLexicon.numbers`, and an
