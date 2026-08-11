@@ -15,20 +15,19 @@ Open this link on the phone and tap it:
 
 **https://github.com/andi1984/todo/releases/latest/download/cadence-debug.apk**
 
-That URL is permanent and always serves the newest build — every push to any branch rebuilds
-the app and republishes the `latest` release. Android will ask you to allow installs from that
+That URL is permanent and always serves the newest *published* build. Releases are cut
+deliberately now rather than on every push — see [Releases](#releases) — so the link moves when
+someone releases, not when someone commits. Android will ask you to allow installs from that
 source, which is expected for an app that did not come from the Play Store. There is nothing to
 unzip.
 
 The release build is at the same address as `cadence-release.apk`. The two have different
 application IDs (`…cadence.debug` and `…cadence`), so they can live side by side.
 
-Prefer the raw build output? Every run also uploads both APKs as workflow artifacts, at the
-bottom of the run's **Summary** page in the [Actions tab](../../actions/workflows/android.yml).
-Those download as a `.zip` and are only visible in a browser — the GitHub mobile app does not
-show artifacts.
-
-Pushing a `v*` tag publishes a separate, permanent versioned release with the same two APKs.
+Prefer the raw build output? A run of the [Android
+workflow](../../actions/workflows/android.yml) also uploads both APKs as workflow artifacts, at
+the bottom of the run's **Summary** page. Those download as a `.zip` and are only visible in a
+browser — the GitHub mobile app does not show artifacts.
 
 ### Updating over an older build
 
@@ -122,6 +121,27 @@ up to today.
 ```
 
 Requires JDK 17 and the Android SDK (compileSdk 35). Minimum supported device: Android 8.0.
+
+## Releases
+
+**Nothing builds automatically.** All three GitHub Actions workflows are `workflow_dispatch`
+only: no push, no pull request, no schedule triggers a run, because hosted minutes were being
+spent on builds a laptop does for free. Run one from the Actions tab when you want it.
+
+The whole release is a single script, and it is the same script the workflows call:
+
+```bash
+bash .github/scripts/build.sh            # apk + everything this OS can package, into dist/
+bash .github/scripts/build.sh --dry-run  # what it would run, and at which version
+gh release create "v$(…)" dist/* --generate-notes   # publish by hand
+```
+
+`build.sh` derives the version from the Conventional Commit subjects since the last `v*` tag
+(`.github/scripts/next-version.sh`), stages the APKs under the fixed names the download links
+point at, and checks the debug signing certificate. A Linux laptop can produce the APKs, a
+`.deb`, an `.rpm` and a tarball; `.dmg` and `.msi` are the one thing that genuinely needs a
+runner, since jpackage cannot cross-compile them — run the **Desktop** workflow with its `os`
+input set to `macos-latest` or `windows-latest` for those, one at a time.
 
 ## Layout
 

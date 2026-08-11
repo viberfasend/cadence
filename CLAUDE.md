@@ -401,38 +401,50 @@ The generated accessors are one top-level property per string, so files import t
 
 ## CI / releases
 
-`.github/workflows/android.yml` runs tests then builds both APKs on every push to **any** branch
-and on pull requests. A push to `main` — i.e. a merged PR — additionally publishes a release.
+**Nothing runs on a hosted runner unless a human clicks it.** All three workflows are
+`workflow_dispatch` only — no `push`, no `pull_request`, no `schedule`. `android.yml` and
+`desktop.yml` used to run on every push to **any** branch and on every pull request, which is
+where this repository's Actions minutes went; a single push started four runners, two of them
+billed at macOS's 10x and Windows's 2x multipliers. **Verification is local now**: run
+`./gradlew testDebugUnitTest :core:jvmTest` and `./gradlew :ui:compileKotlinJvm` before pushing,
+because no runner will do it for you and a red branch will look green. Don't restore an
+automatic trigger to any workflow in this repo without being asked for it outright.
 
-`.github/workflows/desktop.yml` builds `:app-desktop` on the same triggers, as a
-`fail-fast: false` matrix over `ubuntu-latest`/`macos-latest`/`windows-latest` — jpackage runs on
-the target OS, so there is no cross-compiling a `.dmg` from Linux. Each job installs whatever
-native packaging tool its OS needs that the runner image doesn't already carry (`fakeroot`/`rpm`
-on Linux, the WiX Toolset on Windows; macOS's `hdiutil` needs nothing extra), derives the same
-version `android.yml` does from `next-version.sh`, and uploads whatever
-`packageDistributionForCurrentOS` produced — deb, rpm and a tarball on Linux, a dmg on macOS, an
-msi on Windows — as a per-OS artifact. It does not yet publish those installers to the release
-`android.yml` creates; wiring the two together, so one release carries the APKs and all three
-desktop installers (ADR 0001 §"Phases" table), is left for a follow-up once this matrix has
-proven itself green.
+What each one still does, when dispatched:
+
+- `android.yml` — tests, then `build.sh apk`, uploading both APKs as artifacts.
+- `desktop.yml` — tests, then `build.sh desktop`, over a matrix built from an `os` **input**
+  that defaults to `ubuntu-latest` alone rather than fanning out to three runners; pass `all`
+  for all three. jpackage runs on the target OS, so there is no cross-compiling a `.dmg` from
+  Linux, and each leg installs the packaging tool its OS lacks (`fakeroot`/`rpm` on Linux, the
+  WiX Toolset on Windows; macOS's `hdiutil` needs nothing extra). A `.dmg` or an `.msi` is the
+  only artefact a Linux laptop genuinely cannot produce — that is the whole remaining case for
+  the runner.
+- `release.yml` — was already manual, and is unchanged.
+
+Since `build.sh` is what all three call, a release can be cut entirely on a laptop: `bash
+.github/scripts/build.sh` stages `dist/`, then `gh release create … dist/*`. Wiring the desktop
+installers into the release the way ADR 0001 §"Phases" describes is still a follow-up, and is
+now a question about `build.sh` rather than about two workflows.
 
 The version is **derived, never edited**. `.github/scripts/next-version.sh` reads the
 Conventional Commit subjects since the last `v*` tag: a `!` or a `BREAKING CHANGE:` footer bumps
-major, any `feat:` bumps minor, anything else bumps patch, so every merge ships a build. With no
-tag yet the first release is `1.0.0`. The script writes `version`/`version_code`/`notes` as step
-outputs; `app-android/build.gradle.kts` reads `CADENCE_VERSION_NAME`/`CADENCE_VERSION_CODE` from the
-environment and falls back to `0.0.0-dev` locally. `versionCode` is
-`major * 10000 + minor * 100 + patch`. Run the script locally to see what a merge would publish:
+major, any `feat:` bumps minor, anything else bumps patch, so a release always carries a version
+that describes what went into it. With no tag yet the first release is `1.0.0`. The script
+writes `version`/`version_code`/`notes` as step outputs; `app-android/build.gradle.kts` reads
+`CADENCE_VERSION_NAME`/`CADENCE_VERSION_CODE` from the environment and falls back to `0.0.0-dev`
+locally. `versionCode` is `major * 10000 + minor * 100 + patch`. Run the script locally to see
+what releasing now would publish:
 
 ```bash
 bash .github/scripts/next-version.sh    # prints the outputs when GITHUB_OUTPUT is unset
 ```
 
-The release action creates the tag from the merge commit, so the next run measures from there.
-`releases/latest/download/cadence-debug.apk` still serves the newest build, now because each
-release is published with `make_latest`. Branch and PR runs only upload APK artifacts — the
-version they print is a preview of what merging would publish. Debug and release use different
-application IDs (`.debug` suffix) and install side by side.
+The release action creates the tag from the commit it ran on, so the next run measures from
+there. `releases/latest/download/cadence-debug.apk` still serves the newest published build,
+because each release is published with `make_latest` — it now moves when someone releases, not
+when someone merges. Debug and release use different application IDs (`.debug` suffix) and
+install side by side.
 
 **The debug key is committed (`app-android/debug.keystore`) and must stay that way.** Android installs a
 build over an existing app only when both carry the same signing certificate, and AGP invents a
