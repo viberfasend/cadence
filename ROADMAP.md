@@ -12,20 +12,27 @@ carry the detail and the up-to-date checked/unchecked state.
 
 ## Now
 
-- [ ] **Desktop app (Ubuntu/macOS/Windows) and multi-device sync** — [#28](../../issues/28),
+- [ ] **Sync that runs itself** — [#76](../../issues/76), tracking
+      [ADR 0002](docs/adr/0002-supabase-sync.md) phases 3 and 3b. Sync works today and has to be
+      asked: a **Sync now** button in Settings and nothing else. This makes it automatic, gives it
+      a place in the header on every list screen, and puts the manual gesture where people reach
+      for it — pull-to-refresh, or `Ctrl`/`Cmd`+`R` on the desktop.
+      - [ ] 3 — automatic triggers, sync in the header, failure snackbar —
+            [#77](../../issues/77)
+      - [ ] 3b — Realtime, as an accelerant only — [#78](../../issues/78)
+- [ ] **Desktop app (Ubuntu/macOS/Windows)** — [#28](../../issues/28),
       tracking [ADR 0001](docs/adr/0001-desktop-app-and-multi-device-sync.md). Moves the app to
-      Kotlin Multiplatform over a shared `:core`, swaps Room for SQLDelight, replaces `Long` ids
-      with UUIDv7, and turns sync into a folder of per-device state files merged on read rather
-      than a snapshot that replaces everything. Phases 1–4 land invisibly, phase 5 is the first
-      desktop build.
+      Kotlin Multiplatform over a shared `:core`, swaps Room for SQLDelight and replaces `Long`
+      ids with UUIDv7. Phases 1–4 land invisibly, phase 5 is the first desktop build. Sync left
+      this ADR before phase 6 shipped — see ADR 0002 and [#76](../../issues/76).
       - [x] 1 — `:core` KMP module ([#19](../../issues/19), [#20](../../issues/20))
       - [x] 2 — UUIDv7 keys, `updatedAt`/`deletedAt`, SQLDelight schema — [#23](../../issues/23)
       - [x] 3 — `:ui` Compose Multiplatform module, strings to `composeResources` —
             [#24](../../issues/24)
       - [x] 4 — `:app-android` reduced to a shell — [#25](../../issues/25)
       - [x] 5 — `:app-desktop` with jpackage installers and a CI matrix — [#26](../../issues/26)
-      - [ ] 6 — backup format v2, merge engine, `SyncTransport`, per-device sync folder —
-            [#27](../../issues/27)
+      - [x] ~~6 — backup format v2, merge engine, `SyncTransport`, per-device sync folder~~ —
+            [#27](../../issues/27), superseded by ADR 0002
 - [ ] A reminder opens Today, not the task it reminded you about — [#29](../../issues/29)
 - [ ] `android:allowBackup="true"` with no rules file is a silent data-loss trap —
       [#30](../../issues/30)
@@ -37,6 +44,8 @@ carry the detail and the up-to-date checked/unchecked state.
 - [ ] Bulk actions in Triage/Projects (multi-select complete/move/delete) —
       [#40](../../issues/40)
 - [ ] Tags in addition to Projects — [#41](../../issues/41)
+- [ ] Desktop backup file picker can't reach cloud storage — [#65](../../issues/65). Escape-hatch
+      only now that sync no longer travels through a file.
 - [ ] **Attachments and the Android share sheet** — [#31](../../issues/31), designed in
       [`docs/attachments-and-share.md`](docs/attachments-and-share.md). Six phases, each shipping
       on its own.
@@ -50,8 +59,6 @@ carry the detail and the up-to-date checked/unchecked state.
 
 ## Later / exploratory
 
-- [ ] WebDAV/Nextcloud as a second `SyncTransport`, next to the synced folder of ADR 0001 —
-      [#42](../../issues/42)
 - [ ] Web app companion — [#43](../../issues/43)
 - [ ] ADR 0001 phase 7 (optional) — wasm/js target for `:core` — [#44](../../issues/44)
 - [ ] Home screen calendar view (month grid) — [#45](../../issues/45)
