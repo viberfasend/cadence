@@ -59,9 +59,10 @@ class SqlDelightTaskStore(
 
     override suspend fun update(task: Task) = insert(task)
 
-    override suspend fun deleteWithSubtasks(id: String): Unit = withContext(ioDispatcher) {
-        queries.deleteWithSubtasks(id)
-    }
+    override suspend fun tombstoneWithSubtasks(id: String, at: Instant): Unit =
+        withContext(ioDispatcher) {
+            queries.tombstoneWithSubtasks(at = at.toEpochMilli(), id = id)
+        }
 
     override suspend fun completeIfOpen(id: String, completedAt: Instant): Int =
         withContext(ioDispatcher) {
@@ -118,15 +119,18 @@ class SqlDelightProjectStore(
         queries.selectTaskIdsIn(id).executeAsList()
     }
 
-    override suspend fun deleteWithChildren(id: String, deleteTasks: Boolean) =
+    override suspend fun tombstoneWithChildren(id: String, deleteTasks: Boolean, at: Instant): Unit =
         withContext(ioDispatcher) {
+            val stamp = at.toEpochMilli()
             database.transaction {
                 if (deleteTasks) {
-                    queries.deleteTasksIn(id)
+                    queries.tombstoneTasksIn(at = stamp, id = id)
                 } else {
-                    queries.moveTasksToInbox(Instant.now().toEpochMilli(), id)
+                    queries.moveTasksToInbox(updatedAt = stamp, id = id)
                 }
-                queries.deleteWithChildrenRows(id)
+                // Last, not first: both statements above select by `parentId = :id` against rows
+                // this one is about to tombstone, and a tombstoned subproject is excluded there.
+                queries.tombstoneWithChildrenRows(at = stamp, id = id)
             }
         }
 }
@@ -185,97 +189,45 @@ class SqlDelightBackupStore(
 ) : BackupStore {
 
     /**
-     * All or nothing, in one transaction: a failed restore must not leave the app half-empty.
-     * `BackupDao.replaceAll` becomes a merge in phase 6 — until then a restore is still the
-     * destructive full-replace it always was, ids and links carried over from the file as-is.
-     * The backup format does not carry attachments yet (`docs/attachments-and-share.md`, phase
-     * 4), so a restore clears every attachment row too — nothing in the file could repopulate
-     * them, and leaving stale rows pointing at tasks the restore just replaced would be worse.
-     * [de.andi1984.cadence.data.CadenceRepository.restore] sweeps the now-orphaned blobs
-     * afterwards.
+     * One rule, applied to every record the same way: the greater `updatedAt` wins, ties keep
+     * what is stored, and a tombstone is just a version of the record rather than a special case.
+     *
+     * The uniformity is the point. The first cut of this special-cased `deletedAt != null` into
+     * an unconditional delete, which let a stale delete beat a newer edit — the one outcome
+     * last-writer-wins exists to prevent. It also dropped incoming tombstones for ids it had
+     * never seen, which quietly resurrects a task the moment some other path delivers the row.
+     *
+     * Reads go through `selectByIdIncludingDeleted` for the same reason: the local row a merge
+     * has to compare against is often precisely a tombstone, and the ordinary `selectById`
+     * filters those out.
+     *
+     * All or nothing, in one transaction: a failed merge must not leave the app half-written.
+     * Attachment rows are untouched — the backup format does not carry attachments
+     * (`docs/attachments-and-share.md`), so there is nothing here that could repopulate them,
+     * and a merge that discarded them would lose files no incoming record ever mentioned.
      */
-    @Deprecated("Use mergeAll instead for phase 6 sync")
-    override suspend fun replaceAll(projects: List<Project>, tasks: List<Task>) =
+    override suspend fun mergeAll(projects: List<Project>, tasks: List<Task>): Unit =
         withContext(ioDispatcher) {
             database.transaction {
-                database.attachmentQueries.deleteAll()
-                database.taskQueries.deleteAll()
-                database.projectQueries.deleteAll()
-                projects.forEach { database.projectQueries.insertRow(it) }
-                tasks.forEach { database.taskQueries.insertRow(it) }
-            }
-        }
-
-    /**
-     * Merge the given projects and tasks into the current database using last-writer-wins
-     * conflict resolution. This is the phase 6 implementation that replaces the destructive
-     * replaceAll with a proper merge.
-     * 
-     * The merge works as follows:
-     * 1. For each project/task, if it exists locally, compare updatedAt timestamps
-     * 2. If the incoming record has a newer updatedAt, replace the local record
-     * 3. If the incoming record has deletedAt set (tombstone), delete the local record
-     * 4. If timestamps are equal, keep the local record (tie-break by preferring existing data)
-     * 5. If the record doesn't exist locally, insert it
-     * 
-     * All operations happen in a single transaction to ensure atomicity.
-     */
-    override suspend fun mergeAll(projects: List<Project>, tasks: List<Task>) =
-        withContext(ioDispatcher) {
-            database.transaction {
-                // Merge projects
                 for (project in projects) {
-                    val existing = database.projectQueries.selectById(project.id).executeAsOneOrNull()
-                    
-                    if (existing != null) {
-                        // Record exists, check if we should replace it
-                        val existingUpdatedAt = Instant.ofEpochMilli(existing.updatedAt)
-                        val incomingUpdatedAt = project.updatedAt
-                        
-                        if (project.deletedAt != null) {
-                            // Incoming is a tombstone - delete the local record
-                            database.projectQueries.deleteById(project.id)
-                        } else if (incomingUpdatedAt > existingUpdatedAt) {
-                            // Incoming is newer - replace the local record
-                            database.projectQueries.insertRow(project)
-                        }
-                        // If timestamps are equal or incoming is older, keep existing
-                    } else {
-                        // Record doesn't exist locally
-                        if (project.deletedAt == null) {
-                            // Insert new record (ignore tombstones for non-existent records)
-                            database.projectQueries.insertRow(project)
-                        }
+                    val existing = database.projectQueries
+                        .selectByIdIncludingDeleted(project.id)
+                        .executeAsOneOrNull()
+                    if (existing == null || project.updatedAt > Instant.ofEpochMilli(existing.updatedAt)) {
+                        database.projectQueries.insertRow(project)
                     }
                 }
-
-                // Merge tasks
                 for (task in tasks) {
-                    val existing = database.taskQueries.selectById(task.id).executeAsOneOrNull()
-                    
-                    if (existing != null) {
-                        // Record exists, check if we should replace it
-                        val existingUpdatedAt = Instant.ofEpochMilli(existing.updatedAt)
-                        val incomingUpdatedAt = task.updatedAt
-                        
-                        if (task.deletedAt != null) {
-                            // Incoming is a tombstone - delete the local record
-                            database.taskQueries.deleteById(task.id)
-                        } else if (incomingUpdatedAt > existingUpdatedAt) {
-                            // Incoming is newer - replace the local record
-                            database.taskQueries.insertRow(task)
-                        }
-                        // If timestamps are equal or incoming is older, keep existing
-                    } else {
-                        // Record doesn't exist locally
-                        if (task.deletedAt == null) {
-                            // Insert new record (ignore tombstones for non-existent records)
-                            database.taskQueries.insertRow(task)
-                        }
+                    val existing = database.taskQueries
+                        .selectByIdIncludingDeleted(task.id)
+                        .executeAsOneOrNull()
+                    if (existing == null || task.updatedAt > Instant.ofEpochMilli(existing.updatedAt)) {
+                        database.taskQueries.insertRow(task)
                     }
                 }
             }
         }
+
 }
 
 private fun TaskQueries.insertRow(task: Task) {
