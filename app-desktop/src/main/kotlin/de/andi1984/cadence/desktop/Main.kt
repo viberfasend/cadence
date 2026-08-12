@@ -68,7 +68,15 @@ fun main() = application {
 
     // App start. Signed out this makes no request at all, so a fresh install still talks to
     // nobody until somebody signs in.
-    LaunchedEffect(Unit) { container.syncEngine.syncInBackground() }
+    //
+    // The change socket opens here too and stays open for the whole process, minimised included
+    // (ADR 0002, decision 12) — unlike Android, which holds it only in the foreground. A desktop
+    // that dropped the socket on alt-tab would drop it exactly when the phone is being used,
+    // which is the one case realtime exists for.
+    LaunchedEffect(Unit) {
+        container.syncEngine.syncInBackground()
+        container.syncEngine.startRealtime()
+    }
 
     var quickAddRequested by remember { mutableStateOf(false) }
 
