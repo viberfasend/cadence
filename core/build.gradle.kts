@@ -64,6 +64,9 @@ kotlin {
             // share, because OkHttp is the engine that runs on Android and the desktop alike.
             implementation(libs.supabase.auth)
             implementation(libs.supabase.postgrest)
+            // Realtime (ADR 0002, decision 12): the same websocket engine, one channel beside
+            // the round rather than in place of it.
+            implementation(libs.supabase.realtime)
             implementation(libs.ktor.client.okhttp)
         }
         jvmSharedTest.dependencies {

@@ -97,16 +97,22 @@ class CadenceApplication : Application() {
      * start — the local database is the source of truth until then. There is deliberately no
      * `WorkManager` and no background poll behind this: the phone is stale only while nobody is
      * looking at it.
+     *
+     * The change socket follows the same two events, and only these (ADR 0002, decision 12): a
+     * websocket held open in the background is the wakelock `WorkManager` was rejected to avoid,
+     * and nothing on this device is reading a row while the app is not in front of the user.
      */
     private fun syncWithTheApp() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) {
                     container.syncEngine.syncInBackground()
+                    container.syncEngine.startRealtime()
                 }
 
                 override fun onStop(owner: LifecycleOwner) {
                     container.syncEngine.syncInBackground()
+                    container.syncEngine.stopRealtime()
                 }
             },
         )

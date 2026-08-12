@@ -352,6 +352,19 @@ than reaching for `!!`.
     `Ctrl`/`Cmd`+`R`). Every failed round raises a snackbar, `OFFLINE` included, and a new
     failure replaces the one on screen — which is why the engine publishes `failures` as a
     `SharedFlow` beside `status`: identical consecutive failures would collapse in a `StateFlow`.
+  - **Realtime is an accelerant beside the round, and it never advances the cursor** (ADR 0002,
+    decision 12). `CadenceSyncEngine.startRealtime()` opens one channel over both tables,
+    filtered server-side on `user_id`; payloads decode with the same `RemoteTask`/`RemoteProject`
+    and merge through the same `mergeAndAdvance` — with **null cursors**, because the socket is
+    at-most-once and a cursor advanced past an event that never arrived skips that row forever.
+    Every subscribe and every reconnect therefore runs a full `syncOnce()`, which is also what
+    makes a missed event harmless. A deletion is a tombstone `UPDATE`, so `INSERT` and `UPDATE`
+    cover everything and `DELETE` is not handled. The socket's lifetime is the shells' one real
+    difference: `:app-android` opens it in `onStart` and closes it in `onStop` (a background
+    websocket is the wakelock `WorkManager` was rejected to avoid), `:app-desktop` holds it for
+    the process. `supabase/migrations/20260812120000_realtime.sql` is the server half — the
+    publication plus `replica identity full`, without which an RLS-checked `UPDATE` payload is
+    dropped.
 - **Reminders are a per-device setting** (`CadenceSettings.remindersEnabled`), on by default on
   Android and off on the desktop — the default lives in each shell's `SettingsStore`, since that
   is the only thing that differs. Once a task exists on both devices both would otherwise fire
