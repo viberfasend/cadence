@@ -18,19 +18,36 @@ import io.github.jan.supabase.exceptions.UnauthorizedRestException
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Order
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import io.github.jan.supabase.realtime.HasRecord
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.Realtime
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.serializer.KotlinXSerializer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import java.io.IOException
 import java.time.Duration
 import java.time.Instant
@@ -116,6 +133,10 @@ class CadenceSyncEngine(
             autoLoadFromStorage = true
         }
         install(Postgrest)
+        // Realtime is an accelerant beside the round, never in place of it (ADR 0002, decision
+        // 12): it carries a change over in about a second, and everything it can drop is picked
+        // up by the next pull.
+        install(Realtime)
     }
 
     private val mutex = Mutex()
@@ -138,6 +159,9 @@ class CadenceSyncEngine(
      * so here.
      */
     val failures: SharedFlow<SyncFailure> = _failures.asSharedFlow()
+
+    /** The socket's whole lifetime, held so the shell can end it — see [startRealtime]. */
+    private var realtimeJob: Job? = null
 
     init {
         // The signed-in/out half of the status comes from the library — it loads the stored
@@ -208,6 +232,162 @@ class CadenceSyncEngine(
     fun syncInBackground() {
         scope.launch { syncOnce() }
     }
+
+    // ── Realtime ───────────────────────────────────────────────────────────────────
+
+    /**
+     * Opens the change socket, and keeps re-opening it (ADR 0002, decision 12).
+     *
+     * The shell decides how long that lasts, because the answer differs: `:app-android` starts
+     * this in the foreground and [stopRealtime]s on the way out — a background websocket is the
+     * wakelock `WorkManager` was rejected to avoid — while `:app-desktop` starts it once and
+     * leaves it open for the process, minimised included. A desktop that drops the socket on
+     * alt-tab drops it exactly when the phone is in use, which is the one case this exists for.
+     *
+     * Calling it twice is a no-op, and signed out it costs nothing: the loop waits for a session
+     * rather than connecting to be told it has none.
+     */
+    @Synchronized
+    fun startRealtime() {
+        if (realtimeJob?.isActive == true) return
+        realtimeJob = scope.launch { realtimeLoop() }
+    }
+
+    /** Closes the socket and stops re-opening it. The pull is what covers the gap afterwards. */
+    @Synchronized
+    fun stopRealtime() {
+        realtimeJob?.cancel()
+        realtimeJob = null
+        // Guarded because this is also the signed-out path: an app that goes to the background
+        // without ever having connected must not be the one call that throws in `onStop`.
+        if (client.realtime.status.value != Realtime.Status.DISCONNECTED) {
+            client.realtime.disconnect()
+        }
+    }
+
+    /**
+     * Subscribe, listen, and on any failure wait and subscribe again — 1s, doubling to 30s.
+     *
+     * The backoff is ours rather than the library's because what follows a reconnect is ours too:
+     * every successful subscribe runs a full [syncOnce], since the socket's downtime is exactly
+     * the gap the cursor already covers. That round is also what makes the unavoidable race here
+     * harmless — a change committed between the join and the first delivered event is simply
+     * pulled.
+     */
+    private suspend fun realtimeLoop() {
+        var backoff = REALTIME_MIN_BACKOFF
+        while (true) {
+            val session = client.auth.sessionStatus
+                .first { it is SessionStatus.Authenticated } as SessionStatus.Authenticated
+            val userId = session.session.user?.id
+            if (userId == null) {
+                // No user on an authenticated session is not a thing to retry in a tight loop.
+                delay(REALTIME_MAX_BACKOFF.toMillis())
+                continue
+            }
+            try {
+                listen(userId)
+                // A clean return means the account went away, not that anything broke.
+                backoff = REALTIME_MIN_BACKOFF
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                delay(backoff.toMillis())
+                backoff = minOf(backoff.multipliedBy(2), REALTIME_MAX_BACKOFF)
+            }
+        }
+    }
+
+    /**
+     * One channel, both tables, filtered server-side on `user_id`.
+     *
+     * The filter is not decoration: without it the socket carries every account's rows and RLS
+     * drops them at delivery, which is waste plus one more thing to get wrong.
+     *
+     * Returns when the session ends; throws when the socket does. Both flows are collected before
+     * [RealtimeChannel.subscribe] because a `postgres_changes` binding is registered as its flow
+     * is collected and only travels with the join that follows it.
+     */
+    private suspend fun listen(userId: String) = coroutineScope {
+        val channel = client.realtime.channel(REALTIME_CHANNEL)
+        val tasks = channel.postgresChangeFlow<PostgresAction>(schema = SCHEMA) {
+            table = TABLE_TASKS
+            filter(COLUMN_USER_ID, FilterOperator.EQ, userId)
+        }
+        val projects = channel.postgresChangeFlow<PostgresAction>(schema = SCHEMA) {
+            table = TABLE_PROJECTS
+            filter(COLUMN_USER_ID, FilterOperator.EQ, userId)
+        }
+
+        val listeners = listOf(
+            launch { tasks.collect { action -> action.record()?.let { mergeRemoteTask(it) } } },
+            launch { projects.collect { action -> action.record()?.let { mergeRemoteProject(it) } } },
+            // Every reconnect the library manages under us gets its own full round, for the same
+            // reason the first subscribe does: the socket's downtime is exactly the gap the
+            // cursor covers. `drop(1)` skips the *first* connected — that one is the socket this
+            // subscribe just opened, and the round for it is the explicit one below.
+            launch {
+                client.realtime.status
+                    .filter { it == Realtime.Status.CONNECTED }
+                    .drop(1)
+                    .collect { syncOnce() }
+            },
+        )
+
+        try {
+            channel.subscribe(blockUntilSubscribed = true)
+            syncOnce()
+            // Nothing else to do here: the listeners are running, and the library rejoins on its
+            // own. This returns when the account goes away, and is cancelled when the shell says
+            // to stop.
+            client.auth.sessionStatus.first { it is SessionStatus.NotAuthenticated }
+        } finally {
+            listeners.forEach { it.cancel() }
+            withContext(NonCancellable) { runCatching { client.realtime.removeChannel(channel) } }
+        }
+    }
+
+    /**
+     * Folds one payload row in **without touching the cursor** (ADR 0002, decision 12).
+     *
+     * Realtime is at-most-once: a dropped socket loses events silently, and a cursor advanced
+     * past an event that never arrived has skipped that row forever. Merging is idempotent and
+     * therefore safe; advancing from a payload is not, so the cursors travel as null and the next
+     * pull re-fetches the same rows harmlessly.
+     *
+     * A row that does not decode is dropped rather than thrown: one unreadable payload must not
+     * take the socket down with it, and the pull will bring the same row back.
+     */
+    private suspend fun mergeRemoteTask(record: JsonObject) {
+        val task = runCatching { SyncJson.decodeFromJsonElement(RemoteTask.serializer(), record) }
+            .getOrNull() ?: return
+        mutex.withLock {
+            store.mergeAndAdvance(
+                projects = emptyList(),
+                tasks = listOf(task.toDomain()),
+                taskCursor = null,
+                projectCursor = null,
+            )
+        }
+    }
+
+    private suspend fun mergeRemoteProject(record: JsonObject) {
+        val project =
+            runCatching { SyncJson.decodeFromJsonElement(RemoteProject.serializer(), record) }
+                .getOrNull() ?: return
+        mutex.withLock {
+            store.mergeAndAdvance(
+                projects = listOf(project.toDomain()),
+                tasks = emptyList(),
+                taskCursor = null,
+                projectCursor = null,
+            )
+        }
+    }
+
+    /** The new version a payload carries, or null for the events that carry none. A delete is a
+     *  tombstone `UPDATE` here (ADR 0002, decision 3), so `DELETE` needs no handling. */
+    private fun PostgresAction.record(): JsonObject? = (this as? HasRecord)?.record
 
     suspend fun syncOnce(): SyncOutcome = mutex.withLock {
         val session = client.auth.sessionStatus.value as? SessionStatus.Authenticated
@@ -352,6 +532,15 @@ class CadenceSyncEngine(
         const val TABLE_TASKS = "tasks"
         const val TABLE_PROJECTS = "projects"
         const val COLUMN_SERVER_UPDATED_AT = "server_updated_at"
+        const val COLUMN_USER_ID = "user_id"
+        const val SCHEMA = "public"
+
+        /** One channel carries both tables — two would be two sockets' worth of bookkeeping for
+         *  the same account's rows. */
+        const val REALTIME_CHANNEL = "cadence"
+
+        val REALTIME_MIN_BACKOFF: Duration = Duration.ofSeconds(1)
+        val REALTIME_MAX_BACKOFF: Duration = Duration.ofSeconds(30)
 
         /** The primary key both tables carry, and therefore what an upsert conflicts on. */
         const val CONFLICT_KEY = "user_id,id"
