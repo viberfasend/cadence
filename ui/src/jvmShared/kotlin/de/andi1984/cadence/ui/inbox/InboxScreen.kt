@@ -34,6 +34,9 @@ import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.EmptyState
 import de.andi1984.cadence.ui.components.ScreenHeader
+import de.andi1984.cadence.ui.components.SyncActions
+import de.andi1984.cadence.ui.components.SyncControls
+import de.andi1984.cadence.ui.components.SyncRefreshBox
 import de.andi1984.cadence.ui.components.TaskRow
 import de.andi1984.cadence.ui.sortedFor
 import java.time.LocalDate
@@ -45,6 +48,7 @@ fun InboxScreen(
     onTaskClick: (Task) -> Unit,
     onToggle: (Task) -> Unit,
     onTriage: () -> Unit,
+    syncControls: SyncControls = SyncControls(),
 ) {
     // Root tasks only: a subtask of an Inbox task is folded into its parent's row unless the
     // parent is expanded (see rows below).
@@ -64,6 +68,7 @@ fun InboxScreen(
                 pluralStringResource(Res.plurals.inbox_to_sort, open, open)
             },
         ) {
+            SyncActions(status = state.sync.status, controls = syncControls)
             if (open > 0) {
                 Row(
                     modifier = Modifier
@@ -98,35 +103,37 @@ fun InboxScreen(
             return@Column
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            items(rows, key = { if (it.isSubtaskRow) "sub-${it.task.id}" else it.task.id }) { row ->
-                val task = row.task
-                TaskRow(
-                    task = task,
-                    projectLabel = null,
-                    today = today,
-                    onToggle = { onToggle(task) },
-                    onClick = { onTaskClick(task) },
-                    showProject = false,
-                    subtaskProgress = if (row.isSubtaskRow) null else state.subtaskProgress(task.id),
-                    expanded = task.id in expandedIds,
-                    onExpandToggle = if (!row.isSubtaskRow && state.subtaskProgress(task.id) != null) {
-                        {
-                            expandedIds = if (task.id in expandedIds) {
-                                expandedIds - task.id
-                            } else {
-                                expandedIds + task.id
+        SyncRefreshBox(status = state.sync.status, controls = syncControls) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                items(rows, key = { if (it.isSubtaskRow) "sub-${it.task.id}" else it.task.id }) { row ->
+                    val task = row.task
+                    TaskRow(
+                        task = task,
+                        projectLabel = null,
+                        today = today,
+                        onToggle = { onToggle(task) },
+                        onClick = { onTaskClick(task) },
+                        showProject = false,
+                        subtaskProgress = if (row.isSubtaskRow) null else state.subtaskProgress(task.id),
+                        expanded = task.id in expandedIds,
+                        onExpandToggle = if (!row.isSubtaskRow && state.subtaskProgress(task.id) != null) {
+                            {
+                                expandedIds = if (task.id in expandedIds) {
+                                    expandedIds - task.id
+                                } else {
+                                    expandedIds + task.id
+                                }
                             }
-                        }
-                    } else {
-                        null
-                    },
-                    modifier = if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier,
-                )
+                        } else {
+                            null
+                        },
+                        modifier = if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier,
+                    )
+                }
             }
         }
     }

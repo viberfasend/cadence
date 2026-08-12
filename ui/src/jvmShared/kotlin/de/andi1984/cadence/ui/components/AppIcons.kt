@@ -9,6 +9,8 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Delete
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Inbox
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -68,6 +71,11 @@ object AppIcons {
 
     /** Points from a subtask up to the task it belongs to. */
     val ParentTask: ImageVector = Icons.Rounded.ArrowUpward
+    val Refresh: ImageVector = Icons.Rounded.Refresh
+
+    /** Sync's two resting looks in the header: in step, and not (ADR 0002, decision 13). */
+    val SyncIdle: ImageVector = Icons.Rounded.CloudDone
+    val SyncProblem: ImageVector = Icons.Rounded.CloudOff
     val Today: ImageVector = Icons.Rounded.Today
     val Tune: ImageVector = Icons.Rounded.Tune
     val Upload: ImageVector = Icons.Rounded.Upload

@@ -129,6 +129,9 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    // ProcessLifecycleOwner: sync follows the app to the foreground and back out again, and only
+    // the process lifecycle can tell that apart from a rotation (ADR 0002, decision 11).
+    implementation(libs.androidx.lifecycle.process)
     // LifecycleEventEffect: automatic backup sync writes the file as the app leaves.
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.navigation.compose)

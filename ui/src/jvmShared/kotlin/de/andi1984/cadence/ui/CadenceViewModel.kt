@@ -4,6 +4,7 @@ import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.data.RepositoryResult
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.data.sync.SignInResult
+import de.andi1984.cadence.data.sync.SyncFailure
 import de.andi1984.cadence.data.sync.SyncStatus
 import de.andi1984.cadence.domain.backup.BackupOutcome
 import de.andi1984.cadence.domain.model.Priority
@@ -25,14 +26,20 @@ import de.andi1984.cadence.ui.settings.SettingsStore
 import de.andi1984.cadence.ui.settings.SortMode
 import de.andi1984.cadence.ui.settings.ThemeChoice
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -173,6 +180,16 @@ class CadenceViewModel(
     private val backupGateway: BackupGateway,
     private val syncEngine: CadenceSyncEngine,
     private val scope: CoroutineScope,
+    /**
+     * How often to sync with nothing prompting it, or null for never — the safety net for a
+     * socket that believes it is connected and is not (ADR 0002, decision 11).
+     *
+     * `:app-desktop` passes 15 minutes and `:app-android` passes nothing: a phone is stale only
+     * while nobody is looking at it, and it syncs on foreground before the user reads a row, so
+     * a background round there would buy a fresher database nobody is reading and pay for it in
+     * a doze-mode fight.
+     */
+    syncPollInterval: Duration? = null,
 ) {
 
     private val backupOutcome = MutableStateFlow<BackupOutcome?>(null)
@@ -214,7 +231,26 @@ class CadenceViewModel(
         initialValue = CadenceUiState(),
     )
 
+    /**
+     * A write happened here — arm the debounce (ADR 0002, decision 11).
+     *
+     * Deliberately a signal every mutation *sends*, rather than something derived from
+     * `repository.tasks`: a row merged in from a pull lands in that flow exactly like a local
+     * edit does, and a debounce watching it would have the two devices pushing each other awake
+     * forever.
+     */
+    private val writes = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    /** One event per failed round, for the shell to raise a snackbar from. */
+    val syncFailures: Flow<SyncFailure> = syncEngine.failures
+
     init {
+        startWriteDebounce()
+        if (syncPollInterval != null) startPoll(syncPollInterval)
+
         // Reminders reconcile on every emission, and on whether this device fires them at all:
         // with the task list shared between two devices, both would otherwise go off for the same
         // task at the same minute (ADR 0002, decision 9). Switching them off hands the scheduler
@@ -234,10 +270,12 @@ class CadenceViewModel(
         // an alarm outlives the row it belongs to unless it is cancelled here — sync only ever
         // sees the tasks that still exist.
         repository.setCompleted(task, !task.isDone).forEach { reminderScheduler.cancel(it) }
+        armSync()
     }
 
     fun saveTask(task: Task) = scope.launch {
         repository.upsertTask(task)
+        armSync()
     }
 
     fun deleteTask(task: Task) = scope.launch {
@@ -253,6 +291,7 @@ class CadenceViewModel(
         
         // Perform deletion
         repository.deleteTask(task.id)
+        armSync()
         
         // Show snackbar with undo option
         showSnackbar(
@@ -266,6 +305,7 @@ class CadenceViewModel(
             is RepositoryResult.Success -> {
                 // Success - the subtask was added
                 // No action needed as the Flow will update automatically
+                armSync()
             }
             is RepositoryResult.Error -> {
                 showSnackbar(result.message)
@@ -280,6 +320,7 @@ class CadenceViewModel(
 
     fun setDueDate(task: Task, dueDate: LocalDate?) = scope.launch {
         repository.setDueDate(task, dueDate)
+        armSync()
     }
 
     fun setDueTime(task: Task, dueTime: LocalTime?) = saveTask(task.copy(dueTime = dueTime))
@@ -290,14 +331,17 @@ class CadenceViewModel(
 
     fun setProject(task: Task, projectId: String?) = scope.launch {
         repository.moveToProject(task, projectId)
+        armSync()
     }
 
     fun snooze(task: Task, days: Long = 1L) = scope.launch {
         repository.shiftDueDate(task, days)
+        armSync()
     }
 
     fun rescheduleOverdue() = scope.launch {
         repository.rescheduleOverdueToToday()
+        armSync()
     }
 
     /** Creates the task the quick-add sheet parsed out of the typed line. */
@@ -314,6 +358,7 @@ class CadenceViewModel(
                     recurrence = parsed.recurrence,
                 ),
             )
+            armSync()
         }
 
     // ── Projects ───────────────────────────────────────────────────────────────────
@@ -330,6 +375,7 @@ class CadenceViewModel(
         when (val result = repository.upsertProject(project)) {
             is RepositoryResult.Success -> {
                 // Success - project was created
+                armSync()
             }
             is RepositoryResult.Error -> {
                 showSnackbar(result.message)
@@ -363,6 +409,7 @@ class CadenceViewModel(
         when (val result = repository.upsertProject(updatedProject)) {
             is RepositoryResult.Success -> {
                 // Success - project was updated
+                armSync()
             }
             is RepositoryResult.Error -> {
                 showSnackbar(result.message)
@@ -385,6 +432,7 @@ class CadenceViewModel(
         
         // Perform deletion
         repository.deleteProject(project.id, deleteTasks)
+        armSync()
         
         // Show snackbar with undo option
         showSnackbar(
@@ -411,9 +459,11 @@ class CadenceViewModel(
         backupOutcome.value = backupGateway.export(target)
     }
 
-    /** Folds the file into what is already here; reminders resync themselves. */
+    /** Folds the file into what is already here; reminders resync themselves, and the rows the
+     *  merge wrote travel to the other devices like any other edit. */
     fun importBackup(target: BackupTarget) = scope.launch {
         backupOutcome.value = backupGateway.import(target)
+        armSync()
     }
 
     fun clearBackupOutcome() {
@@ -440,7 +490,31 @@ class CadenceViewModel(
         }
     }
 
+    /** The manual gesture — Settings' button, the pull on Android, `Ctrl`/`Cmd`+`R` on the
+     *  desktop. Signed out it reaches the engine and does nothing, which is the whole contract. */
     fun syncNow() = scope.launch { syncEngine.syncOnce() }
+
+    /**
+     * Waits for the writing to stop and then syncs once, rather than syncing per keystroke.
+     *
+     * [debounce] restarts its timer on every signal, so a burst of edits — three checkboxes, a
+     * triage pass — costs one round two seconds after the last of them.
+     */
+    @OptIn(FlowPreview::class)
+    private fun startWriteDebounce() = scope.launch {
+        writes.debounce(WRITE_DEBOUNCE.toMillis()).collect { syncEngine.syncOnce() }
+    }
+
+    private fun startPoll(interval: Duration) = scope.launch {
+        while (true) {
+            delay(interval.toMillis())
+            syncEngine.syncOnce()
+        }
+    }
+
+    private fun armSync() {
+        writes.tryEmit(Unit)
+    }
 
     /** Signs out. Nothing local is deleted — the database on this device is the source of
      *  truth, and this only forgets the account and where the last round got to. */
@@ -496,6 +570,7 @@ class CadenceViewModel(
                 reminderScheduler.sync(undoAction.tasks)
             }
         }
+        armSync()
         
         // Auto-dismiss the snackbar after undo
         delay(1000) // Give time for the restore to complete
@@ -506,5 +581,11 @@ class CadenceViewModel(
      *  to is gone for good — not on a rotation. */
     fun close() {
         scope.cancel()
+    }
+
+    private companion object {
+        /** Long enough that a burst of edits is one round, short enough that the other device
+         *  has the change while the user is still looking at this one (ADR 0002, decision 11). */
+        val WRITE_DEBOUNCE: Duration = Duration.ofSeconds(2)
     }
 }

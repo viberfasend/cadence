@@ -33,7 +33,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import de.andi1984.cadence.data.sync.SyncFailure
 import de.andi1984.cadence.data.sync.SyncStatus
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
@@ -41,6 +40,7 @@ import de.andi1984.cadence.ui.components.CadenceChip
 import de.andi1984.cadence.ui.format.backupOutcomeText
 import de.andi1984.cadence.ui.format.formatFileSize
 import de.andi1984.cadence.ui.format.relativeTime
+import de.andi1984.cadence.ui.format.syncFailureText
 import de.andi1984.cadence.ui.platform.AppInfo
 import de.andi1984.cadence.ui.platform.BackupFilePicker
 import de.andi1984.cadence.ui.platform.BackupTarget
@@ -319,12 +319,14 @@ private fun BackupControls(
 }
 
 /**
- * Sign in, sync now, sign out — the whole of sync's UI in phase 2, and deliberately manual.
+ * Sign in, sync now, sign out — and, since phase 3, the place that says in words what the
+ * header's indicator only tints.
  *
  * There is a form and no "create account" link because there is exactly one account and sign-ups
  * are disabled server-side (ADR 0002, decision 2): a registration form here could only ever
- * produce an error. Automatic triggers — on start, after an edit, on close — are phase 3; what
- * this screen proves is that the phone and the desktop reach the same data at all.
+ * produce an error. Sync itself no longer waits to be asked — it runs on start, on foreground,
+ * two seconds after a write, on the way out and on a desktop timer (decision 11) — but **Sync
+ * now** stays for the case where someone came looking for it.
  */
 @Composable
 private fun SyncSection(
@@ -455,14 +457,6 @@ private fun signInErrorText(error: SignInError): String = when (error) {
     SignInError.WRONG_CREDENTIALS -> stringResource(Res.string.settings_sync_error_credentials)
     SignInError.OFFLINE -> stringResource(Res.string.settings_sync_error_offline)
     SignInError.SERVER -> stringResource(Res.string.settings_sync_error_server)
-}
-
-@Composable
-private fun syncFailureText(reason: SyncFailure): String = when (reason) {
-    SyncFailure.OFFLINE -> stringResource(Res.string.settings_sync_failed_offline)
-    SyncFailure.PROJECT_ASLEEP -> stringResource(Res.string.settings_sync_failed_asleep)
-    SyncFailure.SESSION_EXPIRED -> stringResource(Res.string.settings_sync_failed_session)
-    SyncFailure.SERVER -> stringResource(Res.string.settings_sync_failed_server)
 }
 
 @Composable

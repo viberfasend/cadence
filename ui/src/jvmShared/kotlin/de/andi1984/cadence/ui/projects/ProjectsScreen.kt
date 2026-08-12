@@ -46,6 +46,9 @@ import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.EmptyState
 import de.andi1984.cadence.ui.components.ProjectSwatch
 import de.andi1984.cadence.ui.components.ScreenHeader
+import de.andi1984.cadence.ui.components.SyncActions
+import de.andi1984.cadence.ui.components.SyncControls
+import de.andi1984.cadence.ui.components.SyncRefreshBox
 import de.andi1984.cadence.ui.components.SectionHeader
 import java.time.LocalDate
 
@@ -61,6 +64,7 @@ fun ProjectsScreen(
     onEditProject: (Project, String, String, String?) -> Unit,
     onDeleteProject: (Project, Boolean) -> Unit,
     onSettings: () -> Unit,
+    syncControls: SyncControls = SyncControls(),
 ) {
     val tree = state.projects.toTree()
     var dialog by remember { mutableStateOf<ProjectDialogState?>(null) }
@@ -74,6 +78,7 @@ fun ProjectsScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenHeader(title = stringResource(Res.string.projects_title)) {
+            SyncActions(status = state.sync.status, controls = syncControls)
             IconButton(onClick = { dialog = ProjectDialogState.Create(parentId = null) }) {
                 Icon(
                     AppIcons.CreateNewFolder,
@@ -85,109 +90,111 @@ fun ProjectsScreen(
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            item {
-                QuickRow(
-                    icon = AppIcons.Inbox,
-                    label = stringResource(Res.string.inbox_title),
-                    count = inboxCount,
-                    highlighted = true,
-                    onClick = onInbox,
-                )
-            }
-            item {
-                QuickRow(
-                    icon = AppIcons.Today,
-                    label = stringResource(Res.string.today_title),
-                    count = todayCount,
-                    highlighted = false,
-                    onClick = onToday,
-                )
-            }
-            item {
-                QuickRow(
-                    icon = AppIcons.EventRepeat,
-                    label = stringResource(Res.string.projects_quick_recurring),
-                    count = recurringCount,
-                    highlighted = false,
-                    onClick = {},
-                )
-            }
-            item {
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp))
-                SectionHeader(
-                    stringResource(Res.string.projects_section),
-                    modifier = Modifier.padding(start = 10.dp),
-                )
-            }
-
-            if (tree.isEmpty()) {
+        SyncRefreshBox(status = state.sync.status, controls = syncControls) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 item {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        EmptyState(
-                            title = stringResource(Res.string.projects_empty_title),
-                            supporting = stringResource(Res.string.projects_empty_supporting),
-                        )
-                        TextButton(
-                            onClick = { dialog = ProjectDialogState.Create(parentId = null) },
-                        ) {
-                            Icon(AppIcons.CreateNewFolder, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(Res.string.projects_new))
+                    QuickRow(
+                        icon = AppIcons.Inbox,
+                        label = stringResource(Res.string.inbox_title),
+                        count = inboxCount,
+                        highlighted = true,
+                        onClick = onInbox,
+                    )
+                }
+                item {
+                    QuickRow(
+                        icon = AppIcons.Today,
+                        label = stringResource(Res.string.today_title),
+                        count = todayCount,
+                        highlighted = false,
+                        onClick = onToday,
+                    )
+                }
+                item {
+                    QuickRow(
+                        icon = AppIcons.EventRepeat,
+                        label = stringResource(Res.string.projects_quick_recurring),
+                        count = recurringCount,
+                        highlighted = false,
+                        onClick = {},
+                    )
+                }
+                item {
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp))
+                    SectionHeader(
+                        stringResource(Res.string.projects_section),
+                        modifier = Modifier.padding(start = 10.dp),
+                    )
+                }
+
+                if (tree.isEmpty()) {
+                    item {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            EmptyState(
+                                title = stringResource(Res.string.projects_empty_title),
+                                supporting = stringResource(Res.string.projects_empty_supporting),
+                            )
+                            TextButton(
+                                onClick = { dialog = ProjectDialogState.Create(parentId = null) },
+                            ) {
+                                Icon(AppIcons.CreateNewFolder, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(stringResource(Res.string.projects_new))
+                            }
                         }
                     }
                 }
-            }
 
-            tree.forEach { node ->
-                val isCollapsed = collapsed[node.project.id] == true
-                item(key = "p-${node.project.id}") {
-                    ProjectRow(
-                        project = node.project,
-                        subtitle = rootSubtitle(node.children.size, dueThisWeek(state, node.project.id, today)),
-                        count = state.tasksIn(node.project.id).count { !it.isDone },
-                        overdue = state.tasksIn(node.project.id).count { it.isOverdue(today) },
-                        expandable = node.children.isNotEmpty(),
-                        collapsed = isCollapsed,
-                        onToggleExpand = { collapsed[node.project.id] = !isCollapsed },
-                        onClick = { onProjectClick(node.project) },
-                        menu = {
-                            ProjectMenu(
-                                project = node.project,
-                                canAddSubproject = true,
-                                onEdit = { dialog = ProjectDialogState.Edit(node.project) },
-                                onAddSubproject = {
-                                    collapsed[node.project.id] = false
-                                    dialog = ProjectDialogState.Create(parentId = node.project.id)
-                                },
-                                onDelete = { dialog = ProjectDialogState.Delete(node.project) },
-                            )
-                        },
-                    )
-                }
-                if (!isCollapsed) {
-                    items(node.children.size, key = { "c-${node.children[it].id}" }) { index ->
-                        val child = node.children[index]
-                        val childTasks = state.rootTasks().filter { it.projectId == child.id }
-                        SubprojectRow(
-                            project = child,
-                            count = childTasks.count { !it.isDone },
-                            overdue = childTasks.count { it.isOverdue(today) },
-                            onClick = { onProjectClick(child) },
+                tree.forEach { node ->
+                    val isCollapsed = collapsed[node.project.id] == true
+                    item(key = "p-${node.project.id}") {
+                        ProjectRow(
+                            project = node.project,
+                            subtitle = rootSubtitle(node.children.size, dueThisWeek(state, node.project.id, today)),
+                            count = state.tasksIn(node.project.id).count { !it.isDone },
+                            overdue = state.tasksIn(node.project.id).count { it.isOverdue(today) },
+                            expandable = node.children.isNotEmpty(),
+                            collapsed = isCollapsed,
+                            onToggleExpand = { collapsed[node.project.id] = !isCollapsed },
+                            onClick = { onProjectClick(node.project) },
                             menu = {
                                 ProjectMenu(
-                                    project = child,
-                                    canAddSubproject = false,
-                                    onEdit = { dialog = ProjectDialogState.Edit(child) },
-                                    onAddSubproject = {},
-                                    onDelete = { dialog = ProjectDialogState.Delete(child) },
+                                    project = node.project,
+                                    canAddSubproject = true,
+                                    onEdit = { dialog = ProjectDialogState.Edit(node.project) },
+                                    onAddSubproject = {
+                                        collapsed[node.project.id] = false
+                                        dialog = ProjectDialogState.Create(parentId = node.project.id)
+                                    },
+                                    onDelete = { dialog = ProjectDialogState.Delete(node.project) },
                                 )
                             },
                         )
+                    }
+                    if (!isCollapsed) {
+                        items(node.children.size, key = { "c-${node.children[it].id}" }) { index ->
+                            val child = node.children[index]
+                            val childTasks = state.rootTasks().filter { it.projectId == child.id }
+                            SubprojectRow(
+                                project = child,
+                                count = childTasks.count { !it.isDone },
+                                overdue = childTasks.count { it.isOverdue(today) },
+                                onClick = { onProjectClick(child) },
+                                menu = {
+                                    ProjectMenu(
+                                        project = child,
+                                        canAddSubproject = false,
+                                        onEdit = { dialog = ProjectDialogState.Edit(child) },
+                                        onAddSubproject = {},
+                                        onDelete = { dialog = ProjectDialogState.Delete(child) },
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
             }
