@@ -62,7 +62,7 @@ fun SettingsScreen(
     onShowCompletedChange: (Boolean) -> Unit,
     onRemindersChange: (Boolean) -> Unit,
     onExport: (BackupTarget) -> Unit,
-    onImport: (BackupTarget) -> Unit,
+    onImport: (List<BackupTarget>) -> Unit,
     onClearBackupOutcome: () -> Unit,
     onSignIn: (String, String) -> Unit,
     onSyncNow: () -> Unit,
@@ -245,10 +245,10 @@ private fun BackupControls(
     state: CadenceUiState,
     filePicker: BackupFilePicker,
     onExport: (BackupTarget) -> Unit,
-    onImport: (BackupTarget) -> Unit,
+    onImport: (List<BackupTarget>) -> Unit,
     onClearBackupOutcome: () -> Unit,
 ) {
-    var pendingImport by remember { mutableStateOf<BackupTarget?>(null) }
+    var pendingImport by remember { mutableStateOf<List<BackupTarget>>(emptyList()) }
     val suggestedName = stringResource(Res.string.backup_file_name, LocalDate.now().toString())
 
     // The result line belongs to this visit to Settings, not to the app.
@@ -294,23 +294,36 @@ private fun BackupControls(
         }
     }
 
-    pendingImport?.let { target ->
+    pendingImport.takeIf { it.isNotEmpty() }?.let { targets ->
         AlertDialog(
-            onDismissRequest = { pendingImport = null },
+            onDismissRequest = { pendingImport = emptyList() },
             title = { Text(stringResource(Res.string.backup_import_confirm_title)) },
-            text = { Text(stringResource(Res.string.backup_import_confirm_text)) },
+            // One file says what it does; several say how many first, because "the file" is not
+            // what the user picked.
+            text = {
+                Text(
+                    if (targets.size == 1) {
+                        stringResource(Res.string.backup_import_confirm_text)
+                    } else {
+                        stringResource(
+                            Res.string.backup_import_confirm_text_many,
+                            pluralStringResource(Res.plurals.file_count, targets.size, targets.size),
+                        )
+                    },
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        pendingImport = null
-                        onImport(target)
+                        pendingImport = emptyList()
+                        onImport(targets)
                     },
                 ) {
                     Text(stringResource(Res.string.backup_import_confirm_action))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingImport = null }) {
+                TextButton(onClick = { pendingImport = emptyList() }) {
                     Text(stringResource(Res.string.action_cancel))
                 }
             },

@@ -70,6 +70,11 @@
         <item quantity="other">%1$d projects</item>
     </plurals>
 
+    <plurals name="file_count">
+        <item quantity="one">%1$d file</item>
+        <item quantity="other">%1$d files</item>
+    </plurals>
+
     <!-- ── Recurrence ──────────────────────────────────────────────────────────────── -->
     <plurals name="unit_day">
         <item quantity="one">day</item>
@@ -330,15 +335,21 @@
     <string name="settings_export">Export backup</string>
     <string name="settings_export_supporting">Writes every task and project into a JSON file you pick. It stays on the device unless you save it somewhere that syncs.</string>
     <string name="settings_import">Import backup</string>
-    <string name="settings_import_supporting">Reads a backup file back in and folds it into what is already here. Nothing is deleted; where the same task exists twice, the newer version wins.</string>
+    <string name="settings_import_supporting">Reads backup files back in — one or several at once — and folds them into what is already here. Nothing is deleted; where the same task exists twice, the newer version wins.</string>
     <!-- Default name offered by the file picker; %1$s is the date, e.g. 2026-08-05. -->
     <string name="backup_file_name">cadence-backup-%1$s.json</string>
     <string name="backup_import_confirm_title">Import this backup?</string>
     <string name="backup_import_confirm_text">The file is merged into what is on this device. Nothing here is deleted, and where a task appears in both the newer version wins.</string>
+    <!-- %1$s is a file count, e.g. "19 files". -->
+    <string name="backup_import_confirm_text_many">%1$s are merged into what is on this device, one after another. Nothing here is deleted, and where a task appears twice the newer version wins.</string>
     <string name="backup_import_confirm_action">Import</string>
     <!-- "Exported 42 tasks and 6 projects." -->
     <string name="backup_exported">Exported %1$s and %2$s.</string>
     <string name="backup_imported">Imported %1$s and %2$s.</string>
+    <!-- "Imported 149 tasks and 30 projects from 19 files." -->
+    <string name="backup_imported_files">Imported %1$s and %2$s from %3$s.</string>
+    <!-- Appended to the sentence above when part of a multi-file import failed. -->
+    <string name="backup_imported_unreadable">%1$s could not be read.</string>
     <string name="backup_error_write">The backup could not be written. Pick another location and try again.</string>
     <string name="backup_error_read">That file could not be read.</string>
     <string name="backup_error_too_large">That file is too large to be a Cadence backup.</string>

@@ -67,6 +67,11 @@
         <item quantity="other">%1$d Projekte</item>
     </plurals>
 
+    <plurals name="file_count">
+        <item quantity="one">%1$d Datei</item>
+        <item quantity="other">%1$d Dateien</item>
+    </plurals>
+
     <!-- ── Wiederholung ────────────────────────────────────────────────────────────── -->
     <plurals name="unit_day">
         <item quantity="one">Tag</item>
@@ -315,15 +320,21 @@
     <string name="settings_export">Backup exportieren</string>
     <string name="settings_export_supporting">Schreibt alle Aufgaben und Projekte in eine JSON-Datei deiner Wahl. Sie bleibt auf dem Gerät, solange du sie nicht an einem synchronisierten Ort ablegst.</string>
     <string name="settings_import">Backup importieren</string>
-    <string name="settings_import_supporting">Liest eine Backup-Datei ein und führt sie mit dem zusammen, was schon da ist. Es wird nichts gelöscht; wo dieselbe Aufgabe doppelt vorkommt, gewinnt die neuere Fassung.</string>
+    <string name="settings_import_supporting">Liest Backup-Dateien ein — eine oder mehrere auf einmal — und führt sie mit dem zusammen, was schon da ist. Es wird nichts gelöscht; wo dieselbe Aufgabe doppelt vorkommt, gewinnt die neuere Fassung.</string>
     <!-- Vom Dateiauswahldialog vorgeschlagener Name; %1$s ist das Datum, z. B. 2026-08-05. -->
     <string name="backup_file_name">cadence-backup-%1$s.json</string>
     <string name="backup_import_confirm_title">Dieses Backup importieren?</string>
     <string name="backup_import_confirm_text">Die Datei wird mit den Daten auf diesem Gerät zusammengeführt. Hier wird nichts gelöscht, und wo eine Aufgabe in beiden vorkommt, gewinnt die neuere Fassung.</string>
+    <!-- %1$s ist eine Dateianzahl, z. B. "19 Dateien". -->
+    <string name="backup_import_confirm_text_many">%1$s werden nacheinander mit den Daten auf diesem Gerät zusammengeführt. Hier wird nichts gelöscht, und wo eine Aufgabe doppelt vorkommt, gewinnt die neuere Fassung.</string>
     <string name="backup_import_confirm_action">Importieren</string>
     <!-- "42 Aufgaben und 6 Projekte exportiert." -->
     <string name="backup_exported">%1$s und %2$s exportiert.</string>
     <string name="backup_imported">%1$s und %2$s importiert.</string>
+    <!-- "149 Aufgaben und 30 Projekte aus 19 Dateien importiert." -->
+    <string name="backup_imported_files">%1$s und %2$s aus %3$s importiert.</string>
+    <!-- Wird an den Satz oben angehängt, wenn ein Teil eines Mehrfach-Imports fehlschlug. -->
+    <string name="backup_imported_unreadable">%1$s konnte nicht gelesen werden.</string>
     <string name="backup_error_write">Das Backup konnte nicht geschrieben werden. Wähle einen anderen Ort und versuche es erneut.</string>
     <string name="backup_error_read">Diese Datei konnte nicht gelesen werden.</string>
     <string name="backup_error_too_large">Diese Datei ist zu groß für ein Cadence-Backup.</string>

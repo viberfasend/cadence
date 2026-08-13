@@ -113,6 +113,37 @@ Completing a recurring task keeps the finished instance where it is and inserts 
 "Keep missed instances" decides whether a skipped occurrence stays overdue or the series catches
 up to today.
 
+## Coming from Todoist
+
+Export your Todoist data (Settings → Backup → one CSV per project), then convert the whole
+folder into a backup file the app imports under Settings → Backup:
+
+```bash
+python3 tools/todoist_import.py ~/Downloads/"Todoist backup 2026-08-12 2248 UTC"
+python3 tools/todoist_import.py ~/Downloads/"Todoist backup …" --split   # one file per project
+python3 tools/todoist_import.py ~/Downloads/"Todoist backup …" --todoist-token 0123…
+```
+
+**Pass the token if you can.** Todoist's export writes a recurring task's *rule* and leaves its
+next occurrence out entirely — "every year" survives the trip, "due 23 December" does not — so
+without one, recurring tasks arrive due today. With a token (Todoist → Settings → Integrations
+→ Developer) every date and time is read from the API and matches what Todoist shows.
+
+Settings → Import takes **one file or many at once**, so a split export can be brought over a
+project at a time or in one go — every file carries the same staging project either way.
+
+**It all arrives in one project named `Import <date>`, and nowhere else** — not in your Inbox,
+not beside the projects you already have. An import is a pile to sort: a task joins your system
+when you move it out of that pile, and the pile can be deleted once it is empty. Sections come
+across as sibling projects named `Garten · August ☀️`, since the staging project takes the one
+level of nesting Cadence allows.
+
+Projects, sections, subtasks, comments, priorities, due dates, deadlines and repeat phrases in
+German and English all come across — `every! 3 months` included, as an "after I finish" rule.
+Importing merges, and the converter derives its ids from the export, so re-running it later
+updates the tasks it already imported instead of duplicating them.
+[`tools/README.md`](tools/README.md) has the full mapping table and the flags.
+
 ## Building locally
 
 ```bash

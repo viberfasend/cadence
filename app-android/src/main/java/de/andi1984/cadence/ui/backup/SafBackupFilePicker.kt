@@ -23,7 +23,7 @@ import de.andi1984.cadence.ui.platform.BackupTarget
 @Composable
 fun rememberSafBackupFilePicker(): BackupFilePicker {
     var onExportPicked by remember { mutableStateOf<((BackupTarget) -> Unit)?>(null) }
-    var onImportPicked by remember { mutableStateOf<((BackupTarget) -> Unit)?>(null) }
+    var onImportPicked by remember { mutableStateOf<((List<BackupTarget>) -> Unit)?>(null) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         PersistableCreateDocument(BACKUP_MIME_TYPE),
@@ -35,12 +35,15 @@ fun rememberSafBackupFilePicker(): BackupFilePicker {
 
     // Anything the picker will show: file managers hand backups back as octet-stream often
     // enough that filtering on application/json would hide the user's own export.
+    //
+    // OpenMultipleDocuments rather than OpenDocument, because a converted Todoist export is a
+    // folder of files; a cancelled picker returns an empty list, which is not an answer.
     val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
         val callback = onImportPicked
         onImportPicked = null
-        if (uri != null) callback?.invoke(BackupTarget(uri.toString()))
+        if (uris.isNotEmpty()) callback?.invoke(uris.map { BackupTarget(it.toString()) })
     }
 
     return remember(exportLauncher, importLauncher) {
@@ -50,7 +53,7 @@ fun rememberSafBackupFilePicker(): BackupFilePicker {
                 exportLauncher.launch(suggestedName)
             }
 
-            override fun pickImportSource(onPicked: (BackupTarget) -> Unit) {
+            override fun pickImportSource(onPicked: (List<BackupTarget>) -> Unit) {
                 onImportPicked = onPicked
                 importLauncher.launch(arrayOf("*/*"))
             }

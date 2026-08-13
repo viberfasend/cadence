@@ -22,3 +22,9 @@ local.properties
 # …but the debug key is checked in on purpose: it is what makes one build installable
 # over the last one. See the signing comment in app-android/build.gradle.kts.
 !/app-android/debug.keystore
+
+# Converted Todoist exports — real task data, and this repo is public (tools/README.md)
+/cadence-backup.json
+/cadence-import/
+tools/cadence-backup.json
+tools/cadence-import/

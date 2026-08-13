@@ -53,8 +53,15 @@ interface BackupFilePicker {
     /** Asks for a file to write, seeded with [suggestedName]. */
     fun pickExportTarget(suggestedName: String, onPicked: (BackupTarget) -> Unit)
 
-    /** Asks for an existing file to read. */
-    fun pickImportSource(onPicked: (BackupTarget) -> Unit)
+    /**
+     * Asks for existing files to read — one, or as many as the user cares to select.
+     *
+     * Several at once because an import is not always one file: the Todoist converter
+     * (`tools/todoist_import.py --split`) writes one per project, and picking them one at a
+     * time would mean walking the same confirm dialog twenty times. [onPicked] is never called
+     * with an empty list — that is a cancelled picker, not an answer.
+     */
+    fun pickImportSource(onPicked: (List<BackupTarget>) -> Unit)
 }
 
 /**
