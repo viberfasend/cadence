@@ -61,6 +61,14 @@ UPDATE projectRow SET name = :name, colorHex = :colorHex, parentId = :parentId,
     sortOrder = :sortOrder, updatedAt = :updatedAt, deletedAt = :deletedAt
 WHERE id = :id AND updatedAt < :updatedAt;
 
+-- Importing a file only — see the same query in `Task.sq`. A person pointing at a file is asking
+-- for its contents, so a record that lands on a tombstone here comes back, stamped with the
+-- import's clock so the revival outlives the tombstone the server still holds.
+reviveIfDeleted:
+UPDATE projectRow SET name = :name, colorHex = :colorHex, parentId = :parentId,
+    sortOrder = :sortOrder, updatedAt = :revivedAt, deletedAt = NULL
+WHERE id = :id AND deletedAt IS NOT NULL;
+
 insertIfAbsent:
 INSERT OR IGNORE INTO projectRow(id, name, colorHex, parentId, sortOrder, updatedAt, deletedAt)
 VALUES (?, ?, ?, ?, ?, ?, ?);

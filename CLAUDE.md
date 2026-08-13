@@ -317,7 +317,14 @@ than reaching for `!!`.
   back to the Inbox. There is no operation anywhere that empties the database any more. One rule
   decides every record: greater `updatedAt` wins, ties keep what is stored, and a tombstone
   competes on its timestamp like any other version rather than being special-cased — a v1 file,
-  whose rows decode to `Instant.EPOCH`, therefore loses every conflict.
+  whose rows decode to `Instant.EPOCH`, therefore loses every conflict. **Importing has exactly
+  one exception to that, and sync has none: a record that lands on a row this device has
+  tombstoned is restored** (`BackupStore.mergeAll`'s `revivedAt`, stamped with the import's clock
+  so the revival outlives the tombstone the server still holds). A file is a person asking for its
+  contents, not a device offering a version, and a file written *before* the delete it is meant to
+  undo is the ordinary case — `tools/todoist_import.py` derives ids from project names, so
+  re-importing an export after deleting its staging project used to write nothing at all while
+  still reporting the file's counts. A record that is itself a tombstone revives nothing.
 - **Sync runs itself, and every step of a round is idempotent** (`data/sync/
   CadenceSyncEngine.kt`, ADR 0002). Signed out it does nothing at all and no request is made.
   Signed in, `syncOnce()` holds a `Mutex` and does: pull rows at or after the stored cursor →

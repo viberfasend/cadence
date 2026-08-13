@@ -108,6 +108,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "Home", updatedAt = now)),
             tasks = listOf(Task(id = "t1", title = "Fresh task", projectId = "p1", createdAt = now, updatedAt = now)),
+            revivedAt = now,
         )
 
         // The row the file knows nothing about survives. This assertion was the exact opposite
@@ -131,12 +132,14 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Stale", createdAt = now, updatedAt = now)),
+            revivedAt = now,
         )
         assertEquals("Local wins", taskStore.byId("t1")?.title)
 
         backupStore.mergeAll(
             projects = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Newer", createdAt = now, updatedAt = later.plusSeconds(1))),
+            revivedAt = now,
         )
         assertEquals("Newer", taskStore.byId("t1")?.title)
     }
@@ -154,6 +157,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Deleted there", createdAt = now, updatedAt = now, deletedAt = now)),
+            revivedAt = now,
         )
         assertEquals("Edited here", taskStore.byId("t1")?.title)
 
@@ -164,6 +168,7 @@ class SqlDelightStoreTest {
             tasks = listOf(
                 Task(id = "t1", title = "Deleted there", createdAt = now, updatedAt = deletedAt, deletedAt = deletedAt),
             ),
+            revivedAt = now,
         )
         assertNull(taskStore.byId("t1"))
     }
@@ -177,15 +182,66 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Gone", createdAt = now, updatedAt = now, deletedAt = now)),
+            revivedAt = now,
         )
         assertNull(taskStore.byId("t1"))
+    }
 
-        // Keeping it is what stops a resurrection: an older copy of the same task arriving by any
-        // other route now loses to the tombstone instead of re-creating the row.
+    /**
+     * A file is an instruction, not a version — the one place the merge rule bends.
+     *
+     * Everywhere else, an incoming record older than a local tombstone loses, which is what stops
+     * a sync round from resurrecting what another device deleted. Importing is a person pointing
+     * at a file and asking for its contents, and answering that by writing nothing at all — while
+     * still reporting the file's counts — is how a Todoist re-import came back empty: the tool
+     * derives its ids from project names, so the second import carried exactly the ids the delete
+     * had just tombstoned, each stamped when the *file* was written.
+     *
+     * The revived row is stamped [revivedAt] rather than keeping the file's timestamp, or the
+     * server's tombstone would win the next round and delete it straight back.
+     */
+    @Test
+    fun `importing a file restores what this device had deleted`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        val projectStore = SqlDelightProjectStore(database, Dispatchers.Unconfined)
+        val backupStore = SqlDelightBackupStore(database, Dispatchers.Unconfined)
+        val deletedAt = now.plusSeconds(600)
+        projectStore.insert(Project(id = "p1", name = "Import", updatedAt = deletedAt, deletedAt = deletedAt))
+        taskStore.insert(
+            Task(id = "t1", title = "Gone", projectId = "p1", createdAt = now, updatedAt = deletedAt, deletedAt = deletedAt),
+        )
+        val importedAt = deletedAt.plusSeconds(60)
+
+        // The file is older than the tombstones — it was written before the delete.
+        backupStore.mergeAll(
+            projects = listOf(Project(id = "p1", name = "Import", updatedAt = now)),
+            tasks = listOf(Task(id = "t1", title = "Back", projectId = "p1", createdAt = now, updatedAt = now)),
+            revivedAt = importedAt,
+        )
+
+        assertEquals("Back", taskStore.byId("t1")?.title)
+        assertEquals(importedAt, taskStore.byId("t1")?.updatedAt)
+        assertEquals(listOf("p1"), projectStore.getAll().map { it.id })
+        assertEquals(importedAt, projectStore.getAll().single().updatedAt)
+    }
+
+    /** The other half of that rule: a file's own tombstone is still only a version, so it does not
+     *  revive anything and it still loses to a newer local edit. */
+    @Test
+    fun `an imported tombstone revives nothing`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        val backupStore = SqlDelightBackupStore(database, Dispatchers.Unconfined)
+        val deletedAt = now.plusSeconds(600)
+        taskStore.insert(Task(id = "t1", title = "Gone", createdAt = now, updatedAt = deletedAt, deletedAt = deletedAt))
+
         backupStore.mergeAll(
             projects = emptyList(),
-            tasks = listOf(Task(id = "t1", title = "Gone", createdAt = now, updatedAt = now.minusSeconds(1))),
+            tasks = listOf(Task(id = "t1", title = "Also gone", createdAt = now, updatedAt = now, deletedAt = now)),
+            revivedAt = deletedAt.plusSeconds(60),
         )
+
         assertNull(taskStore.byId("t1"))
     }
 

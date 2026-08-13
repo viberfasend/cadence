@@ -88,6 +88,7 @@ class ForeignKeyCascadeTest {
         backupStore.mergeAll(
             projects = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Pack for Rome", createdAt = now, updatedAt = later)),
+            revivedAt = now,
         )
 
         assertEquals("Pack for Rome", taskStore.byId("t1")?.title)
@@ -107,6 +108,7 @@ class ForeignKeyCascadeTest {
         backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "House", updatedAt = later)),
             tasks = emptyList(),
+            revivedAt = now,
         )
 
         assertEquals(listOf("p1", "p2"), projectStore.getAll().map { it.id }.sorted())
@@ -146,6 +148,7 @@ class ForeignKeyCascadeTest {
         backupStore.mergeAll(
             projects = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Book flights", projectId = "p1", createdAt = now, updatedAt = now)),
+            revivedAt = now,
         )
         assertEquals("p1", taskStore.byId("t1")?.projectId)
 
@@ -153,6 +156,7 @@ class ForeignKeyCascadeTest {
         backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "Rome", updatedAt = now)),
             tasks = emptyList(),
+            revivedAt = now,
         )
         assertEquals(listOf("t1"), projectStore.taskIdsIn("p1"))
     }
@@ -175,10 +179,11 @@ class ForeignKeyCascadeTest {
         // The child first, the way a file lists whatever order it was written in.
         val child = Project(id = "p2", name = "Errands", parentId = "p1", updatedAt = now)
 
-        backupStore.mergeAll(projects = listOf(child, parent), tasks = emptyList())
+        backupStore.mergeAll(projects = listOf(child, parent), tasks = emptyList(), revivedAt = now)
         backupStore.mergeAll(
             projects = listOf(child.copy(updatedAt = later), parent.copy(updatedAt = later)),
             tasks = emptyList(),
+            revivedAt = now,
         )
 
         assertEquals(listOf("p1", "p2"), projectStore.getAll().map { it.id }.sorted())
