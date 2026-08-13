@@ -403,4 +403,17 @@
         <item quantity="one">%1$d hour ago</item>
         <item quantity="other">%1$d hours ago</item>
     </plurals>
+    <!-- ── Undo ── -->
+    <!-- A destructive action was taken and can be undone for a few seconds. -->
+    <string name="undo_action">Undo</string>
+    <!-- The number is the count of tasks/projects the delete will tombstone. -->
+    <plurals name="undo_items_deleted">
+        <item quantity="one">1 item deleted</item>
+        <item quantity="other">%1$d items deleted</item>
+    </plurals>
+    <!-- ── Snackbar ── -->
+    <!-- Informational messages; no undo action attached. -->
+    <string name="snackbar_error">Something went wrong: %1$s</string>
+    <string name="snackbar_subtask_invalid">Please enter a valid subtask title</string>
+    <string name="snackbar_project_name_empty">Project name cannot be empty</string>
 </resources>
