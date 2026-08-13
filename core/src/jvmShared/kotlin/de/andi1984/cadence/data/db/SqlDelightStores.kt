@@ -187,27 +187,35 @@ class SqlDelightBackupStore(
 ) : BackupStore {
 
     /**
-     * One rule, applied to every record the same way: the greater `updatedAt` wins, ties keep
-     * what is stored, and a tombstone is just a version of the record rather than a special case.
+     * Last-writer-wins for every record, with one exception a file is entitled to: a record that
+     * lands on a row this device has *tombstoned* comes back, stamped [revivedAt].
      *
-     * The uniformity is the point. The first cut of this special-cased `deletedAt != null` into
-     * an unconditional delete, which let a stale delete beat a newer edit — the one outcome
-     * last-writer-wins exists to prevent. It also dropped incoming tombstones for ids it had
-     * never seen, which quietly resurrects a task the moment some other path delivers the row.
+     * The rule everywhere else is uniform on purpose — the greater `updatedAt` wins, ties keep
+     * what is stored, and a tombstone is a version of the record rather than a special case. An
+     * early cut turned `deletedAt != null` into an unconditional delete, which let a stale delete
+     * beat a newer edit, and dropped incoming tombstones for ids it had never seen, which
+     * resurrects a task the moment some other path delivers the row.
      *
-     * Reads go through `selectByIdIncludingDeleted` for the same reason: the local row a merge
-     * has to compare against is often precisely a tombstone, and the ordinary `selectById`
-     * filters those out.
+     * Importing is the one caller that is not two devices agreeing on a version: it is a person
+     * pointing at a file and asking for its contents. Answering that by writing nothing — while
+     * still reporting the file's counts — is what made a re-imported Todoist export come back
+     * empty, since the tool derives ids from project names and the file was written before the
+     * delete it was meant to undo. Only a record that is not itself a tombstone revives anything,
+     * and the revived row carries the import's clock rather than the file's, or the server's
+     * tombstone wins the next round and deletes it straight back.
      *
      * All or nothing, in one transaction: a failed merge must not leave the app half-written.
      * Attachment rows are untouched — the backup format does not carry attachments
      * (`docs/attachments-and-share.md`), so there is nothing here that could repopulate them,
      * and a merge that discarded them would lose files no incoming record ever mentioned.
      */
-    override suspend fun mergeAll(projects: List<Project>, tasks: List<Task>): Unit =
-        withContext(ioDispatcher) {
-            database.transaction { database.mergeRecords(projects, tasks) }
-        }
+    override suspend fun mergeAll(
+        projects: List<Project>,
+        tasks: List<Task>,
+        revivedAt: Instant,
+    ): Unit = withContext(ioDispatcher) {
+        database.transaction { database.mergeRecords(projects, tasks, revivedAt) }
+    }
 
 }
 
@@ -216,12 +224,18 @@ class SqlDelightBackupStore(
  * one — which is exactly what sync does, advancing its cursor beside the rows the cursor
  * describes ([de.andi1984.cadence.data.sync.SyncStore.mergeAndAdvance]).
  *
- * Both callers apply the same rule because there is only one: a backup file and a pulled page are
- * the same thing arriving by different roads.
+ * A backup file and a pulled page are the same thing arriving by different roads, and they get
+ * the same last-writer-wins rule — except for [revivedAt], which only importing passes. Sync
+ * passes null and must keep passing null: reviving a row a pull delivers would undo every delete
+ * the moment the other device pushed its copy back.
  */
-internal fun CadenceDatabase.mergeRecords(projects: List<Project>, tasks: List<Task>) {
-    for (project in projects) projectQueries.mergeRow(project)
-    for (task in tasks) taskQueries.mergeRow(task)
+internal fun CadenceDatabase.mergeRecords(
+    projects: List<Project>,
+    tasks: List<Task>,
+    revivedAt: Instant? = null,
+) {
+    for (project in projects) projectQueries.mergeRow(project, revivedAt)
+    for (task in tasks) taskQueries.mergeRow(task, revivedAt)
 }
 
 /**
@@ -252,9 +266,35 @@ internal fun TaskQueries.upsertRow(task: Task) {
     insertIfAbsent(task)
 }
 
-/** A merged write: the same upsert, with last-writer-wins moved into the UPDATE's WHERE clause,
- *  so a page of a thousand rows costs no reads at all. */
-internal fun TaskQueries.mergeRow(task: Task) {
+/**
+ * A merged write: the same upsert, with last-writer-wins moved into the UPDATE's WHERE clause,
+ * so a page of a thousand rows costs no reads at all.
+ *
+ * [revivedAt] is importing's exception and nothing else's — a live record in a file lifts the
+ * local tombstone it lands on, stamped with the import's clock. It runs first so the
+ * last-writer-wins update that follows finds a row it cannot beat, and it is a no-op on a row
+ * that is not tombstoned.
+ */
+internal fun TaskQueries.mergeRow(task: Task, revivedAt: Instant? = null) {
+    if (revivedAt != null && task.deletedAt == null) {
+        reviveIfDeleted(
+            title = task.title,
+            notes = task.notes,
+            priority = task.priority.level.toLong(),
+            projectId = task.projectId,
+            parentId = task.parentId,
+            spawnedFromId = task.spawnedFromId,
+            dueDate = task.dueDate?.toEpochDay(),
+            dueTime = task.dueTime?.toSecondOfDay()?.toLong(),
+            reminderTime = task.reminderTime?.toSecondOfDay()?.toLong(),
+            completedAt = task.completedAt?.toEpochMilli(),
+            createdAt = task.createdAt.toEpochMilli(),
+            sortOrder = task.sortOrder.toLong(),
+            recurrence = RecurrenceCodec.encode(task.recurrence),
+            revivedAt = revivedAt.toEpochMilli(),
+            id = task.id,
+        )
+    }
     updateIfOlder(
         title = task.title,
         notes = task.notes,
@@ -311,7 +351,18 @@ internal fun ProjectQueries.upsertRow(project: Project) {
     insertIfAbsent(project)
 }
 
-internal fun ProjectQueries.mergeRow(project: Project) {
+/** The project half of the merge, [revivedAt] included — see [TaskQueries.mergeRow]. */
+internal fun ProjectQueries.mergeRow(project: Project, revivedAt: Instant? = null) {
+    if (revivedAt != null && project.deletedAt == null) {
+        reviveIfDeleted(
+            name = project.name,
+            colorHex = project.colorHex,
+            parentId = project.parentId,
+            sortOrder = project.sortOrder.toLong(),
+            revivedAt = revivedAt.toEpochMilli(),
+            id = project.id,
+        )
+    }
     updateIfOlder(
         name = project.name,
         colorHex = project.colorHex,

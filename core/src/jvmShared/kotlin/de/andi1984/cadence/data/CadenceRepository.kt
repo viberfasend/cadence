@@ -434,6 +434,11 @@ class CadenceRepository(
      * against a row you already have — which is the right answer for a file written before the
      * app tracked when anything changed.
      *
+     * What it does *not* lose is a record you have since deleted: a file is an instruction, not a
+     * version, so anything in it that lands on a tombstone is restored and stamped with this
+     * moment rather than the file's (see [BackupStore.mergeAll]). Importing the same export twice
+     * around a delete is the ordinary way to undo one, and it used to write nothing at all.
+     *
      * Blobs are swept afterwards because the merge can leave attachment rows naming tasks that
      * lost — see `mergeAll`, which does not touch attachments itself.
      */
@@ -441,6 +446,7 @@ class CadenceRepository(
         backupStore.mergeAll(
             projects = snapshot.projects,
             tasks = snapshot.tasks,
+            revivedAt = now(),
         )
         sweepOrphanBlobs()
     }

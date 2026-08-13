@@ -459,7 +459,7 @@ private class FakeProjectStore(private val tasksIn: List<String> = emptyList()) 
 
 private class FakeBackupStore : BackupStore {
 
-    override suspend fun mergeAll(projects: List<Project>, tasks: List<Task>) = Unit
+    override suspend fun mergeAll(projects: List<Project>, tasks: List<Task>, revivedAt: Instant) = Unit
 }
 
 /** An in-memory [AttachmentStore] mirroring [FakeTaskStore]'s shape. */

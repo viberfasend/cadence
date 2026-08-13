@@ -87,6 +87,17 @@ UPDATE taskRow SET title = :title, notes = :notes, priority = :priority, project
     deletedAt = :deletedAt
 WHERE id = :id AND updatedAt < :updatedAt;
 
+-- Importing a file only: an incoming record lands on a row this device has tombstoned, and the
+-- file is what the person asked for, so it comes back whatever the timestamps say. Stamped with
+-- the import's own clock rather than the file's — the row has to be newer than the tombstone the
+-- server still holds, or the next pull deletes it straight back. Sync never calls this.
+reviveIfDeleted:
+UPDATE taskRow SET title = :title, notes = :notes, priority = :priority, projectId = :projectId,
+    parentId = :parentId, spawnedFromId = :spawnedFromId, dueDate = :dueDate, dueTime = :dueTime,
+    reminderTime = :reminderTime, completedAt = :completedAt, createdAt = :createdAt,
+    sortOrder = :sortOrder, recurrence = :recurrence, updatedAt = :revivedAt, deletedAt = NULL
+WHERE id = :id AND deletedAt IS NOT NULL;
+
 insertIfAbsent:
 INSERT OR IGNORE INTO taskRow(
     id, title, notes, priority, projectId, parentId, spawnedFromId,

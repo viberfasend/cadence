@@ -112,6 +112,32 @@ class SqlDelightSyncStoreTest {
         assertEquals("2026-08-11T09:00:01Z", store.state().taskCursor)
     }
 
+    /**
+     * The half of the merge rule that importing a file deliberately bends, and sync must not.
+     *
+     * A pulled row older than a local tombstone loses, full stop. Reviving it here would undo
+     * every delete the moment the other device pushed its copy back — the resurrection loop
+     * tombstones exist to prevent. Importing is a person asking for a file's contents; a pull is
+     * two devices agreeing on a version.
+     */
+    @Test
+    fun `a pulled row older than a local tombstone stays deleted`() = runTest {
+        val database = newDatabase()
+        val tasks = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        val store = syncStore(database)
+        val deletedAt = now.plusSeconds(600)
+        tasks.insert(Task(id = "t1", title = "Deleted here", createdAt = now, updatedAt = deletedAt, deletedAt = deletedAt))
+
+        store.mergeAndAdvance(
+            projects = emptyList(),
+            tasks = listOf(Task(id = "t1", title = "Still there", createdAt = now, updatedAt = now)),
+            taskCursor = "2026-08-11T09:00:01Z",
+            projectCursor = null,
+        )
+
+        assertNull(tasks.byId("t1"))
+    }
+
     /** A page can be empty for one table and full for the other, and a null cursor there must
      *  leave the stored one alone rather than rewind it. */
     @Test

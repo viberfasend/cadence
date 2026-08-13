@@ -113,9 +113,16 @@ interface BackupStore {
      * keep what is already stored, and a tombstone competes on its timestamp like any other
      * version rather than being special-cased. Field-level merge is deliberately not attempted.
      *
+     * [revivedAt] is where importing parts company with sync. A record that lands on a row this
+     * device has tombstoned is restored rather than dropped, stamped [revivedAt] so the revival
+     * outlives the tombstone the server still holds. A file is a person asking for its contents,
+     * not a device offering a version — and a file written *before* the delete it is meant to
+     * undo is the ordinary case, not a corner one. Records that are themselves tombstones revive
+     * nothing.
+     *
      * All or nothing: a failed merge must not leave the app half-written.
      */
-    suspend fun mergeAll(projects: List<Project>, tasks: List<Task>)
+    suspend fun mergeAll(projects: List<Project>, tasks: List<Task>, revivedAt: Instant)
 }
 
 /**
