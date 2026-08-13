@@ -207,13 +207,29 @@ than reaching for `!!`.
 - `taskRow`/`projectRow` are the schema's table names, not `task`/`project` — SQLDelight names the
   generated row class after the table, and `Task`/`Project` were already taken by the domain
   model. The tables live in `data/db/Task.sq`, `data/db/Project.sq`, `data/db/Attachment.sq` and
-  `data/db/SyncState.sq`. **The schema is at version 2 and now has a migration chain**: shipped
-  installs of version 1 exist, so a schema change means both editing the `.sq` file *and* adding
-  an `N.sqm` beside it (`1.sqm` migrates 1→2 and adds `syncStateRow`), the way `MIGRATION_3_4`
+  `data/db/SyncState.sq`. **The schema is at version 3 and has a migration chain**: shipped
+  installs of older versions exist, so a schema change means both editing the `.sq` file *and*
+  adding an `N.sqm` beside it (`1.sqm` migrates 1→2 and adds `syncStateRow`; `2.sqm` migrates
+  2→3, rebuilding both tables to drop foreign keys), the way `MIGRATION_3_4`
   used to work under Room. `AndroidSqliteDriver` runs migrations from its callback; the desktop's
   `JdbcSqliteDriver` has no such lifecycle, so `DatabaseDriverFactory` tracks the version in
   SQLite's own `PRAGMA user_version` — where **0 means "version 1, from before we counted"**,
   because nothing set it until now and the file already has the version-1 tables.
+- **No write deletes the row it is about to insert, and `taskRow`/`projectRow` carry no foreign
+  key.** Both are the same lesson. SQLite implements `INSERT OR REPLACE` as *delete the
+  conflicting row, then insert*, both shells open the database with `PRAGMA foreign_keys = ON`,
+  and the two tables used to cascade on `parentId` and set null on `projectId` — so saving an edit
+  to a task deleted its checklist and its attachments, and merging one project row deleted its
+  subprojects and emptied it of tasks. Writes are upserts now (`updateRow` + `insertIfAbsent`,
+  because SQLite before 3.24 has no `ON CONFLICT … DO UPDATE` and minSdk 26 ships 3.19), and the
+  merge is the same pair with last-writer-wins moved into the UPDATE's `WHERE` (`updateIfOlder`),
+  which is also what removed a `SELECT` per merged row. The constraints went with them: a
+  local-first app cannot enforce referential integrity when rows arrive in whatever order the
+  pull pages them — a task landing before its project failed the whole merge with
+  `SQLITE_CONSTRAINT_FOREIGNKEY` — which is why the Postgres mirror has never had one either.
+  `attachmentRow → taskRow` keeps its cascade: attachments are local, never merged, and nothing
+  references them back. Foreign keys are therefore switched on *after* migrating, not before —
+  `DROP TABLE taskRow` inside `2.sqm` would otherwise take every attachment with it.
 - Every row carries `updatedAt` (epoch millis) and `deletedAt` (epoch millis, nullable). **Deleting
   is a tombstone, not a `DELETE`** (`docs/adr/0002-supabase-sync.md`): the row stays, `deletedAt` is
   stamped, and every read in `Task.sq`/`Project.sq` filters `deletedAt IS NULL`. A delete has to

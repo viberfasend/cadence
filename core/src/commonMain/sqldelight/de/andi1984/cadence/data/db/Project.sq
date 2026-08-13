@@ -4,8 +4,9 @@ CREATE TABLE projectRow (
     id TEXT NOT NULL PRIMARY KEY,
     name TEXT NOT NULL,
     colorHex TEXT NOT NULL,
-    -- Self-referencing. Nesting is one level deep, enforced by the repository, not this table.
-    parentId TEXT REFERENCES projectRow(id) ON DELETE CASCADE,
+    -- The project this one is nested under. Nesting is one level deep, enforced by the repository,
+    -- not this table — and deliberately *not* a REFERENCES clause (see the note above `updateRow`).
+    parentId TEXT,
     sortOrder INTEGER NOT NULL,
     -- Last write, local or merged in. The merge engine resolves conflicts by this.
     updatedAt INTEGER NOT NULL,
@@ -15,6 +16,9 @@ CREATE TABLE projectRow (
 
 CREATE INDEX idx_project_parent ON projectRow(parentId);
 CREATE INDEX idx_project_sort ON projectRow(sortOrder);
+-- What the push reads: everything written since the watermark. It runs on every sync round and
+-- was a full table scan without this.
+CREATE INDEX idx_project_updated ON projectRow(updatedAt);
 
 selectById:
 SELECT * FROM projectRow WHERE id = :id AND deletedAt IS NULL;
@@ -26,13 +30,40 @@ SELECT * FROM projectRow WHERE id = :id;
 selectAll:
 SELECT * FROM projectRow WHERE deletedAt IS NULL ORDER BY sortOrder;
 
-insertOrReplace:
-INSERT OR REPLACE INTO projectRow(id, name, colorHex, parentId, sortOrder, updatedAt, deletedAt)
-VALUES (?, ?, ?, ?, ?, ?, ?);
+-- ── Writing a row ──────────────────────────────────────────────────────────────────
+--
+-- Three statements rather than the one `INSERT OR REPLACE` that used to stand here, because
+-- SQLite implements REPLACE as *delete the conflicting row, then insert* — and this table used
+-- to carry `parentId … REFERENCES projectRow(id) ON DELETE CASCADE` while both shells open the
+-- database with `PRAGMA foreign_keys = ON`. Rewriting a project therefore deleted every
+-- subproject under it and emptied it of tasks (`taskRow.projectId` was `ON DELETE SET NULL`),
+-- which is what made a re-imported backup come back without its subprojects. The cascades are
+-- gone from the schema now — a local-first app whose rows arrive out of order cannot enforce
+-- referential integrity in SQLite, which is why the Postgres mirror has never had a foreign key
+-- either (docs/adr/0002-supabase-sync.md) — and no write deletes a row it is about to insert.
+--
+-- SQLite before 3.24 has no `ON CONFLICT … DO UPDATE`, and minSdk 26 ships 3.19, so an upsert is
+-- an UPDATE followed by an `INSERT OR IGNORE`: the update does nothing when the row is absent,
+-- the insert does nothing when it is present, and the store runs the pair in one transaction.
+-- `INSERT OR IGNORE` skips a *uniqueness* conflict only — a real error still surfaces.
 
-update:
-UPDATE projectRow SET name = ?, colorHex = ?, parentId = ?, sortOrder = ?, updatedAt = ?, deletedAt = ?
-WHERE id = ?;
+updateRow:
+UPDATE projectRow SET name = :name, colorHex = :colorHex, parentId = :parentId,
+    sortOrder = :sortOrder, updatedAt = :updatedAt, deletedAt = :deletedAt
+WHERE id = :id;
+
+-- The merge's half of the pair: last writer wins, decided in SQL. It replaces a
+-- `selectByIdIncludingDeleted` per record — a pulled page of a thousand rows cost a thousand
+-- reads before this, for a comparison the WHERE clause makes for free. Ties keep what is stored,
+-- the same rule the server's trigger applies.
+updateIfOlder:
+UPDATE projectRow SET name = :name, colorHex = :colorHex, parentId = :parentId,
+    sortOrder = :sortOrder, updatedAt = :updatedAt, deletedAt = :deletedAt
+WHERE id = :id AND updatedAt < :updatedAt;
+
+insertIfAbsent:
+INSERT OR IGNORE INTO projectRow(id, name, colorHex, parentId, sortOrder, updatedAt, deletedAt)
+VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- Everything filed under the project, including its subprojects — nesting is one level.
 -- A tombstoned subproject is not "under" anything any more, so it is excluded on both sides.

@@ -30,6 +30,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -420,15 +421,25 @@ class CadenceSyncEngine(
      * land *behind* a cursor we already advanced past. Re-reading a little is free — the merge
      * discards anything it already has by timestamp — and missing a row is not.
      */
-    private suspend fun pull(): Int {
+    private suspend fun pull(): Int = coroutineScope {
         val state = store.state()
         var taskCursor = state.taskCursor
         var projectCursor = state.projectCursor
         var merged = 0
+        // Tracked per table rather than for the pull as a whole. The two are paged independently,
+        // and asking a table that already answered with a short page costs a request that can
+        // only return rows this round has merged already — which is what the old shared `done`
+        // flag did on every iteration while the other table was still catching up.
+        var moreTasks = true
+        var moreProjects = true
 
-        while (true) {
-            val projects = fetchProjects(projectCursor)
-            val tasks = fetchTasks(taskCursor)
+        while (moreTasks || moreProjects) {
+            // Neither table's page depends on the other's, so they travel together: one round
+            // trip's latency per iteration instead of two.
+            val projectPage = if (moreProjects) async { fetchProjects(projectCursor) } else null
+            val taskPage = if (moreTasks) async { fetchTasks(taskCursor) } else null
+            val projects = projectPage?.await().orEmpty()
+            val tasks = taskPage?.await().orEmpty()
             if (projects.isEmpty() && tasks.isEmpty()) break
 
             val nextTaskCursor = tasks.mapNotNull { it.serverUpdatedAt }.maxByOrNull { it.asInstant() }
@@ -443,17 +454,16 @@ class CadenceSyncEngine(
             )
             merged += projects.size + tasks.size
 
-            val done = tasks.size < PAGE_SIZE && projects.size < PAGE_SIZE
             // A full page whose newest row carries the cursor we already had would ask for the
             // same page forever: more than a thousand rows sharing one microsecond. Stopping is
             // the safe end of that — the next round starts from the same place and the rows are
             // still there. Paging past this properly is phase 4's problem.
-            val stuck = nextTaskCursor == taskCursor && nextProjectCursor == projectCursor
+            moreTasks = tasks.size >= PAGE_SIZE && nextTaskCursor != taskCursor
+            moreProjects = projects.size >= PAGE_SIZE && nextProjectCursor != projectCursor
             taskCursor = nextTaskCursor ?: taskCursor
             projectCursor = nextProjectCursor ?: projectCursor
-            if (done || stuck) break
         }
-        return merged
+        merged
     }
 
     private suspend fun fetchTasks(cursor: String?): List<RemoteTask> =

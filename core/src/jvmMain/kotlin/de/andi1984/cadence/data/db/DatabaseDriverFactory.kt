@@ -12,7 +12,6 @@ actual class DatabaseDriverFactory(private val dataDir: File) {
         val databaseFile = File(dataDir, CADENCE_DATABASE_FILE_NAME)
         val isFreshDatabase = !databaseFile.exists()
         val driver: SqlDriver = JdbcSqliteDriver("jdbc:sqlite:$databaseFile")
-        driver.execute(null, "PRAGMA foreign_keys = ON", 0)
 
         // Unlike AndroidSqliteDriver, JdbcSqliteDriver has no onCreate/onUpgrade lifecycle: it
         // opens the file and nothing else. The version has to be tracked by hand, and SQLite's
@@ -21,7 +20,7 @@ actual class DatabaseDriverFactory(private val dataDir: File) {
         if (isFreshDatabase) {
             CadenceDatabase.Schema.create(driver)
             driver.setUserVersion(target)
-            return driver
+            return driver.withForeignKeys()
         }
 
         // Every desktop install written before this existed has the version-1 tables and a
@@ -33,7 +32,20 @@ actual class DatabaseDriverFactory(private val dataDir: File) {
             CadenceDatabase.Schema.migrate(driver, current, target)
             driver.setUserVersion(target)
         }
-        return driver
+        return driver.withForeignKeys()
+    }
+
+    /**
+     * Foreign keys, switched on only once the schema is where it should be.
+     *
+     * Deliberately after `migrate`, never before: `2.sqm` rebuilds `taskRow` to drop constraints
+     * SQLite cannot ALTER away, and `DROP TABLE taskRow` with foreign keys enabled would cascade
+     * into `attachmentRow` and take every attachment with it. Android gets this for free — its
+     * callback enables them in `onOpen`, which runs after `onUpgrade` — so this is the desktop
+     * catching up with what that driver already does.
+     */
+    private fun SqlDriver.withForeignKeys(): SqlDriver = apply {
+        execute(null, "PRAGMA foreign_keys = ON", 0)
     }
 
     // Both helpers are members rather than top-level extensions: this file and the `expect`

@@ -54,7 +54,7 @@ class SqlDelightTaskStore(
     }
 
     override suspend fun insert(task: Task) = withContext(ioDispatcher) {
-        queries.insertRow(task)
+        database.transaction { queries.upsertRow(task) }
     }
 
     override suspend fun update(task: Task) = insert(task)
@@ -100,20 +100,18 @@ class SqlDelightProjectStore(
     }
 
     override suspend fun insert(project: Project) = withContext(ioDispatcher) {
-        queries.insertRow(project)
+        database.transaction { queries.upsertRow(project) }
     }
 
-    override suspend fun update(project: Project): Unit = withContext(ioDispatcher) {
-        queries.update(
-            name = project.name,
-            colorHex = project.colorHex,
-            parentId = project.parentId,
-            sortOrder = project.sortOrder.toLong(),
-            updatedAt = project.updatedAt.toEpochMilli(),
-            deletedAt = project.deletedAt?.toEpochMilli(),
-            id = project.id,
-        )
-    }
+    /**
+     * The same upsert as [insert], deliberately.
+     *
+     * It used to be a bare `UPDATE … WHERE id = ?`, which is a silent no-op against a row that is
+     * not there — and "not there" is reachable: the 90-day tombstone sweep collects a deleted
+     * project outright, so restoring one from a snackbar's Undo after that wrote nothing at all
+     * and the project simply never came back.
+     */
+    override suspend fun update(project: Project) = insert(project)
 
     override suspend fun taskIdsIn(id: String): List<String> = withContext(ioDispatcher) {
         queries.selectTaskIdsIn(id).executeAsList()
@@ -222,22 +220,64 @@ class SqlDelightBackupStore(
  * the same thing arriving by different roads.
  */
 internal fun CadenceDatabase.mergeRecords(projects: List<Project>, tasks: List<Task>) {
-    for (project in projects) {
-        val existing = projectQueries.selectByIdIncludingDeleted(project.id).executeAsOneOrNull()
-        if (existing == null || project.updatedAt > Instant.ofEpochMilli(existing.updatedAt)) {
-            projectQueries.insertRow(project)
-        }
-    }
-    for (task in tasks) {
-        val existing = taskQueries.selectByIdIncludingDeleted(task.id).executeAsOneOrNull()
-        if (existing == null || task.updatedAt > Instant.ofEpochMilli(existing.updatedAt)) {
-            taskQueries.insertRow(task)
-        }
-    }
+    for (project in projects) projectQueries.mergeRow(project)
+    for (task in tasks) taskQueries.mergeRow(task)
 }
 
-internal fun TaskQueries.insertRow(task: Task) {
-    insertOrReplace(
+/**
+ * A local write: this device's own edit, which wins whatever is stored.
+ *
+ * The pair is an upsert, not a replace — see the note above `updateRow` in `Task.sq` for what
+ * REPLACE did to a task's checklist. The caller runs both statements in one transaction.
+ */
+internal fun TaskQueries.upsertRow(task: Task) {
+    updateRow(
+        title = task.title,
+        notes = task.notes,
+        priority = task.priority.level.toLong(),
+        projectId = task.projectId,
+        parentId = task.parentId,
+        spawnedFromId = task.spawnedFromId,
+        dueDate = task.dueDate?.toEpochDay(),
+        dueTime = task.dueTime?.toSecondOfDay()?.toLong(),
+        reminderTime = task.reminderTime?.toSecondOfDay()?.toLong(),
+        completedAt = task.completedAt?.toEpochMilli(),
+        createdAt = task.createdAt.toEpochMilli(),
+        sortOrder = task.sortOrder.toLong(),
+        recurrence = RecurrenceCodec.encode(task.recurrence),
+        updatedAt = task.updatedAt.toEpochMilli(),
+        deletedAt = task.deletedAt?.toEpochMilli(),
+        id = task.id,
+    )
+    insertIfAbsent(task)
+}
+
+/** A merged write: the same upsert, with last-writer-wins moved into the UPDATE's WHERE clause,
+ *  so a page of a thousand rows costs no reads at all. */
+internal fun TaskQueries.mergeRow(task: Task) {
+    updateIfOlder(
+        title = task.title,
+        notes = task.notes,
+        priority = task.priority.level.toLong(),
+        projectId = task.projectId,
+        parentId = task.parentId,
+        spawnedFromId = task.spawnedFromId,
+        dueDate = task.dueDate?.toEpochDay(),
+        dueTime = task.dueTime?.toSecondOfDay()?.toLong(),
+        reminderTime = task.reminderTime?.toSecondOfDay()?.toLong(),
+        completedAt = task.completedAt?.toEpochMilli(),
+        createdAt = task.createdAt.toEpochMilli(),
+        sortOrder = task.sortOrder.toLong(),
+        recurrence = RecurrenceCodec.encode(task.recurrence),
+        updatedAt = task.updatedAt.toEpochMilli(),
+        deletedAt = task.deletedAt?.toEpochMilli(),
+        id = task.id,
+    )
+    insertIfAbsent(task)
+}
+
+private fun TaskQueries.insertIfAbsent(task: Task) {
+    insertIfAbsent(
         id = task.id,
         title = task.title,
         notes = task.notes,
@@ -257,8 +297,35 @@ internal fun TaskQueries.insertRow(task: Task) {
     )
 }
 
-internal fun ProjectQueries.insertRow(project: Project) {
-    insertOrReplace(
+/** The project half of the same pair — see [upsertRow]. */
+internal fun ProjectQueries.upsertRow(project: Project) {
+    updateRow(
+        name = project.name,
+        colorHex = project.colorHex,
+        parentId = project.parentId,
+        sortOrder = project.sortOrder.toLong(),
+        updatedAt = project.updatedAt.toEpochMilli(),
+        deletedAt = project.deletedAt?.toEpochMilli(),
+        id = project.id,
+    )
+    insertIfAbsent(project)
+}
+
+internal fun ProjectQueries.mergeRow(project: Project) {
+    updateIfOlder(
+        name = project.name,
+        colorHex = project.colorHex,
+        parentId = project.parentId,
+        sortOrder = project.sortOrder.toLong(),
+        updatedAt = project.updatedAt.toEpochMilli(),
+        deletedAt = project.deletedAt?.toEpochMilli(),
+        id = project.id,
+    )
+    insertIfAbsent(project)
+}
+
+private fun ProjectQueries.insertIfAbsent(project: Project) {
+    insertIfAbsent(
         id = project.id,
         name = project.name,
         colorHex = project.colorHex,
@@ -269,6 +336,8 @@ internal fun ProjectQueries.insertRow(project: Project) {
     )
 }
 
+/** Attachments keep their `INSERT OR REPLACE`: no table references `attachmentRow`, so the
+ *  delete-then-insert REPLACE performs cascades nowhere, and every id here is freshly minted. */
 private fun AttachmentQueries.insertRow(attachment: Attachment) {
     insertOrReplace(
         id = attachment.id,
