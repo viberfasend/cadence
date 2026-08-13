@@ -146,6 +146,21 @@ class RecurrenceEngineTest {
     }
 
     @Test
+    fun `a default rule catches an overdue series up to the next future occurrence`() {
+        // keepMissed defaults to off, so a task completed well past its due date hands back the
+        // next occurrence in the future rather than another overdue one a single step on.
+        val rule = RecurrenceRule(unit = RecurrenceUnit.DAY)
+        assertEquals(
+            LocalDate.of(2026, 8, 1),
+            RecurrenceEngine.dueDateAfterCompletion(
+                rule = rule,
+                previousDue = LocalDate.of(2026, 3, 4), // ~150 days before completion
+                completedOn = LocalDate.of(2026, 8, 1),
+            ),
+        )
+    }
+
+    @Test
     fun `summaries carry the pieces the wording needs`() {
         assertEquals(
             RecurrenceSummary.Schedule(
