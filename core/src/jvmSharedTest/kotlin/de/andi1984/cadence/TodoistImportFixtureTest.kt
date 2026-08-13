@@ -16,10 +16,10 @@ import java.time.LocalDate
  * `tools/todoist_import.py` writes this shape, and the app has to keep reading it.
  *
  * The fixture is a trimmed copy of that script's output — same keys, same date and instant
- * formats, same "a section is a subproject" and "INDENT 2 is a subtask" decisions. Nothing here
- * exercises the script itself (it has its own tests, `--self-test`); what it guards is the other
- * half of the contract: that a change to [BackupCodec] cannot quietly stop the converter's files
- * from importing.
+ * formats, same "everything hangs under one staging project" and "INDENT 2 is a subtask"
+ * decisions. Nothing here exercises the script itself (it has its own tests, `--self-test`);
+ * what it guards is the other half of the contract: that a change to [BackupCodec] cannot
+ * quietly stop the converter's files from importing.
  */
 class TodoistImportFixtureTest {
 
@@ -30,20 +30,29 @@ class TodoistImportFixtureTest {
           "exportedAt": "2026-08-13T20:05:11.382000Z",
           "projects": [
             {
-              "id": "cf0bf792-ffb2-5bc9-97d9-8b5ba5085ed3",
-              "name": "wohnung",
-              "colorHex": "#3E6373",
+              "id": "b1c6b2b4-2f27-5c0e-9f6a-1f0f6d3a7c02",
+              "name": "Import 2026-08-13",
+              "colorHex": "#006A60",
               "parentId": null,
               "sortOrder": 0,
               "updatedAt": "2026-08-13T20:05:11.382000Z",
               "deletedAt": null
             },
             {
-              "id": "6f0f9bd0-2a1f-5a4f-9a6c-6b4f1f6d7a11",
-              "name": "Ofen",
+              "id": "cf0bf792-ffb2-5bc9-97d9-8b5ba5085ed3",
+              "name": "wohnung",
               "colorHex": "#3E6373",
-              "parentId": "cf0bf792-ffb2-5bc9-97d9-8b5ba5085ed3",
+              "parentId": "b1c6b2b4-2f27-5c0e-9f6a-1f0f6d3a7c02",
               "sortOrder": 1,
+              "updatedAt": "2026-08-13T20:05:11.382000Z",
+              "deletedAt": null
+            },
+            {
+              "id": "6f0f9bd0-2a1f-5a4f-9a6c-6b4f1f6d7a11",
+              "name": "wohnung · Ofen",
+              "colorHex": "#3E6373",
+              "parentId": "b1c6b2b4-2f27-5c0e-9f6a-1f0f6d3a7c02",
+              "sortOrder": 2,
               "updatedAt": "2026-08-13T20:05:11.382000Z",
               "deletedAt": null
             }
@@ -132,16 +141,28 @@ class TodoistImportFixtureTest {
     @Test
     fun `a converted export is a readable backup`() {
         assertTrue(BackupCodec.decode(fixture) is BackupReadResult.Ok)
-        assertEquals(2, snapshot.projects.size)
+        assertEquals(3, snapshot.projects.size)
         assertEquals(3, snapshot.tasks.size)
     }
 
     @Test
-    fun `a Todoist section arrives as a subproject`() {
-        val root = snapshot.projects.first { it.name == "wohnung" }
-        val section = snapshot.projects.first { it.name == "Ofen" }
-        assertEquals(root.id, section.parentId)
-        assertEquals("Ofen", snapshot.projects.first { it.id == section.id }.name)
+    fun `an import lands in one staging project and nothing else`() {
+        // The point of the staging project: an import is a pile to sort. Nothing may arrive
+        // beside the projects already on the device, and nothing may land in the Inbox.
+        val staging = snapshot.projects.single { it.parentId == null }
+        assertEquals("Import 2026-08-13", staging.name)
+        assertTrue(snapshot.projects.filter { it.id != staging.id }.all { it.parentId == staging.id })
+        assertTrue(snapshot.tasks.all { it.projectId != null })
+    }
+
+    @Test
+    fun `a Todoist section arrives beside its project, carrying its name`() {
+        // Projects nest exactly one level and the staging project has taken it, so the section
+        // is a sibling of "wohnung" rather than a child of it.
+        val staging = snapshot.projects.single { it.parentId == null }
+        val section = snapshot.projects.first { it.name == "wohnung · Ofen" }
+        assertEquals(staging.id, section.parentId)
+        assertEquals(section.id, snapshot.tasks.first { it.title == "reinigen" }.projectId)
     }
 
     @Test

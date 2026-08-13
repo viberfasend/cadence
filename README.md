@@ -122,10 +122,16 @@ folder into a backup file the app imports under Settings → Backup:
 python3 tools/todoist_import.py ~/Downloads/"Todoist backup 2026-08-12 2248 UTC"
 ```
 
-Projects, sections (as subprojects), subtasks, comments, priorities, due dates, deadlines and
-repeat phrases in German and English all come across — `every! 3 months` included, as an "after
-I finish" rule. Importing merges, and the converter derives its ids from the export, so
-re-running it later updates the tasks it already imported instead of duplicating them.
+**It all arrives in one project named `Import <date>`, and nowhere else** — not in your Inbox,
+not beside the projects you already have. An import is a pile to sort: a task joins your system
+when you move it out of that pile, and the pile can be deleted once it is empty. Sections come
+across as sibling projects named `Garten · August ☀️`, since the staging project takes the one
+level of nesting Cadence allows.
+
+Projects, sections, subtasks, comments, priorities, due dates, deadlines and repeat phrases in
+German and English all come across — `every! 3 months` included, as an "after I finish" rule.
+Importing merges, and the converter derives its ids from the export, so re-running it later
+updates the tasks it already imported instead of duplicating them.
 [`tools/README.md`](tools/README.md) has the full mapping table and the flags.
 
 ## Building locally

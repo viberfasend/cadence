@@ -7,10 +7,17 @@ number of those files — or a whole export directory — and writes a single
 `core/.../domain/backup/BackupCodec.kt` reads. Import it in the app under Settings -> Backup;
 importing merges, so nothing already on the device is lost.
 
+**Everything lands in one staging project, "Import <today>".** An import is a pile to sort, not
+a merge: nothing appears in the Inbox or beside the projects already on the device until the
+user moves it there deliberately. `--import-project NAME` renames the pile and
+`--no-import-project` skips it.
+
 How a Todoist row lands in Cadence:
 
-    file "Name [id].csv"  -> a project (the "Inbox" file goes to the Cadence Inbox instead)
-    section row           -> a subproject of that project (Cadence nests one level, like Todoist)
+    file "Name [id].csv"  -> a subproject of the staging project (the "Inbox" file's tasks sit
+                             in the staging project itself)
+    section row           -> a sibling subproject named "Project · Section", because the staging
+                             project has taken the one level of nesting Cadence allows
     task row, INDENT 1    -> a task in the current project or section
     task row, INDENT >= 2 -> a subtask of the last INDENT 1 task (deeper levels flatten onto it,
                              because Cadence nests subtasks exactly one level)
@@ -173,6 +180,7 @@ class Stats:
     notes: int = 0
     recurring: int = 0
     dated: int = 0
+    staging: str | None = None
     unparsed: list[str] = field(default_factory=list)
 
 
@@ -459,6 +467,11 @@ class Converter:
         self.projects: list[dict] = []
         self.tasks: list[dict] = []
         self.stats = Stats()
+        # Everything imported is parked under one staging project — see staging_id(). Nothing
+        # lands in the Inbox or beside the projects already on the device until the user moves
+        # it there, which is the point: an import is a pile to sort, not a merge into the system.
+        self.staging_name = options.import_project or f"Import {ref.isoformat()}"
+        self.staging_created = False
 
     # -- assembling ------------------------------------------------------------------------
 
@@ -474,13 +487,25 @@ class Converter:
         })
         return ident
 
+    def staging_id(self) -> str | None:
+        """The "Import 2026-08-13" project everything hangs under, created on the first task."""
+        if self.options.no_import_project:
+            return None
+        ident = stable_id("import-root", self.staging_name)
+        if not self.staging_created:
+            self.add_project(ident, self.staging_name, None, 0, PROJECT_COLORS[0])
+            self.staging_created = True
+            self.stats.projects += 1
+            self.stats.staging = self.staging_name
+        return ident
+
     def convert_file(self, path: str, index: int) -> None:
         with open(path, newline="", encoding="utf-8-sig") as handle:
             rows = list(csv.DictReader(handle))
 
         name = project_name(path)
         is_inbox = name.strip().lower() == self.options.inbox_name.strip().lower()
-        color = PROJECT_COLORS[index % len(PROJECT_COLORS)]
+        color = PROJECT_COLORS[(index + 1) % len(PROJECT_COLORS)]
         root_id: str | None = None
         if not is_inbox:
             root_id = stable_id("project", name)
@@ -513,19 +538,30 @@ class Converter:
 
             # Projects and sections are created lazily: an empty section would otherwise import
             # as an empty subproject, and Todoist exports plenty of those.
+            staging = self.staging_id()
             if root_id and not created_root:
-                self.add_project(root_id, name, None, len(self.projects), color)
+                self.add_project(root_id, name, staging, len(self.projects), color)
                 created_root = True
                 self.stats.projects += 1
             if pending_sections and section_id:
                 for pending_id, pending_name in pending_sections:
                     if pending_id == section_id:
-                        parent = root_id
-                        self.add_project(pending_id, pending_name, parent, len(self.projects), color)
+                        # Cadence nests projects exactly one level, and the staging project has
+                        # taken that level. A section therefore becomes a sibling of its own
+                        # project, carrying the project's name — no grouping is lost, and both
+                        # disappear once the user has moved the tasks into their own system.
+                        if staging:
+                            self.add_project(pending_id, f"{name} · {pending_name}", staging,
+                                             len(self.projects), color)
+                        else:
+                            self.add_project(pending_id, pending_name, root_id,
+                                             len(self.projects), color)
                         self.stats.sections += 1
                 pending_sections = [s for s in pending_sections if s[0] != section_id]
 
-            task = self.convert_task(row, row_index, name, section_id or root_id, order)
+            # An Inbox row has no project of its own, so it sits in the staging project itself
+            # rather than dropping straight into the device's Inbox.
+            task = self.convert_task(row, row_index, name, section_id or root_id or staging, order)
             order += 1
             indent = int((row.get("INDENT") or "1").strip() or 1)
             if indent >= 2 and current_parent is not None:
@@ -670,7 +706,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("-o", "--out", default="cadence-backup.json", help="output file")
     parser.add_argument("--dry-run", action="store_true", help="parse and report, write nothing")
     parser.add_argument("--inbox-name", default="Inbox",
-                        help="the export file whose tasks go to the Cadence Inbox (default: Inbox)")
+                        help="the export file holding the Todoist Inbox (default: Inbox)")
+    parser.add_argument("--import-project", metavar="NAME",
+                        help="name of the staging project everything is parked under "
+                             "(default: 'Import <today>')")
+    parser.add_argument("--no-import-project", action="store_true",
+                        help="import straight into projects and the Inbox, with no staging "
+                             "project in between")
     parser.add_argument("--strip-labels", action="store_true",
                         help="move Todoist @labels out of the title into the notes")
     parser.add_argument("--invert-priority", action="store_true",
@@ -698,6 +740,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"{len(paths)} file(s) -> {stats.projects} project(s), {stats.sections} section(s), "
           f"{stats.tasks} task(s), {stats.subtasks} subtask(s), {stats.notes} note(s)")
     print(f"  {stats.recurring} recurring, {stats.dated} dated")
+    if stats.staging:
+        print(f"  all of it parked under the project {stats.staging!r} — move a task out of "
+              f"there to file it into your own projects")
     for warning in stats.unparsed:
         print(f"  ! unreadable date, kept in the notes — {warning}", file=sys.stderr)
 
@@ -833,7 +878,8 @@ class DateTest(unittest.TestCase):
 
 def _options(**overrides) -> argparse.Namespace:
     base = dict(inbox_name="Inbox", strip_labels=False, invert_priority=False,
-                bare_year="current", recurring_due="next")
+                bare_year="current", recurring_due="next", import_project=None,
+                no_import_project=False)
     base.update(overrides)
     return argparse.Namespace(**base)
 
@@ -868,16 +914,40 @@ class ConversionTest(unittest.TestCase):
 
     def test_project_name_drops_the_todoist_id(self):
         self.assertEqual(project_name(self.path), "wohnung")
-        self.assertEqual([p["name"] for p in self.document["projects"]], ["wohnung", "Ofen"])
+        self.assertEqual([p["name"] for p in self.document["projects"]],
+                         ["Import 2026-08-13", "wohnung", "wohnung · Ofen"])
 
     def test_empty_sections_are_not_imported(self):
-        self.assertNotIn("Leer", [p["name"] for p in self.document["projects"]])
+        self.assertNotIn("wohnung · Leer", [p["name"] for p in self.document["projects"]])
 
-    def test_section_is_a_subproject_of_its_file(self):
-        root = next(p for p in self.document["projects"] if p["name"] == "wohnung")
-        ofen = next(p for p in self.document["projects"] if p["name"] == "Ofen")
-        self.assertEqual(ofen["parentId"], root["id"])
+    def test_everything_is_parked_under_one_staging_project(self):
+        staging = self.document["projects"][0]
+        self.assertEqual(staging["name"], "Import 2026-08-13")
+        self.assertIsNone(staging["parentId"])
+        # Nothing lands beside the projects already on the device: every imported project is a
+        # child of the staging one, and no task is left in the Inbox.
+        self.assertTrue(all(p["parentId"] == staging["id"]
+                            for p in self.document["projects"][1:]))
+        self.assertTrue(all(t["projectId"] is not None for t in self.document["tasks"]))
+        self.assertEqual(self.stats.staging, "Import 2026-08-13")
+
+    def test_a_section_keeps_its_project_in_its_name(self):
+        # Projects nest exactly one level and the staging project has taken it, so a section is
+        # a sibling of its own project rather than a child of it.
+        ofen = next(p for p in self.document["projects"] if p["name"] == "wohnung · Ofen")
+        self.assertEqual(ofen["parentId"], self.document["projects"][0]["id"])
         self.assertEqual(self.task("reinigen")["projectId"], ofen["id"])
+
+    def test_the_staging_project_can_be_renamed_or_skipped(self):
+        named, _ = convert([self.path], _options(import_project="Todoist"),
+                           dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF)
+        self.assertEqual(named["projects"][0]["name"], "Todoist")
+
+        flat, stats = convert([self.path], _options(no_import_project=True),
+                              dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF)
+        self.assertEqual([p["name"] for p in flat["projects"]], ["wohnung", "Ofen"])
+        self.assertIsNone(flat["projects"][0]["parentId"])
+        self.assertIsNone(stats.staging)
 
     def test_indent_two_is_a_subtask_sharing_the_parents_project(self):
         parent = self.task("Fenster")
@@ -906,14 +976,19 @@ class ConversionTest(unittest.TestCase):
         self.assertEqual(task["title"], "Fenster ölen")
         self.assertIn("@Haus", task["notes"])
 
-    def test_inbox_file_has_no_project(self):
+    def test_inbox_rows_sit_in_the_staging_project_not_the_devices_inbox(self):
         inbox = os.path.join(self.dir, "Inbox [6Crg8jQ8644Gg3r6].csv")
         with open(inbox, "w", encoding="utf-8") as handle:
             handle.write(SAMPLE)
         document, _ = convert([inbox], _options(),
                               dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF)
         task = next(t for t in document["tasks"] if t["title"].startswith("Fenster"))
-        self.assertIsNone(task["projectId"])
+        self.assertEqual(task["projectId"], document["projects"][0]["id"])
+
+        flat, _ = convert([inbox], _options(no_import_project=True),
+                          dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF)
+        loose = next(t for t in flat["tasks"] if t["title"].startswith("Fenster"))
+        self.assertIsNone(loose["projectId"])
 
     def test_ids_are_uuids_and_stable_across_runs(self):
         again, _ = convert([self.path], _options(),

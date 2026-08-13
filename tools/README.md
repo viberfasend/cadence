@@ -20,12 +20,27 @@ It prints what it found and warns — on stderr, one line each — about any dat
 read; those are kept verbatim in the task's notes rather than dropped, so nothing goes missing
 silently.
 
+### Everything arrives in one staging project
+
+An import is a pile to sort, not a merge. All of it lands under a single project named
+**`Import <today>`** — nothing appears in the Inbox, and nothing appears beside the projects
+already on the device until you move it there. Filing a task into your own system is the
+deliberate act of dragging it out of the pile; when the pile is empty, delete it.
+
+Because Cadence nests projects exactly one level and the staging project has taken that level,
+a Todoist section becomes a *sibling* of its own project rather than a child, carrying the
+project's name: `Garten` and `Garten · August ☀️` sit next to each other under
+`Import 2026-08-13`. No grouping is lost, and both disappear once you have emptied them.
+
+`--import-project NAME` renames the pile; `--no-import-project` skips it and imports straight
+into top-level projects and the Inbox, the way a merge would.
+
 ### How a Todoist row lands in Cadence
 
 | Todoist | Cadence |
 | --- | --- |
-| file `Name [id].csv` | a project (`Inbox` goes to the Cadence Inbox instead) |
-| `section` row | a subproject — both apps nest one level; empty sections are skipped |
+| file `Name [id].csv` | a subproject of the staging project (the `Inbox` file's tasks sit in the staging project itself) |
+| `section` row | a sibling subproject named `Project · Section`; empty sections are skipped |
 | `task` row, `INDENT 1` | a task in that project or section |
 | `task` row, `INDENT ≥ 2` | a subtask of the last `INDENT 1` task (deeper levels flatten onto it) |
 | `note` row | appended to the task above it, prefixed with the note's date |
@@ -59,6 +74,8 @@ updates the rows it wrote before instead of duplicating them — the import merg
 | Flag | What it does |
 | --- | --- |
 | `--dry-run` | parse and report, write nothing |
+| `--import-project NAME` | rename the staging project (default `Import <today>`) |
+| `--no-import-project` | no staging project: import straight into projects and the Inbox |
 | `--strip-labels` | move `@labels` out of the title into the notes |
 | `--bare-year next-occurrence` | read a year-less date (`15 Mar`) as the *upcoming* one rather than this year's — use it if you would rather not import overdue tasks |
 | `--recurring-due none` | do not give recurring tasks a due date |
