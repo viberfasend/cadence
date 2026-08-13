@@ -1,0 +1,82 @@
+-- 2 → 3: the task↔project foreign keys come out, and the push gets an index.
+--
+-- The cascades were never a backstop, they were a trapdoor. `taskRow.parentId` cascaded on
+-- delete, `taskRow.projectId` set null on delete, `projectRow.parentId` cascaded — and every
+-- write went through `INSERT OR REPLACE`, which SQLite implements as *delete the conflicting row,
+-- then insert*, with both shells opening the database with `PRAGMA foreign_keys = ON`. Saving an
+-- edit to a task therefore deleted its checklist and its attachments, and merging a project row
+-- deleted its subprojects and emptied it of tasks. The writes are plain upserts now (see the
+-- notes in `Task.sq` and `Project.sq`); these constraints go because a local-first app cannot
+-- enforce them anyway. Rows arrive from the server in whatever order the pull pages them, and a
+-- task landing before its project used to fail the whole merge with SQLITE_CONSTRAINT_FOREIGNKEY
+-- — which is exactly why the Postgres mirror has never carried a foreign key either
+-- (docs/adr/0002-supabase-sync.md).
+--
+-- SQLite cannot drop a constraint, so both tables are rebuilt. This runs with foreign keys
+-- disabled — SQLDelight migrations run inside a transaction, where `PRAGMA foreign_keys` is a
+-- no-op, so each driver factory is what guarantees that: Android's callback enables them in
+-- `onOpen`, which runs after `onUpgrade`, and the desktop factory enables them after migrating.
+-- Without that, `DROP TABLE taskRow` would cascade into `attachmentRow` and take every
+-- attachment with it.
+
+CREATE TABLE taskRowNew (
+    id TEXT NOT NULL PRIMARY KEY,
+    title TEXT NOT NULL,
+    notes TEXT,
+    priority INTEGER NOT NULL,
+    projectId TEXT,
+    parentId TEXT,
+    spawnedFromId TEXT,
+    dueDate INTEGER,
+    dueTime INTEGER,
+    reminderTime INTEGER,
+    completedAt INTEGER,
+    createdAt INTEGER NOT NULL,
+    sortOrder INTEGER NOT NULL,
+    recurrence TEXT,
+    updatedAt INTEGER NOT NULL,
+    deletedAt INTEGER
+);
+
+INSERT INTO taskRowNew(
+    id, title, notes, priority, projectId, parentId, spawnedFromId, dueDate, dueTime,
+    reminderTime, completedAt, createdAt, sortOrder, recurrence, updatedAt, deletedAt
+)
+SELECT id, title, notes, priority, projectId, parentId, spawnedFromId, dueDate, dueTime,
+       reminderTime, completedAt, createdAt, sortOrder, recurrence, updatedAt, deletedAt
+FROM taskRow;
+
+DROP TABLE taskRow;
+
+ALTER TABLE taskRowNew RENAME TO taskRow;
+
+CREATE TABLE projectRowNew (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    colorHex TEXT NOT NULL,
+    parentId TEXT,
+    sortOrder INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    deletedAt INTEGER
+);
+
+INSERT INTO projectRowNew(id, name, colorHex, parentId, sortOrder, updatedAt, deletedAt)
+SELECT id, name, colorHex, parentId, sortOrder, updatedAt, deletedAt FROM projectRow;
+
+DROP TABLE projectRow;
+
+ALTER TABLE projectRowNew RENAME TO projectRow;
+
+-- Dropping a table drops its indexes with it, so every one of them is recreated here — including
+-- the two new ones the push reads (`updatedAt`), which used to be a full table scan per round.
+CREATE INDEX idx_task_project ON taskRow(projectId);
+CREATE INDEX idx_task_parent ON taskRow(parentId);
+CREATE INDEX idx_task_spawned_from ON taskRow(spawnedFromId);
+CREATE INDEX idx_task_due ON taskRow(dueDate);
+CREATE INDEX idx_task_completed ON taskRow(completedAt);
+CREATE INDEX idx_task_sort ON taskRow(sortOrder);
+CREATE INDEX idx_task_updated ON taskRow(updatedAt);
+
+CREATE INDEX idx_project_parent ON projectRow(parentId);
+CREATE INDEX idx_project_sort ON projectRow(sortOrder);
+CREATE INDEX idx_project_updated ON projectRow(updatedAt);

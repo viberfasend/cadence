@@ -4,10 +4,12 @@ CREATE TABLE taskRow (
     title TEXT NOT NULL,
     notes TEXT,
     priority INTEGER NOT NULL,
-    projectId TEXT REFERENCES projectRow(id) ON DELETE SET NULL,
-    -- The task this one is a step of, or null for a task that stands on its own. Self-referencing
-    -- on purpose: nesting is one level deep, enforced by the repository, not this constraint.
-    parentId TEXT REFERENCES taskRow(id) ON DELETE CASCADE,
+    -- The project this task is filed under, or null for the Inbox. Deliberately not a REFERENCES
+    -- clause — see the note above `updateRow`.
+    projectId TEXT,
+    -- The task this one is a step of, or null for a task that stands on its own. Nesting is one
+    -- level deep, enforced by the repository, not by this column.
+    parentId TEXT,
     -- The occurrence whose completion inserted this row. Deliberately no REFERENCES clause: the
     -- row it names may be deleted long before this one, and a link gone stale is harmless — ids
     -- are never reused, so it can only ever fail to match.
@@ -38,6 +40,9 @@ CREATE INDEX idx_task_spawned_from ON taskRow(spawnedFromId);
 CREATE INDEX idx_task_due ON taskRow(dueDate);
 CREATE INDEX idx_task_completed ON taskRow(completedAt);
 CREATE INDEX idx_task_sort ON taskRow(sortOrder);
+-- What the push reads: everything written since the watermark. It runs on every sync round and
+-- was a full table scan without this.
+CREATE INDEX idx_task_updated ON taskRow(updatedAt);
 
 selectAll:
 SELECT * FROM taskRow WHERE deletedAt IS NULL;
@@ -53,8 +58,37 @@ SELECT * FROM taskRow WHERE id = :id;
 selectSubtasksOf:
 SELECT * FROM taskRow WHERE parentId = :parentId AND deletedAt IS NULL ORDER BY sortOrder, id;
 
-insertOrReplace:
-INSERT OR REPLACE INTO taskRow(
+-- ── Writing a row ──────────────────────────────────────────────────────────────────
+--
+-- Three statements rather than the one `INSERT OR REPLACE` that used to stand here. SQLite
+-- implements REPLACE as *delete the conflicting row, then insert*, this table used to declare
+-- `parentId … ON DELETE CASCADE`, and both shells open the database with
+-- `PRAGMA foreign_keys = ON` — so saving an edit to a task deleted its whole checklist and every
+-- attachment on it. See the same note in `Project.sq` for why the cascades left the schema.
+--
+-- SQLite before 3.24 has no `ON CONFLICT … DO UPDATE` and minSdk 26 ships 3.19, so an upsert is
+-- an UPDATE followed by an `INSERT OR IGNORE`, run as a pair inside one transaction.
+
+updateRow:
+UPDATE taskRow SET title = :title, notes = :notes, priority = :priority, projectId = :projectId,
+    parentId = :parentId, spawnedFromId = :spawnedFromId, dueDate = :dueDate, dueTime = :dueTime,
+    reminderTime = :reminderTime, completedAt = :completedAt, createdAt = :createdAt,
+    sortOrder = :sortOrder, recurrence = :recurrence, updatedAt = :updatedAt,
+    deletedAt = :deletedAt
+WHERE id = :id;
+
+-- The merge's half of the pair: last writer wins, decided in SQL rather than by reading the row
+-- back first. Ties keep what is stored, the same rule the server's trigger applies.
+updateIfOlder:
+UPDATE taskRow SET title = :title, notes = :notes, priority = :priority, projectId = :projectId,
+    parentId = :parentId, spawnedFromId = :spawnedFromId, dueDate = :dueDate, dueTime = :dueTime,
+    reminderTime = :reminderTime, completedAt = :completedAt, createdAt = :createdAt,
+    sortOrder = :sortOrder, recurrence = :recurrence, updatedAt = :updatedAt,
+    deletedAt = :deletedAt
+WHERE id = :id AND updatedAt < :updatedAt;
+
+insertIfAbsent:
+INSERT OR IGNORE INTO taskRow(
     id, title, notes, priority, projectId, parentId, spawnedFromId,
     dueDate, dueTime, reminderTime, completedAt, createdAt, sortOrder, recurrence,
     updatedAt, deletedAt

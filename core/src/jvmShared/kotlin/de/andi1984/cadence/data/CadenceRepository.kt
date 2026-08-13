@@ -251,16 +251,17 @@ class CadenceRepository(
             return RepositoryResult.ValidationError
         }
 
-        // Validate nesting depth
+        // Validate nesting depth and rule out a cycle. Both walk the same chain of parents, so
+        // they walk it over one snapshot of the table: each used to re-read every project on
+        // every step, which is a full table scan per level of nesting per save.
         val parentId = project.parentId
         if (parentId != null) {
-            val nestingDepth = getProjectNestingDepth(parentId)
-            if (nestingDepth >= MAX_PROJECT_NESTING_DEPTH) {
+            val parents = projectStore.getAll().associateBy { it.id }
+            if (nestingDepth(parentId, parents) >= MAX_PROJECT_NESTING_DEPTH) {
                 return RepositoryResult.Error("Maximum project nesting depth ($MAX_PROJECT_NESTING_DEPTH) reached")
             }
 
-            // Prevent circular references
-            if (wouldCreateCircularReference(project.id, project.parentId)) {
+            if (ancestorsOf(parentId, parents).contains(project.id)) {
                 return RepositoryResult.Error("Cannot create circular reference: project cannot be its own ancestor")
             }
         }
@@ -281,38 +282,25 @@ class CadenceRepository(
         }
     }
 
+    /** How many levels deep [projectId] sits, counting itself. */
+    private fun nestingDepth(projectId: String, projects: Map<String, Project>): Int =
+        ancestorsOf(projectId, projects).size
+
     /**
-     * Calculates the nesting depth of a project by counting how many levels deep it is.
+     * [projectId] and everything above it, which is what both rules above ask about: how long the
+     * chain is, and whether the project being saved is already on it.
+     *
+     * The walk stops on a repeat as well as on a missing parent — a cycle already in storage must
+     * not spin here, and one *is* reachable, since two devices can each nest the other's project
+     * under theirs while offline.
      */
-    private suspend fun getProjectNestingDepth(projectId: String): Int {
-        var depth = 0
+    private fun ancestorsOf(projectId: String, projects: Map<String, Project>): Set<String> {
+        val chain = LinkedHashSet<String>()
         var currentId: String? = projectId
-
-        while (currentId != null) {
-            val project = projectStore.getAll().firstOrNull { it.id == currentId } ?: break
-            currentId = project.parentId
-            depth++
+        while (currentId != null && chain.add(currentId)) {
+            currentId = projects[currentId]?.parentId
         }
-
-        return depth
-    }
-
-    /**
-     * Checks if setting parentId for a project would create a circular reference.
-     */
-    private suspend fun wouldCreateCircularReference(projectId: String, newParentId: String?): Boolean {
-        if (newParentId == null) return false
-
-        var currentId: String? = newParentId
-        while (currentId != null) {
-            if (currentId == projectId) {
-                return true // Circular reference detected
-            }
-            val project = projectStore.getAll().firstOrNull { it.id == currentId } ?: break
-            currentId = project.parentId
-        }
-
-        return false
+        return chain
     }
 
     /**
