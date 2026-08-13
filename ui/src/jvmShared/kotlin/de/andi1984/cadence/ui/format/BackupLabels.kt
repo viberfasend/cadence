@@ -14,8 +14,30 @@ fun backupOutcomeText(outcome: BackupOutcome): String = when (outcome) {
     is BackupOutcome.Exported ->
         stringResource(Res.string.backup_exported, taskCount(outcome.tasks), projectCount(outcome.projects))
 
-    is BackupOutcome.Imported ->
-        stringResource(Res.string.backup_imported, taskCount(outcome.tasks), projectCount(outcome.projects))
+    // One file just says what came in; several name the file count, and a file that could not be
+    // read is reported beside the ones that could rather than being swallowed by the total.
+    is BackupOutcome.Imported -> buildString {
+        append(
+            if (outcome.files > 1) {
+                stringResource(
+                    Res.string.backup_imported_files,
+                    taskCount(outcome.tasks),
+                    projectCount(outcome.projects),
+                    fileCount(outcome.files),
+                )
+            } else {
+                stringResource(
+                    Res.string.backup_imported,
+                    taskCount(outcome.tasks),
+                    projectCount(outcome.projects),
+                )
+            },
+        )
+        if (outcome.unreadableFiles > 0) {
+            append(" ")
+            append(stringResource(Res.string.backup_imported_unreadable, fileCount(outcome.unreadableFiles)))
+        }
+    }
 
     is BackupOutcome.Failed -> backupFailureText(outcome.reason)
 }
@@ -40,3 +62,7 @@ private fun taskCount(count: Int): String =
 @Composable
 private fun projectCount(count: Int): String =
     pluralStringResource(Res.plurals.project_count, count, count)
+
+@Composable
+private fun fileCount(count: Int): String =
+    pluralStringResource(Res.plurals.file_count, count, count)

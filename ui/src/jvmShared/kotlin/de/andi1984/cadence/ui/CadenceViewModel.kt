@@ -459,10 +459,31 @@ class CadenceViewModel(
         backupOutcome.value = backupGateway.export(target)
     }
 
-    /** Folds the file into what is already here; reminders resync themselves, and the rows the
-     *  merge wrote travel to the other devices like any other edit. */
-    fun importBackup(target: BackupTarget) = scope.launch {
-        backupOutcome.value = backupGateway.import(target)
+    /**
+     * Folds the files into what is already here; reminders resync themselves, and the rows the
+     * merge wrote travel to the other devices like any other edit.
+     *
+     * Several files are imported one after another rather than together: each merge is its own
+     * transaction, and one unreadable file among twenty must not cost the other nineteen. The
+     * counts are added up so Settings still reports a single sentence, and the files that could
+     * not be read are counted rather than swallowed. A run where *nothing* could be read reports
+     * the first failure itself — "0 tasks imported" would say nothing about why.
+     */
+    fun importBackup(targets: List<BackupTarget>) = scope.launch {
+        if (targets.isEmpty()) return@launch
+        val outcomes = targets.map { backupGateway.import(it) }
+        val imported = outcomes.filterIsInstance<BackupOutcome.Imported>()
+        backupOutcome.value = if (imported.isEmpty()) {
+            outcomes.first()
+        } else {
+            BackupOutcome.Imported(
+                projects = imported.sumOf { it.projects },
+                tasks = imported.sumOf { it.tasks },
+                exportedAt = imported.firstNotNullOfOrNull { it.exportedAt },
+                files = imported.size,
+                unreadableFiles = outcomes.size - imported.size,
+            )
+        }
         armSync()
     }
 

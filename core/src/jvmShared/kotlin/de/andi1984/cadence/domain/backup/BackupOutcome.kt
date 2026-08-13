@@ -23,10 +23,18 @@ sealed interface BackupOutcome {
         val exportedAt: Instant,
     ) : BackupOutcome
 
+    /**
+     * [files] and [unreadableFiles] describe an import of several files at once — Settings
+     * hands the gateway one file at a time and adds the results up, so a folder of them reports
+     * as one sentence. They default to "one file, and it worked", which is what a single import
+     * is, so nothing that produces one outcome has to think about them.
+     */
     data class Imported(
         val projects: Int,
         val tasks: Int,
         val exportedAt: Instant? = null,
+        val files: Int = 1,
+        val unreadableFiles: Int = 0,
     ) : BackupOutcome
 
     data class Failed(val reason: BackupFailure) : BackupOutcome

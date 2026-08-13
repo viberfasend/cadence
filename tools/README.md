@@ -12,9 +12,30 @@ Todoist's export gives you one CSV per project. This turns a whole export into a
 ```bash
 python3 tools/todoist_import.py ~/Downloads/"Todoist backup 2026-08-12 2248 UTC"
 python3 tools/todoist_import.py export/*.csv -o cadence-backup.json
+python3 tools/todoist_import.py export/ --split       # one JSON per project, into a folder
 python3 tools/todoist_import.py export/ --dry-run     # parse and report, write nothing
 python3 tools/todoist_import.py --self-test           # the parser's own tests
 ```
+
+### One file, or one per project
+
+By default the whole export becomes a single `cadence-backup.json`. `--split` writes
+`cadence-<project>.json` per Todoist project into a folder (`cadence-import/` unless `-o` names
+another), skipping projects that hold no tasks:
+
+```
+$ python3 tools/todoist_import.py "Todoist backup 2026-08-12 2248 UTC" --split
+19 file(s) -> 16 project(s), 14 section(s), 145 task(s), 4 subtask(s), 7 note(s)
+  cadence-inbox.json: 21 task(s)
+  cadence-garten.json: 18 task(s)
+  …
+wrote 16 file(s) to cadence-import/ — import them under Settings -> Backup, one, several or all at once
+```
+
+The app's importer takes several files in one go — the picker is multi-select on both Android
+and the desktop — and every split file carries the *same* staging project, so importing them in
+any order or any grouping lands everything in one pile. Splitting is what to reach for when you
+would rather bring a project across at a time than the whole of Todoist at once.
 
 It prints what it found and warns — on stderr, one line each — about any date it could not
 read; those are kept verbatim in the task's notes rather than dropped, so nothing goes missing
@@ -74,6 +95,7 @@ updates the rows it wrote before instead of duplicating them — the import merg
 | Flag | What it does |
 | --- | --- |
 | `--dry-run` | parse and report, write nothing |
+| `--split` | one JSON per Todoist project instead of one for the whole export |
 | `--import-project NAME` | rename the staging project (default `Import <today>`) |
 | `--no-import-project` | no staging project: import straight into projects and the Inbox |
 | `--strip-labels` | move `@labels` out of the title into the notes |

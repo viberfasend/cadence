@@ -120,7 +120,11 @@ folder into a backup file the app imports under Settings → Backup:
 
 ```bash
 python3 tools/todoist_import.py ~/Downloads/"Todoist backup 2026-08-12 2248 UTC"
+python3 tools/todoist_import.py ~/Downloads/"Todoist backup …" --split   # one file per project
 ```
+
+Settings → Import takes **one file or many at once**, so a split export can be brought over a
+project at a time or in one go — every file carries the same staging project either way.
 
 **It all arrives in one project named `Import <date>`, and nowhere else** — not in your Inbox,
 not beside the projects you already have. An import is a pile to sort: a task joins your system

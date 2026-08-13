@@ -30,10 +30,17 @@ class DesktopBackupFilePicker : BackupFilePicker {
         }
     }
 
-    override fun pickImportSource(onPicked: (BackupTarget) -> Unit) {
-        val chooser = JFileChooser().apply { fileFilter = jsonFilter }
-        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-            onPicked(BackupTarget(chooser.selectedFile.absolutePath))
+    override fun pickImportSource(onPicked: (List<BackupTarget>) -> Unit) {
+        val chooser = JFileChooser().apply {
+            fileFilter = jsonFilter
+            isMultiSelectionEnabled = true
         }
+        if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return
+        // `selectedFiles` is empty when the chooser was not in multi-selection mode at the
+        // moment of the pick, which is why the single file is the fallback rather than the path.
+        val chosen = chooser.selectedFiles.takeIf { it.isNotEmpty() }
+            ?: arrayOf(chooser.selectedFile)
+        val targets = chosen.filterNotNull().map { BackupTarget(it.absolutePath) }
+        if (targets.isNotEmpty()) onPicked(targets)
     }
 }

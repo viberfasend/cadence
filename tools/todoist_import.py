@@ -35,8 +35,14 @@ task in Todoist and re-importing updates the rows it already wrote instead of du
 Usage:
     python3 tools/todoist_import.py ~/Downloads/"Todoist backup 2026-08-12 2248 UTC"
     python3 tools/todoist_import.py export/*.csv -o cadence-backup.json
+    python3 tools/todoist_import.py export/ --split        # one JSON per project, into a folder
     python3 tools/todoist_import.py export/ --dry-run      # parse and report, write nothing
     python3 tools/todoist_import.py --self-test            # the parser's unit tests
+
+`--split` writes `cadence-<project>.json` per Todoist project rather than one file for the
+whole export, so the import can be done a project at a time — the app's importer takes several
+files in one go, and every split file carries the same staging project, so importing them in
+any order or any grouping lands them all in the same pile.
 """
 
 from __future__ import annotations
@@ -57,6 +63,9 @@ from typing import Iterable, Sequence
 # track the app rather than run ahead of it.
 BACKUP_FORMAT = "cadence.backup"
 BACKUP_VERSION = 2
+
+DEFAULT_OUT = "cadence-backup.json"
+DEFAULT_SPLIT_OUT = "cadence-import"
 
 # ui/projects/ProjectDialogs.kt's PROJECT_COLORS, cycled so imported projects are not all teal.
 PROJECT_COLORS = ["#006A60", "#3E6373", "#A1560A", "#7D5260", "#6F7976", "#BA1A1A"]
@@ -685,15 +694,48 @@ def collect_csv_paths(inputs: Sequence[str]) -> list[str]:
     return paths
 
 
-def convert(paths: Sequence[str], options: argparse.Namespace,
-            now: dt.datetime, ref: dt.date) -> tuple[dict, Stats]:
+def ordered_paths(paths: Sequence[str], options: argparse.Namespace) -> list[str]:
+    """The Inbox first, so its tasks keep the lowest sort orders in the staging project."""
+    return sorted(paths, key=lambda p: (project_name(p).lower() != options.inbox_name.lower(),
+                                        project_name(p).lower()))
+
+
+def convert(paths: Sequence[str], options: argparse.Namespace, now: dt.datetime, ref: dt.date,
+            first_index: int = 0) -> tuple[dict, Stats]:
     converter = Converter(options, now, ref)
-    # The Inbox first, so its tasks keep the lowest sort orders in the Cadence Inbox.
-    ordered = sorted(paths, key=lambda p: (project_name(p).lower() != options.inbox_name.lower(),
-                                           project_name(p).lower()))
-    for index, path in enumerate(ordered):
+    for index, path in enumerate(ordered_paths(paths, options), start=first_index):
         converter.convert_file(path, index)
     return converter.document(), converter.stats
+
+
+def convert_split(paths: Sequence[str], options: argparse.Namespace,
+                  now: dt.datetime, ref: dt.date) -> list[tuple[str, dict, Stats]]:
+    """One document per Todoist project, for importing them a few at a time.
+
+    Every document carries the same staging project — its id is derived from the name, so the
+    twentieth file merges into the "Import 2026-08-13" the first one created rather than making
+    a second pile.
+    """
+    documents = []
+    for index, path in enumerate(ordered_paths(paths, options)):
+        document, stats = convert([path], options, now, ref, first_index=index)
+        # Todoist exports a CSV for a project that holds nothing; a file whose only content
+        # would be the staging project is not worth handing to the importer.
+        if document["tasks"]:
+            documents.append((file_slug(project_name(path)), document, stats))
+    return documents
+
+
+def file_slug(name: str) -> str:
+    """"wöchentlich" -> "cadence-woechentlich.json", so the files sort the way the projects do."""
+    slug = re.sub(r"[^a-z0-9]+", "-", fold(name)).strip("-")
+    return f"cadence-{slug or 'export'}.json"
+
+
+def write_document(path: str, document: dict) -> None:
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(document, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -703,7 +745,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         epilog=__doc__,
     )
     parser.add_argument("inputs", nargs="*", help="CSV files, or a directory of them")
-    parser.add_argument("-o", "--out", default="cadence-backup.json", help="output file")
+    parser.add_argument("-o", "--out", default=DEFAULT_OUT,
+                        help=f"output file, or the directory to fill with --split "
+                             f"(default: {DEFAULT_OUT}, {DEFAULT_SPLIT_OUT}/ when splitting)")
+    parser.add_argument("--split", action="store_true",
+                        help="write one JSON per Todoist project instead of one for the whole "
+                             "export — import them a few at a time")
     parser.add_argument("--dry-run", action="store_true", help="parse and report, write nothing")
     parser.add_argument("--inbox-name", default="Inbox",
                         help="the export file holding the Todoist Inbox (default: Inbox)")
@@ -735,9 +782,58 @@ def main(argv: Sequence[str] | None = None) -> int:
     ref = dt.date.fromisoformat(options.today) if options.today else dt.date.today()
     now = dt.datetime.now(dt.timezone.utc)
     paths = collect_csv_paths(options.inputs)
-    document, stats = convert(paths, options, now, ref)
 
-    print(f"{len(paths)} file(s) -> {stats.projects} project(s), {stats.sections} section(s), "
+    if options.split:
+        documents = convert_split(paths, options, now, ref)
+        total = sum_stats(stats for _, _, stats in documents)
+        report(len(paths), total)
+        if options.dry_run:
+            for name, _, stats in documents:
+                print(f"  {name}: {stats.tasks + stats.subtasks} task(s)")
+            print("dry run: nothing written")
+            return 0
+        directory = options.out if options.out != DEFAULT_OUT else DEFAULT_SPLIT_OUT
+        os.makedirs(directory, exist_ok=True)
+        for name, document, stats in documents:
+            write_document(os.path.join(directory, name), document)
+            print(f"  {name}: {stats.tasks + stats.subtasks} task(s)")
+        print(f"wrote {len(documents)} file(s) to {directory}/ — import them under "
+              f"Settings -> Backup, one, several or all at once")
+        return 0
+
+    document, stats = convert(paths, options, now, ref)
+    report(len(paths), stats)
+    if options.dry_run:
+        print("dry run: nothing written")
+        return 0
+
+    write_document(options.out, document)
+    print(f"wrote {options.out} — import it under Settings -> Backup")
+    return 0
+
+
+def sum_stats(many: Iterable[Stats]) -> Stats:
+    parts = list(many)
+    total = Stats()
+    for stats in parts:
+        total.projects += stats.projects
+        total.sections += stats.sections
+        total.tasks += stats.tasks
+        total.subtasks += stats.subtasks
+        total.notes += stats.notes
+        total.recurring += stats.recurring
+        total.dated += stats.dated
+        total.staging = total.staging or stats.staging
+        total.unparsed.extend(stats.unparsed)
+    # Every split document repeats the one staging project, and the import merges those copies
+    # back into one. Counting it once keeps the report about the export rather than the files.
+    if total.staging:
+        total.projects -= len([s for s in parts if s.staging]) - 1
+    return total
+
+
+def report(files: int, stats: Stats) -> None:
+    print(f"{files} file(s) -> {stats.projects} project(s), {stats.sections} section(s), "
           f"{stats.tasks} task(s), {stats.subtasks} subtask(s), {stats.notes} note(s)")
     print(f"  {stats.recurring} recurring, {stats.dated} dated")
     if stats.staging:
@@ -745,16 +841,6 @@ def main(argv: Sequence[str] | None = None) -> int:
               f"there to file it into your own projects")
     for warning in stats.unparsed:
         print(f"  ! unreadable date, kept in the notes — {warning}", file=sys.stderr)
-
-    if options.dry_run:
-        print("dry run: nothing written")
-        return 0
-
-    with open(options.out, "w", encoding="utf-8") as handle:
-        json.dump(document, handle, ensure_ascii=False, indent=2)
-        handle.write("\n")
-    print(f"wrote {options.out} — import it under Settings -> Backup")
-    return 0
 
 
 # ----------------------------------------------------------------------------------- self-test
@@ -879,7 +965,7 @@ class DateTest(unittest.TestCase):
 def _options(**overrides) -> argparse.Namespace:
     base = dict(inbox_name="Inbox", strip_labels=False, invert_priority=False,
                 bare_year="current", recurring_due="next", import_project=None,
-                no_import_project=False)
+                no_import_project=False, split=False)
     base.update(overrides)
     return argparse.Namespace(**base)
 
@@ -997,6 +1083,48 @@ class ConversionTest(unittest.TestCase):
                          [t["id"] for t in self.document["tasks"]])
         for task in self.document["tasks"]:
             uuid.UUID(task["id"])  # raises when it is not a UUID — sync's columns are `uuid`
+
+    def test_split_writes_one_document_per_project(self):
+        second = os.path.join(self.dir, "garten [6g62GH268rQjFQ92].csv")
+        with open(second, "w", encoding="utf-8") as handle:
+            handle.write(SAMPLE)
+        documents = convert_split([self.path, second], _options(split=True),
+                                  dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF)
+
+        self.assertEqual([name for name, _, _ in documents],
+                         ["cadence-garten.json", "cadence-wohnung.json"])
+        for _, document, _ in documents:
+            self.assertEqual(document["format"], "cadence.backup")
+            self.assertEqual(len(document["tasks"]), 3)
+
+    def test_split_skips_a_project_with_no_tasks(self):
+        empty = os.path.join(self.dir, "leer [6f386p6864mQPgxH].csv")
+        with open(empty, "w", encoding="utf-8") as handle:
+            handle.write(SAMPLE.splitlines()[0] + "\nmeta,view_style=list,,,,,,,,,,,,,\n")
+        documents = convert_split([self.path, empty], _options(split=True),
+                                  dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF)
+        self.assertEqual([name for name, _, _ in documents], ["cadence-wohnung.json"])
+
+    def test_every_split_document_carries_the_same_staging_project(self):
+        second = os.path.join(self.dir, "garten [6g62GH268rQjFQ92].csv")
+        with open(second, "w", encoding="utf-8") as handle:
+            handle.write(SAMPLE)
+        documents = convert_split([self.path, second], _options(split=True),
+                                  dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF)
+
+        # Same id, so importing the files one at a time merges them into one pile rather than
+        # leaving an "Import 2026-08-13" per file.
+        staging = {document["projects"][0]["id"] for _, document, _ in documents}
+        self.assertEqual(len(staging), 1)
+        self.assertEqual({document["projects"][0]["name"] for _, document, _ in documents},
+                         {"Import 2026-08-13"})
+
+    def test_the_summed_report_counts_the_staging_project_once(self):
+        documents = convert_split([self.path, self.path], _options(split=True),
+                                  dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF)
+        total = sum_stats(stats for _, _, stats in documents)
+        self.assertEqual(total.projects, 3)   # one staging + "wohnung" twice
+        self.assertEqual(total.sections, 2)
 
     def test_document_is_the_published_backup_shape(self):
         self.assertEqual(self.document["format"], "cadence.backup")
