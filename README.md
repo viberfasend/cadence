@@ -121,7 +121,13 @@ folder into a backup file the app imports under Settings → Backup:
 ```bash
 python3 tools/todoist_import.py ~/Downloads/"Todoist backup 2026-08-12 2248 UTC"
 python3 tools/todoist_import.py ~/Downloads/"Todoist backup …" --split   # one file per project
+python3 tools/todoist_import.py ~/Downloads/"Todoist backup …" --todoist-token 0123…
 ```
+
+**Pass the token if you can.** Todoist's export writes a recurring task's *rule* and leaves its
+next occurrence out entirely — "every year" survives the trip, "due 23 December" does not — so
+without one, recurring tasks arrive due today. With a token (Todoist → Settings → Integrations
+→ Developer) every date and time is read from the API and matches what Todoist shows.
 
 Settings → Import takes **one file or many at once**, so a split export can be brought over a
 project at a time or in one go — every file carries the same staging project either way.

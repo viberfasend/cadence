@@ -41,6 +41,34 @@ It prints what it found and warns — on stderr, one line each — about any dat
 read; those are kept verbatim in the task's notes rather than dropped, so nothing goes missing
 silently.
 
+### The export does not contain every due date — pass a token
+
+A recurring task exports as its **rule**, never as its next occurrence: "Duschkabine
+Schutzbehandlung" leaves Todoist with `DATE` set to `jährlich` and nothing else, even though the
+app shows it due on 23 December. No amount of parsing recovers that date, so from the CSV alone
+a recurring task can only land on today.
+
+Give the script an API token and it reads the real date and time of every task instead:
+
+```bash
+python3 tools/todoist_import.py "Todoist backup …" --todoist-token 0123456789abcdef
+TODOIST_API_TOKEN=0123… python3 tools/todoist_import.py "Todoist backup …"
+```
+
+The token is in Todoist → Settings → Integrations → Developer. Tasks are matched by project and
+title, the recurrence rule still comes from the CSV, and the report says how many dates came
+back exactly:
+
+```
+Todoist API: 149 task(s), 128 with a due date
+19 file(s) -> 17 project(s), …
+  77 recurring, 33 dated, 128 dated exactly from the Todoist API
+```
+
+Times come across the same way: a task due at 09:30 Berlin time arrives at 09:30, whether the
+API reported it in UTC or not. Without a token nothing breaks — dated tasks still get their
+dates from the CSV, and only recurring ones fall back to "today".
+
 ### Everything arrives in one staging project
 
 An import is a pile to sort, not a merge. All of it lands under a single project named
@@ -60,7 +88,7 @@ into top-level projects and the Inbox, the way a merge would.
 
 | Todoist | Cadence |
 | --- | --- |
-| file `Name [id].csv` | a subproject of the staging project (the `Inbox` file's tasks sit in the staging project itself) |
+| file `Name [id].csv` | a subproject of the staging project — the `Inbox` file included, so there is an "Inbox" to open rather than tasks loose in the pile |
 | `section` row | a sibling subproject named `Project · Section`; empty sections are skipped |
 | `task` row, `INDENT 1` | a task in that project or section |
 | `task` row, `INDENT ≥ 2` | a subtask of the last `INDENT 1` task (deeper levels flatten onto it) |
@@ -94,6 +122,7 @@ updates the rows it wrote before instead of duplicating them — the import merg
 
 | Flag | What it does |
 | --- | --- |
+| `--todoist-token` | read exact due dates and times from the Todoist API (or `TODOIST_API_TOKEN`) |
 | `--dry-run` | parse and report, write nothing |
 | `--split` | one JSON per Todoist project instead of one for the whole export |
 | `--import-project NAME` | rename the staging project (default `Import <today>`) |

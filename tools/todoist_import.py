@@ -14,8 +14,7 @@ user moves it there deliberately. `--import-project NAME` renames the pile and
 
 How a Todoist row lands in Cadence:
 
-    file "Name [id].csv"  -> a subproject of the staging project (the "Inbox" file's tasks sit
-                             in the staging project itself)
+    file "Name [id].csv"  -> a subproject of the staging project, the "Inbox" file included
     section row           -> a sibling subproject named "Project · Section", because the staging
                              project has taken the one level of nesting Cadence allows
     task row, INDENT 1    -> a task in the current project or section
@@ -34,10 +33,17 @@ task in Todoist and re-importing updates the rows it already wrote instead of du
 
 Usage:
     python3 tools/todoist_import.py ~/Downloads/"Todoist backup 2026-08-12 2248 UTC"
+    python3 tools/todoist_import.py export/ --todoist-token 0123…    # exact dates from Todoist
     python3 tools/todoist_import.py export/*.csv -o cadence-backup.json
     python3 tools/todoist_import.py export/ --split        # one JSON per project, into a folder
     python3 tools/todoist_import.py export/ --dry-run      # parse and report, write nothing
     python3 tools/todoist_import.py --self-test            # the parser's unit tests
+
+**The export does not contain every due date.** A recurring task exports as its *rule* — `DATE`
+reads "jährlich", not "23 Dec 2026" — so the next occurrence Todoist shows you is nowhere in the
+file, and the rule alone can only put the task on today. Pass `--todoist-token` (or set
+`TODOIST_API_TOKEN`) and the exact date and time of every task are read from the API and used
+instead; the token comes from Todoist -> Settings -> Integrations -> Developer.
 
 `--split` writes `cadence-<project>.json` per Todoist project rather than one file for the
 whole export, so the import can be done a project at a time — the app's importer takes several
@@ -55,6 +61,9 @@ import os
 import re
 import sys
 import unittest
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
@@ -189,6 +198,7 @@ class Stats:
     notes: int = 0
     recurring: int = 0
     dated: int = 0
+    exact: int = 0
     staging: str | None = None
     unparsed: list[str] = field(default_factory=list)
 
@@ -437,6 +447,132 @@ def parse_date_field(text: str, ref: dt.date, bare_year: str) -> tuple[Recurrenc
 # ------------------------------------------------------------------------------------ the rows
 
 
+# ------------------------------------------------------------------- exact dates, from the API
+
+
+TODOIST_V1 = "https://api.todoist.com/api/v1"
+TODOIST_V2 = "https://api.todoist.com/rest/v2"
+
+
+@dataclass
+class DueIndex:
+    """The due dates Todoist knows and its CSV export does not.
+
+    A recurring row exports as its *rule* — `DATE` reads "jährlich", never "23 Dec 2026" — so a
+    yearly task's actual next occurrence exists only inside Todoist. Reading it back needs the
+    API, which is what `--todoist-token` is for; without one the rule alone decides the date and
+    a yearly task lands on today.
+    """
+
+    by_project: dict[tuple[str, str], tuple[dt.date, str | None]] = field(default_factory=dict)
+    by_content: dict[str, tuple[dt.date, str | None]] = field(default_factory=dict)
+
+    def lookup(self, project: str, title: str) -> tuple[dt.date, str | None] | None:
+        # The CSV writes labels into the title and the API keeps them apart, so both sides of
+        # the match drop them.
+        key = fold(split_labels(title.strip())[0])
+        return self.by_project.get((fold(project.strip()), key)) or self.by_content.get(key)
+
+    def __len__(self) -> int:
+        return len(self.by_project)
+
+
+def parse_api_due(due: dict) -> tuple[dt.date, str | None] | None:
+    """Todoist's `due` object: `date` is a date or a datetime, and a `Z` means UTC."""
+    raw = (due.get("date") or "").strip() or (due.get("datetime") or "").strip()
+    if not raw:
+        return None
+    if "T" not in raw:
+        try:
+            return dt.date.fromisoformat(raw[:10]), None
+        except ValueError:
+            return None
+    try:
+        stamp = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if stamp.tzinfo is not None:
+        # A timed task is stored in UTC with the zone it was written in beside it; showing it in
+        # that zone is what the user set, not what the wire says.
+        zone = due.get("timezone") or ""
+        try:
+            from zoneinfo import ZoneInfo
+
+            stamp = stamp.astimezone(ZoneInfo(zone)) if zone and "/" in zone else stamp.astimezone()
+        except Exception:
+            stamp = stamp.astimezone()
+    return stamp.date(), stamp.strftime("%H:%M")
+
+
+def build_due_index(tasks: Iterable[dict], projects: Iterable[dict]) -> DueIndex:
+    """Indexes the API's tasks by project and title, the two things a CSV row also carries.
+
+    Ids are no use as a key — the export does not contain them — so the match is on the title,
+    with the labels stripped: the CSV writes them into `CONTENT` ("Mirabelle schneiden @Baum")
+    and the API keeps them in a field of their own.
+    """
+    names = {str(project.get("id")): project.get("name") or "" for project in projects}
+    index = DueIndex()
+    ambiguous: set[str] = set()
+    for task in tasks:
+        parsed = parse_api_due(task.get("due") or {})
+        if parsed is None:
+            continue
+        title = fold(split_labels((task.get("content") or "").strip())[0])
+        project = fold(names.get(str(task.get("project_id")), ""))
+        index.by_project[(project, title)] = parsed
+        if title in index.by_content and index.by_content[title] != parsed:
+            ambiguous.add(title)
+        index.by_content[title] = parsed
+    # A title that means two different dates in two projects cannot answer a project-less match.
+    for title in ambiguous:
+        index.by_content.pop(title, None)
+    return index
+
+
+def _api_get(url: str, token: str) -> object:
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403):
+            raise SystemExit("Todoist rejected the API token (401/403). Check it in Todoist -> "
+                             "Settings -> Integrations -> Developer.") from error
+        raise
+
+
+def _api_list(base: str, path: str, token: str) -> list[dict]:
+    """One collection, following `next_cursor` when the endpoint paginates."""
+    items: list[dict] = []
+    cursor = None
+    while True:
+        query = {"limit": "200"}
+        if cursor:
+            query["cursor"] = cursor
+        payload = _api_get(f"{base}/{path}?{urllib.parse.urlencode(query)}", token)
+        if isinstance(payload, list):          # REST v2 answers with the plain list
+            items.extend(payload)
+            return items
+        items.extend(payload.get("results", []))
+        cursor = payload.get("next_cursor")
+        if not cursor:
+            return items
+
+
+def fetch_todoist(token: str) -> tuple[list[dict], list[dict]]:
+    """Active tasks and projects, from whichever API version this token reaches."""
+    for base in (TODOIST_V1, TODOIST_V2):
+        try:
+            tasks = _api_list(base, "tasks", token)
+        except urllib.error.HTTPError as error:
+            if error.code == 404 and base is TODOIST_V1:
+                continue                        # older token/endpoint: fall back to REST v2
+            raise
+        return tasks, _api_list(base, "projects", token)
+    return [], []
+
+
 def stable_id(*parts: object) -> str:
     return str(uuid.uuid5(ID_NAMESPACE, "|".join(str(p) for p in parts)))
 
@@ -469,8 +605,10 @@ def note_line(text: str, when: str) -> str:
 
 
 class Converter:
-    def __init__(self, options: argparse.Namespace, now: dt.datetime, ref: dt.date):
+    def __init__(self, options: argparse.Namespace, now: dt.datetime, ref: dt.date,
+                 due_index: DueIndex | None = None):
         self.options = options
+        self.due_index = due_index or DueIndex()
         self.now_iso = now.replace(microsecond=(now.microsecond // 1000) * 1000).isoformat().replace("+00:00", "Z")
         self.ref = ref
         self.projects: list[dict] = []
@@ -515,8 +653,11 @@ class Converter:
         name = project_name(path)
         is_inbox = name.strip().lower() == self.options.inbox_name.strip().lower()
         color = PROJECT_COLORS[(index + 1) % len(PROJECT_COLORS)]
+        # The Inbox gets a project of its own like every other file. It used to drop its tasks
+        # straight into the staging project, where they were indistinguishable from the pile
+        # itself — there was no "Inbox" to open. Without a staging project it stays the Inbox.
         root_id: str | None = None
-        if not is_inbox:
+        if not is_inbox or not self.options.no_import_project:
             root_id = stable_id("project", name)
 
         pending_sections: list[tuple[str, str]] = []   # (id, name), created on first task
@@ -624,6 +765,15 @@ class Converter:
             self.stats.unparsed.append(f"{file_name}: {title!r} -> DATE {date_text!r}")
             extra_notes.append(f"Todoist: {date_text}")
 
+        # Todoist itself is the authority on *when*: the export writes a recurring task's rule
+        # and drops its next occurrence entirely, so a yearly task read from the CSV alone lands
+        # on today rather than on the 23rd of December. Where the API answered, its date and
+        # time replace whatever the phrase implied — the rule stays as parsed.
+        exact = self.due_index.lookup(file_name, title)
+        if exact is not None:
+            due_date, due_time = exact[0], exact[1] or due_time
+            self.stats.exact += 1
+
         deadline = (row.get("DEADLINE") or "").strip()
         if deadline:
             parsed_deadline = parse_absolute_date(deadline, self.ref, self.options.bare_year)
@@ -701,15 +851,15 @@ def ordered_paths(paths: Sequence[str], options: argparse.Namespace) -> list[str
 
 
 def convert(paths: Sequence[str], options: argparse.Namespace, now: dt.datetime, ref: dt.date,
-            first_index: int = 0) -> tuple[dict, Stats]:
-    converter = Converter(options, now, ref)
+            first_index: int = 0, due_index: DueIndex | None = None) -> tuple[dict, Stats]:
+    converter = Converter(options, now, ref, due_index)
     for index, path in enumerate(ordered_paths(paths, options), start=first_index):
         converter.convert_file(path, index)
     return converter.document(), converter.stats
 
 
-def convert_split(paths: Sequence[str], options: argparse.Namespace,
-                  now: dt.datetime, ref: dt.date) -> list[tuple[str, dict, Stats]]:
+def convert_split(paths: Sequence[str], options: argparse.Namespace, now: dt.datetime,
+                  ref: dt.date, due_index: DueIndex | None = None) -> list[tuple[str, dict, Stats]]:
     """One document per Todoist project, for importing them a few at a time.
 
     Every document carries the same staging project — its id is derived from the name, so the
@@ -718,7 +868,8 @@ def convert_split(paths: Sequence[str], options: argparse.Namespace,
     """
     documents = []
     for index, path in enumerate(ordered_paths(paths, options)):
-        document, stats = convert([path], options, now, ref, first_index=index)
+        document, stats = convert([path], options, now, ref, first_index=index,
+                                  due_index=due_index)
         # Todoist exports a CSV for a project that holds nothing; a file whose only content
         # would be the staging project is not worth handing to the importer.
         if document["tasks"]:
@@ -768,6 +919,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                         help="how to year a date exported without one (default: current year)")
     parser.add_argument("--recurring-due", choices=("next", "none"), default="next",
                         help="whether a recurring task gets its next date as a due date")
+    parser.add_argument("--todoist-token", metavar="TOKEN",
+                        help="Todoist API token (or set TODOIST_API_TOKEN). The export leaves a "
+                             "recurring task's next occurrence out, so this is what makes the "
+                             "dates and times exactly those Todoist shows")
     parser.add_argument("--today", help="reference date for relative dates, ISO (default: today)")
     parser.add_argument("--self-test", action="store_true", help="run the parser's unit tests")
     options = parser.parse_args(argv)
@@ -783,8 +938,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     now = dt.datetime.now(dt.timezone.utc)
     paths = collect_csv_paths(options.inputs)
 
+    token = options.todoist_token or os.environ.get("TODOIST_API_TOKEN")
+    due_index = None
+    if token:
+        tasks, api_projects = fetch_todoist(token)
+        due_index = build_due_index(tasks, api_projects)
+        print(f"Todoist API: {len(tasks)} task(s), {len(due_index)} with a due date")
+
     if options.split:
-        documents = convert_split(paths, options, now, ref)
+        documents = convert_split(paths, options, now, ref, due_index)
         total = sum_stats(stats for _, _, stats in documents)
         report(len(paths), total)
         if options.dry_run:
@@ -801,7 +963,7 @@ def main(argv: Sequence[str] | None = None) -> int:
               f"Settings -> Backup, one, several or all at once")
         return 0
 
-    document, stats = convert(paths, options, now, ref)
+    document, stats = convert(paths, options, now, ref, due_index=due_index)
     report(len(paths), stats)
     if options.dry_run:
         print("dry run: nothing written")
@@ -823,6 +985,7 @@ def sum_stats(many: Iterable[Stats]) -> Stats:
         total.notes += stats.notes
         total.recurring += stats.recurring
         total.dated += stats.dated
+        total.exact += stats.exact
         total.staging = total.staging or stats.staging
         total.unparsed.extend(stats.unparsed)
     # Every split document repeats the one staging project, and the import merges those copies
@@ -835,7 +998,8 @@ def sum_stats(many: Iterable[Stats]) -> Stats:
 def report(files: int, stats: Stats) -> None:
     print(f"{files} file(s) -> {stats.projects} project(s), {stats.sections} section(s), "
           f"{stats.tasks} task(s), {stats.subtasks} subtask(s), {stats.notes} note(s)")
-    print(f"  {stats.recurring} recurring, {stats.dated} dated")
+    print(f"  {stats.recurring} recurring, {stats.dated} dated"
+          + (f", {stats.exact} dated exactly from the Todoist API" if stats.exact else ""))
     if stats.staging:
         print(f"  all of it parked under the project {stats.staging!r} — move a task out of "
               f"there to file it into your own projects")
@@ -962,10 +1126,49 @@ class DateTest(unittest.TestCase):
         self.assertIsNone(parse_absolute_date("irgendwann", REF))
 
 
+class DueIndexTest(unittest.TestCase):
+    """The half of the API path that is not a network call."""
+
+    def test_a_plain_date_has_no_time(self):
+        self.assertEqual(parse_api_due({"date": "2026-12-23"}), (dt.date(2026, 12, 23), None))
+
+    def test_a_floating_datetime_keeps_its_clock_time(self):
+        self.assertEqual(parse_api_due({"date": "2026-12-23T09:30:00"}),
+                         (dt.date(2026, 12, 23), "09:30"))
+
+    def test_a_utc_datetime_is_shown_in_the_tasks_own_zone(self):
+        # 08:30 UTC is 09:30 in Berlin, and Berlin is what the user set the reminder in.
+        parsed = parse_api_due({"date": "2026-12-23T08:30:00Z", "timezone": "Europe/Berlin"})
+        self.assertEqual(parsed, (dt.date(2026, 12, 23), "09:30"))
+
+    def test_no_due_is_not_a_date(self):
+        self.assertIsNone(parse_api_due({}))
+        self.assertIsNone(parse_api_due({"date": "not a date"}))
+
+    def test_labels_are_stripped_before_matching_a_csv_title(self):
+        index = build_due_index(
+            [{"content": "Mirabelle schneiden", "project_id": "1", "due": {"date": "2027-03-15"}}],
+            [{"id": "1", "name": "Garten"}],
+        )
+        self.assertEqual(index.lookup("Garten", "Mirabelle schneiden @Baum"),
+                         (dt.date(2027, 3, 15), None))
+
+    def test_a_title_meaning_two_dates_only_matches_with_its_project(self):
+        index = build_due_index(
+            [
+                {"content": "Backup", "project_id": "1", "due": {"date": "2026-09-01"}},
+                {"content": "Backup", "project_id": "2", "due": {"date": "2026-10-01"}},
+            ],
+            [{"id": "1", "name": "monatlich"}, {"id": "2", "name": "quartal"}],
+        )
+        self.assertEqual(index.lookup("quartal", "Backup"), (dt.date(2026, 10, 1), None))
+        self.assertIsNone(index.lookup("woanders", "Backup"))
+
+
 def _options(**overrides) -> argparse.Namespace:
     base = dict(inbox_name="Inbox", strip_labels=False, invert_priority=False,
                 bare_year="current", recurring_due="next", import_project=None,
-                no_import_project=False, split=False)
+                no_import_project=False, split=False, todoist_token=None)
     base.update(overrides)
     return argparse.Namespace(**base)
 
@@ -1062,19 +1265,48 @@ class ConversionTest(unittest.TestCase):
         self.assertEqual(task["title"], "Fenster ölen")
         self.assertIn("@Haus", task["notes"])
 
-    def test_inbox_rows_sit_in_the_staging_project_not_the_devices_inbox(self):
+    def test_the_inbox_arrives_as_a_project_of_its_own(self):
         inbox = os.path.join(self.dir, "Inbox [6Crg8jQ8644Gg3r6].csv")
         with open(inbox, "w", encoding="utf-8") as handle:
             handle.write(SAMPLE)
         document, _ = convert([inbox], _options(),
                               dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF)
-        task = next(t for t in document["tasks"] if t["title"].startswith("Fenster"))
-        self.assertEqual(task["projectId"], document["projects"][0]["id"])
 
+        # Dropping these into the staging project itself left no "Inbox" to open — the tasks
+        # were there and looked like the pile's own.
+        staging, project = document["projects"][0], document["projects"][1]
+        self.assertEqual(project["name"], "Inbox")
+        self.assertEqual(project["parentId"], staging["id"])
+        task = next(t for t in document["tasks"] if t["title"].startswith("Fenster"))
+        self.assertEqual(task["projectId"], project["id"])
+
+    def test_without_a_staging_project_the_inbox_is_the_inbox(self):
+        inbox = os.path.join(self.dir, "Inbox [6Crg8jQ8644Gg3r6].csv")
+        with open(inbox, "w", encoding="utf-8") as handle:
+            handle.write(SAMPLE)
         flat, _ = convert([inbox], _options(no_import_project=True),
                           dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF)
         loose = next(t for t in flat["tasks"] if t["title"].startswith("Fenster"))
         self.assertIsNone(loose["projectId"])
+
+    def test_the_api_supplies_the_date_the_export_left_out(self):
+        # What the CSV says is "jährlich" and nothing more; Todoist knows it is due 23 December.
+        api_tasks = [{
+            "content": "Fenster ölen",
+            "project_id": "220474322",
+            "due": {"date": "2026-12-23", "string": "jährlich", "is_recurring": True},
+        }]
+        index = build_due_index(api_tasks, [{"id": "220474322", "name": "wohnung"}])
+        document, stats = convert([self.path], _options(),
+                                  dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF,
+                                  due_index=index)
+
+        task = next(t for t in document["tasks"] if t["title"].startswith("Fenster"))
+        self.assertEqual(task["dueDate"], "2026-12-23")
+        self.assertEqual(task["recurrence"]["unit"], "YEAR")   # the rule still comes from the CSV
+        self.assertEqual(stats.exact, 1)
+        # A task the API did not answer for keeps what the CSV implied.
+        self.assertEqual(self.task("reinigen")["dueDate"], "2026-07-19")
 
     def test_ids_are_uuids_and_stable_across_runs(self):
         again, _ = convert([self.path], _options(),
