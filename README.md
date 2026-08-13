@@ -113,6 +113,21 @@ Completing a recurring task keeps the finished instance where it is and inserts 
 "Keep missed instances" decides whether a skipped occurrence stays overdue or the series catches
 up to today.
 
+## Coming from Todoist
+
+Export your Todoist data (Settings → Backup → one CSV per project), then convert the whole
+folder into a backup file the app imports under Settings → Backup:
+
+```bash
+python3 tools/todoist_import.py ~/Downloads/"Todoist backup 2026-08-12 2248 UTC"
+```
+
+Projects, sections (as subprojects), subtasks, comments, priorities, due dates, deadlines and
+repeat phrases in German and English all come across — `every! 3 months` included, as an "after
+I finish" rule. Importing merges, and the converter derives its ids from the export, so
+re-running it later updates the tasks it already imported instead of duplicating them.
+[`tools/README.md`](tools/README.md) has the full mapping table and the flags.
+
 ## Building locally
 
 ```bash

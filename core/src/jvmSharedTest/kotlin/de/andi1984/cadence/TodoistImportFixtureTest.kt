@@ -1,0 +1,181 @@
+package de.andi1984.cadence
+
+import de.andi1984.cadence.domain.backup.BackupCodec
+import de.andi1984.cadence.domain.backup.BackupReadResult
+import de.andi1984.cadence.domain.model.Priority
+import de.andi1984.cadence.domain.model.RecurrenceMode
+import de.andi1984.cadence.domain.model.RecurrenceUnit
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.time.DayOfWeek
+import java.time.LocalDate
+
+/**
+ * `tools/todoist_import.py` writes this shape, and the app has to keep reading it.
+ *
+ * The fixture is a trimmed copy of that script's output — same keys, same date and instant
+ * formats, same "a section is a subproject" and "INDENT 2 is a subtask" decisions. Nothing here
+ * exercises the script itself (it has its own tests, `--self-test`); what it guards is the other
+ * half of the contract: that a change to [BackupCodec] cannot quietly stop the converter's files
+ * from importing.
+ */
+class TodoistImportFixtureTest {
+
+    private val fixture = """
+        {
+          "format": "cadence.backup",
+          "version": 2,
+          "exportedAt": "2026-08-13T20:05:11.382000Z",
+          "projects": [
+            {
+              "id": "cf0bf792-ffb2-5bc9-97d9-8b5ba5085ed3",
+              "name": "wohnung",
+              "colorHex": "#3E6373",
+              "parentId": null,
+              "sortOrder": 0,
+              "updatedAt": "2026-08-13T20:05:11.382000Z",
+              "deletedAt": null
+            },
+            {
+              "id": "6f0f9bd0-2a1f-5a4f-9a6c-6b4f1f6d7a11",
+              "name": "Ofen",
+              "colorHex": "#3E6373",
+              "parentId": "cf0bf792-ffb2-5bc9-97d9-8b5ba5085ed3",
+              "sortOrder": 1,
+              "updatedAt": "2026-08-13T20:05:11.382000Z",
+              "deletedAt": null
+            }
+          ],
+          "tasks": [
+            {
+              "id": "43ad82ed-339f-5fe2-9bee-53f9e58d6bb2",
+              "title": "Bad putzen",
+              "notes": "2018-06-08 · Ballistol benutzt\n\nDeadline: 2027-01-19",
+              "priority": 2,
+              "projectId": "cf0bf792-ffb2-5bc9-97d9-8b5ba5085ed3",
+              "parentId": null,
+              "spawnedFromId": null,
+              "dueDate": "2026-08-13",
+              "dueTime": "09:30",
+              "reminderTime": null,
+              "completedAt": null,
+              "createdAt": "2026-08-13T20:05:11.382000Z",
+              "sortOrder": 0,
+              "recurrence": {
+                "mode": "SCHEDULE",
+                "interval": 1,
+                "unit": "WEEK",
+                "daysOfWeek": ["THURSDAY"],
+                "monthlyMode": "DAY_OF_MONTH",
+                "dayOfMonth": null,
+                "nthWeek": null,
+                "nthDayOfWeek": null,
+                "keepMissed": true
+              },
+              "updatedAt": "2026-08-13T20:05:11.382000Z",
+              "deletedAt": null
+            },
+            {
+              "id": "9be9fec3-25f7-5562-bb32-dc6eca7ff366",
+              "title": "Fliesen",
+              "notes": null,
+              "priority": 4,
+              "projectId": "cf0bf792-ffb2-5bc9-97d9-8b5ba5085ed3",
+              "parentId": "43ad82ed-339f-5fe2-9bee-53f9e58d6bb2",
+              "spawnedFromId": null,
+              "dueDate": null,
+              "dueTime": null,
+              "reminderTime": null,
+              "completedAt": null,
+              "createdAt": "2026-08-13T20:05:11.382000Z",
+              "sortOrder": 1,
+              "recurrence": null,
+              "updatedAt": "2026-08-13T20:05:11.382000Z",
+              "deletedAt": null
+            },
+            {
+              "id": "047ee48f-9582-5a08-814a-138e349a9930",
+              "title": "reinigen",
+              "notes": null,
+              "priority": 4,
+              "projectId": "6f0f9bd0-2a1f-5a4f-9a6c-6b4f1f6d7a11",
+              "parentId": null,
+              "spawnedFromId": null,
+              "dueDate": "2026-08-13",
+              "dueTime": null,
+              "reminderTime": null,
+              "completedAt": null,
+              "createdAt": "2026-08-13T20:05:11.382000Z",
+              "sortOrder": 2,
+              "recurrence": {
+                "mode": "AFTER_COMPLETION",
+                "interval": 1,
+                "unit": "YEAR",
+                "daysOfWeek": [],
+                "monthlyMode": "DAY_OF_MONTH",
+                "dayOfMonth": null,
+                "nthWeek": null,
+                "nthDayOfWeek": null,
+                "keepMissed": true
+              },
+              "updatedAt": "2026-08-13T20:05:11.382000Z",
+              "deletedAt": null
+            }
+          ]
+        }
+    """.trimIndent()
+
+    private val snapshot = (BackupCodec.decode(fixture) as BackupReadResult.Ok).snapshot
+
+    @Test
+    fun `a converted export is a readable backup`() {
+        assertTrue(BackupCodec.decode(fixture) is BackupReadResult.Ok)
+        assertEquals(2, snapshot.projects.size)
+        assertEquals(3, snapshot.tasks.size)
+    }
+
+    @Test
+    fun `a Todoist section arrives as a subproject`() {
+        val root = snapshot.projects.first { it.name == "wohnung" }
+        val section = snapshot.projects.first { it.name == "Ofen" }
+        assertEquals(root.id, section.parentId)
+        assertEquals("Ofen", snapshot.projects.first { it.id == section.id }.name)
+    }
+
+    @Test
+    fun `an indented Todoist task arrives as a subtask of the row above it`() {
+        val parent = snapshot.tasks.first { it.title == "Bad putzen" }
+        val child = snapshot.tasks.first { it.title == "Fliesen" }
+        assertEquals(parent.id, child.parentId)
+        // A parent and its steps share a project — the converter files them together so the
+        // repository's "moveToProject moves both" invariant starts out satisfied.
+        assertEquals(parent.projectId, child.projectId)
+    }
+
+    @Test
+    fun `a repeat phrase arrives as a recurrence rule with its next date`() {
+        val weekly = snapshot.tasks.first { it.title == "Bad putzen" }.recurrence!!
+        assertEquals(RecurrenceUnit.WEEK, weekly.unit)
+        assertEquals(setOf(DayOfWeek.THURSDAY), weekly.daysOfWeek)
+        assertEquals(LocalDate.of(2026, 8, 13), snapshot.tasks.first { it.title == "Bad putzen" }.dueDate)
+
+        // Todoist's "every! 1 year" is the one phrase a calendar rule cannot express.
+        val afterCompletion = snapshot.tasks.first { it.title == "reinigen" }.recurrence!!
+        assertEquals(RecurrenceMode.AFTER_COMPLETION, afterCompletion.mode)
+        assertEquals(RecurrenceUnit.YEAR, afterCompletion.unit)
+    }
+
+    @Test
+    fun `priority, notes and the absent fields survive the trip`() {
+        val task = snapshot.tasks.first { it.title == "Bad putzen" }
+        assertEquals(Priority.P2, task.priority)
+        val notes = task.notes!!
+        assertTrue(notes.contains("Ballistol"))
+        assertTrue(notes.contains("Deadline: 2027-01-19"))
+        assertNull(task.completedAt)
+        assertNull(task.deletedAt)
+        assertNull(snapshot.tasks.first { it.title == "Fliesen" }.notes)
+    }
+}
