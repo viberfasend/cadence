@@ -110,8 +110,9 @@ Two kinds of rule:
 - **After I finish** — the next due date is counted from the day you complete the task.
 
 Completing a recurring task keeps the finished instance where it is and inserts the next one.
-"Keep missed instances" decides whether a skipped occurrence stays overdue or the series catches
-up to today.
+By default a task completed while overdue catches its series up to the next future occurrence
+rather than handing back another overdue one; "Keep missed instances" turns that off so a skipped
+occurrence stays overdue instead.
 
 ## Coming from Todoist
 
