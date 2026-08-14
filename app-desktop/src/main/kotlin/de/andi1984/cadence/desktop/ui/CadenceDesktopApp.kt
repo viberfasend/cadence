@@ -33,6 +33,7 @@ import de.andi1984.cadence.ui.CadenceViewModel
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.SyncControls
 import de.andi1984.cadence.ui.components.SyncFailureSnackbar
+import de.andi1984.cadence.ui.components.UndoSnackbar
 import de.andi1984.cadence.ui.detail.TaskDetailScreen
 import de.andi1984.cadence.ui.inbox.InboxScreen
 import de.andi1984.cadence.ui.inbox.TriageScreen
@@ -127,6 +128,15 @@ fun CadenceDesktopApp(
 
     // Every failed round says so, wherever the user happens to be (ADR 0002, decision 14).
     SyncFailureSnackbar(failures = viewModel.syncFailures, hostState = snackbarHostState)
+
+    // A delete is held back for a few seconds while this banner is up; tapping Undo cancels
+    // the deferred write, so it costs no database transaction at all.
+    UndoSnackbar(
+        message = state.snackbarMessage,
+        hostState = snackbarHostState,
+        onUndo = viewModel::undo,
+        onDismiss = viewModel::dismissSnackbar,
+    )
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),

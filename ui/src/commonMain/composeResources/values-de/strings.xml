@@ -388,4 +388,17 @@
         <item quantity="one">vor %1$d Stunde</item>
         <item quantity="other">vor %1$d Stunden</item>
     </plurals>
+    <!-- ── Rückgängig ── -->
+    <!-- Eine zerstörerische Aktion wurde ausgeführt und kann für wenige Sekunden rückgängig gemacht werden. -->
+    <string name="undo_action">Rückgängig</string>
+    <!-- Die Zahl ist die Anzahl der Aufgaben/Projekte, die der Löschvorgang als Tombstone markiert. -->
+    <plurals name="undo_items_deleted">
+        <item quantity="one">1 Eintrag gelöscht</item>
+        <item quantity="other">%1$d Einträge gelöscht</item>
+    </plurals>
+    <!-- ── Snackbar ── -->
+    <!-- Hinweismeldungen; ohne Rückgängig-Aktion. -->
+    <string name="snackbar_error">Etwas ging schief: %1$s</string>
+    <string name="snackbar_subtask_invalid">Bitte gib einen gültigen Teilaufgaben-Titel ein</string>
+    <string name="snackbar_project_name_empty">Der Projektname darf nicht leer sein</string>
 </resources>

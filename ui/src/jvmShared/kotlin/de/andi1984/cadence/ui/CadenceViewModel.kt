@@ -18,6 +18,8 @@ import de.andi1984.cadence.domain.parse.ParsedQuickAdd
 import de.andi1984.cadence.ui.platform.BackupGateway
 import de.andi1984.cadence.ui.platform.BackupTarget
 import de.andi1984.cadence.ui.platform.ReminderScheduler
+import de.andi1984.cadence.ui.resources.Res
+import de.andi1984.cadence.ui.resources.*
 import de.andi1984.cadence.ui.settings.CadenceSettings
 import de.andi1984.cadence.ui.settings.Density
 import de.andi1984.cadence.ui.settings.SignInError
@@ -27,6 +29,7 @@ import de.andi1984.cadence.ui.settings.SortMode
 import de.andi1984.cadence.ui.settings.ThemeChoice
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
@@ -39,22 +42,63 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.StringResource
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
 
-/** Represents an action that can be undone. */
+/**
+ * A destructive action the user just took, held back from the database for [CadenceViewModel.UNDO_WINDOW]
+ * so an undo costs no write at all — it only cancels the deferred job that would have committed it.
+ */
 sealed class UndoAction {
-    data class DeleteTask(val task: Task, val subtasks: List<Task>) : UndoAction()
-    data class DeleteProject(val project: Project, val tasks: List<Task>) : UndoAction()
+    /** Deleting a task tombstones it and its subtasks together. */
+    data class DeleteTask(val task: Task, val subtasks: List<Task>) : UndoAction() {
+        /** Every id the commit will tombstone — the row and its steps. */
+        val ids: Set<String> = setOf(task.id) + subtasks.map { it.id }
+    }
+
+    /** Deleting a project tombstones it and (optionally) its subprojects and tasks. */
+    data class DeleteProject(
+        val project: Project,
+        val tasks: List<Task>,
+        val deleteTasks: Boolean,
+    ) : UndoAction() {
+        /** Every id the commit will tombstone. Tasks are only included when [deleteTasks] is
+         *  set, the same way [CadenceRepository.deleteProject] only tombstones them then. */
+        val ids: Set<String> =
+            if (deleteTasks) setOf(project.id) + tasks.map { it.id } else setOf(project.id)
+    }
 }
 
-/** Snackbar message with optional undo action. */
-data class SnackbarMessage(
-    val text: String,
-    val undoAction: UndoAction? = null,
-    val duration: Long = 5000L, // Default 5 seconds
-)
+/**
+ * A message the shell raises as a snackbar.
+ *
+ * The text is a resource rather than ready-made prose, so no user-visible string lives in Kotlin
+ * (the project rule). When [undoAction] is set the snackbar shows a **Undo** action button; the
+ * action is otherwise informational.
+ */
+sealed class SnackbarMessage {
+    /** A plain string resource, with optional format args. */
+    data class Text(
+        val text: StringResource,
+        val args: List<Any> = emptyList(),
+        val undoAction: UndoAction? = null,
+    ) : SnackbarMessage()
+
+    /** A plural resource resolved against [count], with optional further format args. */
+    data class Counted(
+        val plural: org.jetbrains.compose.resources.PluralStringResource,
+        val count: Int,
+        val args: List<Any> = emptyList(),
+        val undoAction: UndoAction? = null,
+    ) : SnackbarMessage()
+
+    val undoAction: UndoAction? get() = when (this) {
+        is Text -> undoAction
+        is Counted -> undoAction
+    }
+}
 
 /** A row in a task list — a root task, or a subtask shown inline beneath an expanded one. */
 data class TaskListRow(val task: Task, val isSubtaskRow: Boolean)
@@ -69,8 +113,19 @@ data class CadenceUiState(
     val sync: SyncUiState = SyncUiState(),
     /** Current snackbar message to display, if any. */
     val snackbarMessage: SnackbarMessage? = null,
+    /**
+     * Ids of tasks and projects whose destructive write is held back while an undo is on offer.
+     *
+     * The rows are filtered out of every list below the moment one lands here — so the user
+     * sees the item disappear immediately — even though no database transaction has happened
+     * yet. Undo clears the set, and the rows reappear straight from the flow that was feeding
+     * them all along.
+     */
+    val pendingDeleteIds: Set<String> = emptySet(),
 ) {
-    fun project(id: String?): Project? = id?.let { projectId -> projects.firstOrNull { it.id == projectId } }
+    fun project(id: String?): Project? = id?.let { projectId ->
+        projects.firstOrNull { it.id == projectId }
+    }
 
     /** "Home / Finance" for a task's project, or null for Inbox items. */
     fun projectLabel(task: Task): String? = projectPath(project(task.projectId), projects)
@@ -145,7 +200,7 @@ data class CadenceUiState(
      */
     fun nestingCandidates(exclude: Project?): List<Project> {
         if (exclude == null) return projects.filter { it.parentId == null }
-        
+
         // Find all descendants of the excluded project
         val descendants = mutableSetOf<String>()
         var current = listOf(exclude)
@@ -154,10 +209,10 @@ data class CadenceUiState(
             descendants.addAll(childIds)
             current = projects.filter { it.parentId in childIds }
         }
-        
+
         // Return root projects that are not the excluded project or its descendants
-        return projects.filter { 
-            it.parentId == null && it.id != exclude.id && it.id !in descendants 
+        return projects.filter {
+            it.parentId == null && it.id != exclude.id && it.id !in descendants
         }
     }
 
@@ -195,6 +250,19 @@ class CadenceViewModel(
     private val backupOutcome = MutableStateFlow<BackupOutcome?>(null)
     private val snackbarMessage = MutableStateFlow<SnackbarMessage?>(null)
 
+    /**
+     * Ids of tasks/projects whose delete is held back while an undo is on the table.
+     *
+     * The deferred [commitPendingDelete] job sits in [pendingDeleteJob]; cancelling it on an
+     * undo is the whole transaction — nothing is written, nothing is tombstoned, and the rows
+     * the flow was already emitting simply stop being filtered out.
+     */
+    private val pendingDeleteIds = MutableStateFlow<Set<String>>(emptySet())
+    private var pendingDeleteJob: Job? = null
+    /** The action [pendingDeleteJob] will commit when its window elapses, captured so a second
+     *  delete can commit it out of band rather than leave its rows filtered forever. */
+    private var pendingDeleteAction: UndoAction? = null
+
     /** What a sign-in attempt is doing, folded together with the engine's own status — the
      *  screen wants one value, and `combine` takes five flows at most. */
     private val signInState = MutableStateFlow(SyncUiState())
@@ -204,26 +272,40 @@ class CadenceViewModel(
         signInState,
     ) { status, attempt -> attempt.copy(status = status) }
 
-    /** Paired so the state combine stays inside `combine`'s five-flow overload. */
-    private val backupAndSnackbar = combine(
+    /** Tripled so the state combine stays inside `combine`'s five-flow overload — the
+     *  attachments feature will want a sixth, the same way pairing did before it. */
+    private data class Transient(
+        val backup: BackupOutcome?,
+        val pendingDelete: Set<String>,
+        val snackbar: SnackbarMessage?,
+    )
+
+    private val transient = combine(
         backupOutcome,
+        pendingDeleteIds,
         snackbarMessage,
-    ) { backup, snackMessage -> backup to snackMessage }
+    ) { backup, pending, snackMessage ->
+        Transient(backup, pending, snackMessage)
+    }
 
     val state: StateFlow<CadenceUiState> = combine(
         repository.tasks,
         repository.projects,
         settingsStore.state,
         syncState,
-        backupAndSnackbar,
-    ) { tasks, projects, settings, sync, (backup, snackMessage) ->
+        transient,
+    ) { tasks, projects, settings, sync, t ->
         CadenceUiState(
-            tasks = tasks,
-            projects = projects,
+            // Pending-deletes are hidden here, at the source, so every list and every direct
+            // read of `state.tasks` drops them at once — the delete is not in the database yet,
+            // and an undo simply clears the set and lets the flow re-emit the rows.
+            tasks = if (t.pendingDelete.isEmpty()) tasks else tasks.filter { it.id !in t.pendingDelete },
+            projects = if (t.pendingDelete.isEmpty()) projects else projects.filter { it.id !in t.pendingDelete },
+            pendingDeleteIds = t.pendingDelete,
             settings = settings,
-            backupOutcome = backup,
+            backupOutcome = t.backup,
             sync = sync,
-            snackbarMessage = snackMessage,
+            snackbarMessage = t.snackbar,
         )
     }.stateIn(
         scope = scope,
@@ -263,7 +345,7 @@ class CadenceViewModel(
         }
     }
 
-    // ── Tasks ──────────────────────────────────────────────────────────────────────
+    // ── Tasks ────────────────────────────────────────────────────────────────────────
 
     fun toggleTask(task: Task) = scope.launch {
         // Reopening a recurring task takes the occurrence its completion inserted back out, and
@@ -278,25 +360,20 @@ class CadenceViewModel(
         armSync()
     }
 
+    /**
+     * Deletes a task — *deferred*.
+     *
+     * The row and its subtasks vanish from every list at once (they land in
+     * [CadenceUiState.pendingDeleteIds]), but the actual tombstone write is held back for
+     * [UNDO_WINDOW]: an undo in that window only cancels the pending job, so it costs no database
+     * transaction at all. Only when the window elapses does [commitPendingDelete] run the real
+     * delete and arm sync.
+     */
     fun deleteTask(task: Task) = scope.launch {
         val subtasks = state.value.subtasks(task.id)
-        
-        // Cancel reminders for the task and its subtasks
-        subtasks.forEach { reminderScheduler.cancel(it.id) }
-        reminderScheduler.cancel(task.id)
-        
-        // Store for potential undo
-        val deletedTask = task
-        val deletedSubtasks = subtasks
-        
-        // Perform deletion
-        repository.deleteTask(task.id)
-        armSync()
-        
-        // Show snackbar with undo option
-        showSnackbar(
-            text = "Task and ${subtasks.size} subtask(s) deleted",
-            undoAction = UndoAction.DeleteTask(deletedTask, deletedSubtasks)
+        offerUndo(
+            UndoAction.DeleteTask(task, subtasks),
+            count = 1 + subtasks.size,
         )
     }
 
@@ -308,10 +385,10 @@ class CadenceViewModel(
                 armSync()
             }
             is RepositoryResult.Error -> {
-                showSnackbar(result.message)
+                showSnackbar(Res.string.snackbar_error, listOf(result.message))
             }
             RepositoryResult.ValidationError -> {
-                showSnackbar("Please enter a valid subtask title")
+                showSnackbar(Res.string.snackbar_subtask_invalid)
             }
         }
     }
@@ -361,87 +438,82 @@ class CadenceViewModel(
             armSync()
         }
 
-    // ── Projects ───────────────────────────────────────────────────────────────────
+    // ── Projects ─────────────────────────────────────────────────────────────────────
 
     fun addProject(name: String, colorHex: String, parentId: String?) = scope.launch {
         if (name.isBlank()) {
-            showSnackbar("Project name cannot be empty")
+            showSnackbar(Res.string.snackbar_project_name_empty)
             return@launch
         }
-        
+
         val order = state.value.projects.count { it.parentId == parentId }
         val project = Project(name = name.trim(), colorHex = colorHex, parentId = parentId, sortOrder = order)
-        
+
         when (val result = repository.upsertProject(project)) {
             is RepositoryResult.Success -> {
                 // Success - project was created
                 armSync()
             }
             is RepositoryResult.Error -> {
-                showSnackbar(result.message)
+                showSnackbar(Res.string.snackbar_error, listOf(result.message))
             }
             RepositoryResult.ValidationError -> {
-                showSnackbar("Please enter a valid project name")
+                showSnackbar(Res.string.snackbar_project_name_empty)
             }
         }
     }
 
     fun editProject(project: Project, name: String, colorHex: String, parentId: String?) = scope.launch {
         if (name.isBlank()) {
-            showSnackbar("Project name cannot be empty")
+            showSnackbar(Res.string.snackbar_project_name_empty)
             return@launch
         }
-        
+
         val moved = parentId != project.parentId
         val order = if (moved) {
             state.value.projects.count { it.parentId == parentId && it.id != project.id }
         } else {
             project.sortOrder
         }
-        
+
         val updatedProject = project.copy(
-            name = name.trim(), 
-            colorHex = colorHex, 
+            name = name.trim(),
+            colorHex = colorHex,
             parentId = parentId,
             sortOrder = order
         )
-        
+
         when (val result = repository.upsertProject(updatedProject)) {
             is RepositoryResult.Success -> {
                 // Success - project was updated
                 armSync()
             }
             is RepositoryResult.Error -> {
-                showSnackbar(result.message)
+                showSnackbar(Res.string.snackbar_error, listOf(result.message))
             }
             RepositoryResult.ValidationError -> {
-                showSnackbar("Please enter a valid project name")
+                showSnackbar(Res.string.snackbar_project_name_empty)
             }
         }
     }
 
+    /**
+     * Deletes a project — *deferred*, exactly like [deleteTask].
+     *
+     * Tasks that will follow the project into the tombstone (when [deleteTasks] is set) are hidden
+     * too; tasks that would fall back to the Inbox are left in place, because they are not being
+     * deleted. The deferred commit runs the real [CadenceRepository.deleteProject] only if the
+     * undo window elapses.
+     */
     fun deleteProject(project: Project, deleteTasks: Boolean = false) = scope.launch {
-        val tasksInProject = state.value.tasksIn(project.id)
-        
-        // Cancel reminders for all tasks in the project
-        tasksInProject.forEach { reminderScheduler.cancel(it.id) }
-        
-        // Store for potential undo
-        val deletedProject = project
-        val deletedTasks = tasksInProject
-        
-        // Perform deletion
-        repository.deleteProject(project.id, deleteTasks)
-        armSync()
-        
-        // Show snackbar with undo option
-        showSnackbar(
-            text = "Project and ${tasksInProject.size} task(s) deleted",
-            undoAction = UndoAction.DeleteProject(deletedProject, deletedTasks)
+        val tasksInProject = if (deleteTasks) state.value.tasksIn(project.id) else emptyList()
+        offerUndo(
+            UndoAction.DeleteProject(project, tasksInProject, deleteTasks),
+            count = if (deleteTasks) 1 + tasksInProject.size else 1,
         )
     }
 
-    // ── Settings ───────────────────────────────────────────────────────────────────
+    // ── Settings ─────────────────────────────────────────────────────────────────────
 
     fun setSortMode(mode: SortMode) = settingsStore.setSortMode(mode)
 
@@ -453,7 +525,7 @@ class CadenceViewModel(
 
     fun setRemindersEnabled(enabled: Boolean) = settingsStore.setRemindersEnabled(enabled)
 
-    // ── Backup ─────────────────────────────────────────────────────────────────────
+    // ── Backup ───────────────────────────────────────────────────────────────────────
 
     fun exportBackup(target: BackupTarget) = scope.launch {
         backupOutcome.value = backupGateway.export(target)
@@ -491,7 +563,7 @@ class CadenceViewModel(
         backupOutcome.value = null
     }
 
-    // ── Sync ───────────────────────────────────────────────────────────────────────
+    // ── Sync ─────────────────────────────────────────────────────────────────────────
 
     /** Signs in and immediately syncs: the point of signing in is the data, and making the user
      *  press a second button to get it would be asking them to finish the job by hand. */
@@ -544,58 +616,86 @@ class CadenceViewModel(
         signInState.value = SyncUiState()
     }
 
-    /** Show a snackbar message with optional undo action. */
-    fun showSnackbar(text: String, undoAction: UndoAction? = null, duration: Long = 5000L) {
-        snackbarMessage.value = SnackbarMessage(text, undoAction, duration)
-        
-        // Auto-dismiss after duration if no undo action
-        if (undoAction == null) {
-            scope.launch {
-                delay(duration)
-                dismissSnackbar()
-            }
+    // ── Undo ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Offers an undo for [action]: hides its rows at once, shows the snackbar with a **Undo**
+     * button, and arms [commitPendingDelete] to run the real write after [UNDO_WINDOW].
+     *
+     * A second delete while one is already pending commits the first one immediately rather than
+     * racing two deferred jobs against the same data — the user moved on, so the previous delete
+     * is settled.
+     */
+    private fun offerUndo(action: UndoAction, count: Int) {
+        // Commit anything still pending before starting a new one: cancel its timer and run the
+        // write out of band, so its rows are truly gone rather than left filtered forever.
+        val prior = pendingDeleteAction
+        pendingDeleteJob?.cancel()
+        if (prior != null) {
+            scope.launch { commitPendingDelete(prior) }
+        }
+
+        pendingDeleteAction = action
+        pendingDeleteIds.value = pendingDeleteIds.value + action.ids
+        snackbarMessage.value = SnackbarMessage.Counted(
+            plural = Res.plurals.undo_items_deleted,
+            count = count,
+            args = listOf(count),
+            undoAction = action,
+        )
+        pendingDeleteJob = scope.launch {
+            delay(UNDO_WINDOW.toMillis())
+            commitPendingDelete(action)
         }
     }
 
-    /** Dismiss the current snackbar message. */
+    /**
+     * Runs the real destructive write the undo window was holding back, then arms sync and
+     * clears the pending set so the rows stay hidden (the tombstone the write just made keeps
+     * them out of the flow on its own; clearing here is what drops the filter once they are).
+     */
+    private suspend fun commitPendingDelete(action: UndoAction) {
+        if (pendingDeleteAction === action) pendingDeleteAction = null
+        when (action) {
+            is UndoAction.DeleteTask -> {
+                action.subtasks.forEach { reminderScheduler.cancel(it.id) }
+                reminderScheduler.cancel(action.task.id)
+                repository.deleteTask(action.task.id)
+            }
+            is UndoAction.DeleteProject -> {
+                action.tasks.forEach { reminderScheduler.cancel(it.id) }
+                repository.deleteProject(action.project.id, action.deleteTasks)
+            }
+        }
+        armSync()
+        pendingDeleteIds.value = pendingDeleteIds.value - action.ids
+        if (snackbarMessage.value?.undoAction === action) {
+            snackbarMessage.value = null
+        }
+    }
+
+    /**
+     * Undo. Cancels the deferred delete job and clears the pending ids — the rows were never
+     * written, so they reappear from the flow that was feeding them, and there is no database
+     * transaction at all. This is the whole point of offsetting the write by the undo window.
+     */
+    fun undo() {
+        pendingDeleteJob?.cancel()
+        pendingDeleteJob = null
+        pendingDeleteAction = null
+        pendingDeleteIds.value = emptySet()
+        snackbarMessage.value = null
+    }
+
+    /** Dismiss the current snackbar. Committing a pending delete is left to its own timer —
+     *  dismissing the banner does not rush the write, it only stops showing it. */
     fun dismissSnackbar() {
         snackbarMessage.value = null
     }
 
-    /** Handle undo action from snackbar. */
-    fun handleUndo() = scope.launch {
-        val currentMessage = snackbarMessage.value ?: return@launch
-        val undoAction = currentMessage.undoAction ?: return@launch
-        
-        when (undoAction) {
-            is UndoAction.DeleteTask -> {
-                // Restore the task and its subtasks
-                repository.upsertTask(undoAction.task)
-                undoAction.subtasks.forEach { subtask ->
-                    repository.upsertTask(subtask)
-                }
-                
-                // Restore reminders
-                reminderScheduler.sync(listOf(undoAction.task) + undoAction.subtasks)
-            }
-            is UndoAction.DeleteProject -> {
-                // Restore the project
-                repository.upsertProject(undoAction.project)
-                
-                // Restore all tasks that were in the project
-                undoAction.tasks.forEach { task ->
-                    repository.upsertTask(task)
-                }
-                
-                // Restore reminders
-                reminderScheduler.sync(undoAction.tasks)
-            }
-        }
-        armSync()
-        
-        // Auto-dismiss the snackbar after undo
-        delay(1000) // Give time for the restore to complete
-        dismissSnackbar()
+    /** Show an informational snackbar with no undo action. */
+    fun showSnackbar(text: StringResource, args: List<Any> = emptyList()) {
+        snackbarMessage.value = SnackbarMessage.Text(text = text, args = args)
     }
 
     /** Stops everything this ViewModel started. The shell calls it when the screen it belongs
@@ -608,5 +708,15 @@ class CadenceViewModel(
         /** Long enough that a burst of edits is one round, short enough that the other device
          *  has the change while the user is still looking at this one (ADR 0002, decision 11). */
         val WRITE_DEBOUNCE: Duration = Duration.ofSeconds(2)
+
+        /**
+         * How long an undo is offered before the destructive write actually happens.
+         *
+         * The whole idea: a delete does not reach the database until this window elapses, so an
+         * undo within it costs no transaction at all — it only cancels the deferred job. Long
+         * enough to read the snackbar and tap, short enough that the delete is not left hanging
+         * if the user walks away.
+         */
+        val UNDO_WINDOW: Duration = Duration.ofSeconds(5)
     }
 }
