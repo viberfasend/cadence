@@ -297,6 +297,15 @@ than reaching for `!!`.
   no project answers to and disappear from every list. The repository returns the ids of the
   tasks it deleted so the ViewModel can cancel their alarms — `ReminderScheduler.sync` only ever
   sees the tasks that still exist, so it cannot cancel one that is already gone.
+- **The danger zone is the only wipe, and it is still a tombstone.** Settings → Danger zone →
+  *Delete all data* runs `CadenceRepository.deleteEverything()`, which stamps `deletedAt` on every
+  task and every project (`taskRow.tombstoneAll`, `projectRow.tombstoneAllRows`) rather than
+  dropping rows — a `DELETE` would leave the other device with rows it has never seen deleted, and
+  the next pull would hand the whole list back. Three gates, deliberately: the button, a dialog
+  naming both counts, and the ordinary `UNDO_WINDOW` the write is deferred by, so the snackbar's
+  **Undo** still catches it. Tasks are wiped before projects and the two are separate statements —
+  a process killed between them leaves empty projects, never orphaned tasks — and both halves are
+  idempotent, so running it again finishes the job.
 - **Projects nest exactly one level**, which the editor enforces rather than the model:
   `CadenceUiState.nestingCandidates` returns nothing for a project that already has subprojects,
   and the "Nest under" section is then left out of the dialog.
@@ -314,7 +323,8 @@ than reaching for `!!`.
   in unit tests). Importing **merges** via `BackupStore.mergeAll` in one transaction — it used to
   replace both tables, which is why importing was a data-loss event. Ids come straight from the
   file and task→project links need no remapping; tasks referencing a project the file lacks fall
-  back to the Inbox. There is no operation anywhere that empties the database any more. One rule
+  back to the Inbox. No write empties the database as a side effect any more — the one operation
+  that empties it is the Settings **danger zone**, which the user asks for outright. One rule
   decides every record: greater `updatedAt` wins, ties keep what is stored, and a tombstone
   competes on its timestamp like any other version rather than being special-cased — a v1 file,
   whose rows decode to `Instant.EPOCH`, therefore loses every conflict. **Importing has exactly

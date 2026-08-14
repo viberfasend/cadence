@@ -357,6 +357,15 @@
     <string name="backup_error_not_a_backup">That file is not a Cadence backup.</string>
     <string name="backup_error_newer_version">That backup was written by a newer version of Cadence.</string>
 
+    <!-- ── Danger zone ─────────────────────────────────────────────────────────────── -->
+    <string name="settings_danger_zone">Danger zone</string>
+    <string name="settings_wipe">Delete all data</string>
+    <string name="settings_wipe_supporting">Deletes every task and every project on this device. Signed in, the deletion travels: your other devices empty too, on their next sync. Export a backup first if you might want any of it back.</string>
+    <string name="settings_wipe_confirm_title">Delete everything?</string>
+    <!-- %1$s is a task count and %2$s a project count, e.g. "42 tasks" and "6 projects". -->
+    <string name="settings_wipe_confirm_text">%1$s and %2$s are deleted. Signed in, they are deleted on your other devices too. Undo is offered for a few seconds; after that only a backup file brings any of it back.</string>
+    <string name="settings_wipe_confirm_action">Delete everything</string>
+
     <!-- ── Sync ────────────────────────────────────────────────────────────────────── -->
     <string name="settings_sync">Sync</string>
     <string name="settings_sync_supporting">Signing in keeps this device and your others in step through your own Supabase project. Cadence works signed out, and nothing leaves the device until you sign in.</string>

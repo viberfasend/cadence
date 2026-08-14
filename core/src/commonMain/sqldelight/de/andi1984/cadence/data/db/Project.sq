@@ -99,6 +99,11 @@ tombstoneWithChildrenRows:
 UPDATE projectRow SET deletedAt = :at, updatedAt = :at
 WHERE (id = :id OR parentId = :id) AND deletedAt IS NULL;
 
+-- The Settings danger zone — see `taskRow.tombstoneAll`. Tasks are wiped by that statement, not
+-- by this one, so this never has to reason about which project a task was filed under.
+tombstoneAllRows:
+UPDATE projectRow SET deletedAt = :at, updatedAt = :at WHERE deletedAt IS NULL;
+
 -- Sync's two views, and the only ones that see tombstones.
 selectChangedSince:
 SELECT * FROM projectRow WHERE updatedAt > :since ORDER BY updatedAt;

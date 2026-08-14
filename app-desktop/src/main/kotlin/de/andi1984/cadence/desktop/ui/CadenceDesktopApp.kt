@@ -255,6 +255,7 @@ fun CadenceDesktopApp(
                         onSignIn = viewModel::signIn,
                         onSyncNow = { viewModel.syncNow() },
                         onSignOut = { viewModel.signOut() },
+                        onWipe = { viewModel.wipeEverything() },
                     )
 
                     Route.Triage -> TriageScreen(

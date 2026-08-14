@@ -84,6 +84,31 @@ class CadenceRepository(
         reclaim(hashes)
     }
 
+    /**
+     * Tombstones every task and every project — the Settings danger zone, and the only wipe the
+     * app has. Returns the ids of the tasks it tombstoned, so the caller can cancel their alarms;
+     * a reminder outlives the row it belongs to unless someone cancels it.
+     *
+     * Attachment rows and their blobs go first and explicitly, the same way [deleteTask] does it,
+     * rather than being left to a cascade the fakes do not model.
+     *
+     * Tasks are wiped before projects. The two are separate statements — nothing spans both
+     * stores in one transaction anywhere in this class — and a process killed between them leaves
+     * empty projects behind rather than tasks filed under projects that no longer answer, which
+     * is the failure the whole `deleteWithChildren` rule exists to avoid. Running the wipe again
+     * finishes the job: both halves are idempotent.
+     */
+    suspend fun deleteEverything(): List<String> {
+        val taskIds = taskStore.getAll().map { it.id }
+        val hashes = attachmentStore.hashesForTasks(taskIds)
+        attachmentStore.deleteForTasks(taskIds)
+        val at = now()
+        taskStore.tombstoneAll(at)
+        projectStore.tombstoneAll(at)
+        reclaim(hashes)
+        return taskIds
+    }
+
     suspend fun subtasksOf(parentId: String): List<Task> = taskStore.subtasksOf(parentId)
 
     /**

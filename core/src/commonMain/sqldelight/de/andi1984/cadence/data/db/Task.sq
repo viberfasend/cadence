@@ -135,6 +135,12 @@ tombstoneWithSubtasks:
 UPDATE taskRow SET deletedAt = :at, updatedAt = :at
 WHERE (id = :id OR parentId = :id) AND deletedAt IS NULL;
 
+-- The Settings danger zone: every task at once. Same tombstone as every other delete — a wipe
+-- has to travel to the other devices, or the next pull hands the whole list straight back.
+-- `deletedAt IS NULL` keeps it idempotent for the same reason `tombstoneWithSubtasks` has it.
+tombstoneAll:
+UPDATE taskRow SET deletedAt = :at, updatedAt = :at WHERE deletedAt IS NULL;
+
 -- Sync's two views, and the only ones that see tombstones.
 -- What to push: everything written since the last successful push, deletions included.
 selectChangedSince:
