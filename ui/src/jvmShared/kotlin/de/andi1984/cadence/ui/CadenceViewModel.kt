@@ -52,10 +52,13 @@ import java.time.LocalTime
  * so an undo costs no write at all — it only cancels the deferred job that would have committed it.
  */
 sealed class UndoAction {
+    /** Every id the commit will tombstone, so the pending set can hide exactly those rows. */
+    abstract val ids: Set<String>
+
     /** Deleting a task tombstones it and its subtasks together. */
     data class DeleteTask(val task: Task, val subtasks: List<Task>) : UndoAction() {
         /** Every id the commit will tombstone — the row and its steps. */
-        val ids: Set<String> = setOf(task.id) + subtasks.map { it.id }
+        override val ids: Set<String> = setOf(task.id) + subtasks.map { it.id }
     }
 
     /** Deleting a project tombstones it and (optionally) its subprojects and tasks. */
@@ -66,7 +69,7 @@ sealed class UndoAction {
     ) : UndoAction() {
         /** Every id the commit will tombstone. Tasks are only included when [deleteTasks] is
          *  set, the same way [CadenceRepository.deleteProject] only tombstones them then. */
-        val ids: Set<String> =
+        override val ids: Set<String> =
             if (deleteTasks) setOf(project.id) + tasks.map { it.id } else setOf(project.id)
     }
 }
@@ -79,11 +82,14 @@ sealed class UndoAction {
  * action is otherwise informational.
  */
 sealed class SnackbarMessage {
+    /** The delete this snackbar can undo, or null when the message is informational. */
+    abstract val undoAction: UndoAction?
+
     /** A plain string resource, with optional format args. */
     data class Text(
         val text: StringResource,
         val args: List<Any> = emptyList(),
-        val undoAction: UndoAction? = null,
+        override val undoAction: UndoAction? = null,
     ) : SnackbarMessage()
 
     /** A plural resource resolved against [count], with optional further format args. */
@@ -91,13 +97,8 @@ sealed class SnackbarMessage {
         val plural: org.jetbrains.compose.resources.PluralStringResource,
         val count: Int,
         val args: List<Any> = emptyList(),
-        val undoAction: UndoAction? = null,
+        override val undoAction: UndoAction? = null,
     ) : SnackbarMessage()
-
-    val undoAction: UndoAction? get() = when (this) {
-        is Text -> undoAction
-        is Counted -> undoAction
-    }
 }
 
 /** A row in a task list — a root task, or a subtask shown inline beneath an expanded one. */
