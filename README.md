@@ -69,6 +69,11 @@ backlog one card at a time so you can set importance in a single pass.
 **Task detail** — importance as a four-way segmented control, due date, reminder, recurrence
 and notes.
 
+**Danger zone** — Settings ends with *Delete all data*: every task and every project, gone in one
+step. It asks first, names how much it is about to take, and offers Undo for a few seconds
+afterwards. Signed in, the deletion reaches your other devices on their next sync, so export a
+backup first if you might want any of it back.
+
 **Quick add** — one line, parsed as you type:
 
 ```

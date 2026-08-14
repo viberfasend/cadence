@@ -342,6 +342,15 @@
     <string name="backup_error_not_a_backup">Diese Datei ist kein Cadence-Backup.</string>
     <string name="backup_error_newer_version">Dieses Backup stammt aus einer neueren Version von Cadence.</string>
 
+    <!-- ── Gefahrenzone ────────────────────────────────────────────────────────────── -->
+    <string name="settings_danger_zone">Gefahrenzone</string>
+    <string name="settings_wipe">Alle Daten löschen</string>
+    <string name="settings_wipe_supporting">Löscht alle Aufgaben und alle Projekte auf diesem Gerät. Angemeldet reist die Löschung mit: deine anderen Geräte leeren sich bei der nächsten Synchronisierung ebenfalls. Exportiere vorher ein Backup, falls du etwas davon zurückhaben willst.</string>
+    <string name="settings_wipe_confirm_title">Wirklich alles löschen?</string>
+    <!-- %1$s ist eine Aufgabenzahl, %2$s eine Projektzahl, z. B. „42 Aufgaben“ und „6 Projekte“. -->
+    <string name="settings_wipe_confirm_text">%1$s und %2$s werden gelöscht. Angemeldet werden sie auch auf deinen anderen Geräten gelöscht. Für ein paar Sekunden gibt es „Rückgängig“; danach hilft nur noch eine Backup-Datei.</string>
+    <string name="settings_wipe_confirm_action">Alles löschen</string>
+
     <!-- ── Synchronisation ─────────────────────────────────────────────────────────── -->
     <string name="settings_sync">Synchronisation</string>
     <string name="settings_sync_supporting">Nach der Anmeldung hält Cadence dieses Gerät über dein eigenes Supabase-Projekt mit deinen anderen im Gleichstand. Ohne Anmeldung funktioniert alles wie bisher, und nichts verlässt das Gerät.</string>

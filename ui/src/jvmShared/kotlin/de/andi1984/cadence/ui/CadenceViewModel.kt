@@ -72,6 +72,22 @@ sealed class UndoAction {
         override val ids: Set<String> =
             if (deleteTasks) setOf(project.id) + tasks.map { it.id } else setOf(project.id)
     }
+
+    /**
+     * The Settings danger zone: every task and every project at once.
+     *
+     * The ids are what the user saw on screen when they confirmed, held so the rows can be hidden
+     * for the undo window and un-hidden again by an undo. The commit itself wipes whatever is
+     * stored at the moment it runs, not this list — a row merged in from a pull during those few
+     * seconds goes too, which is what "delete everything" has to mean for the wipe to be the same
+     * on every device.
+     */
+    data class DeleteEverything(
+        val taskIds: List<String>,
+        val projectIds: List<String>,
+    ) : UndoAction() {
+        override val ids: Set<String> = (taskIds + projectIds).toSet()
+    }
 }
 
 /**
@@ -516,6 +532,28 @@ class CadenceViewModel(
 
     // ── Settings ─────────────────────────────────────────────────────────────────────
 
+    /**
+     * Deletes every task and every project — the Settings danger zone.
+     *
+     * Deferred like the other two deletes, so the same undo covers it: the lists empty at once
+     * and the write waits out [UNDO_WINDOW]. The confirmation dialog is what makes this
+     * deliberate; the undo window is what makes it survivable.
+     *
+     * A wipe is a delete like any other, so it travels: the tombstones push on the next round and
+     * the other devices empty too. That is the whole reason it cannot be a `DELETE`.
+     */
+    fun wipeEverything() = scope.launch {
+        val snapshot = state.value
+        if (snapshot.tasks.isEmpty() && snapshot.projects.isEmpty()) return@launch
+        offerUndo(
+            UndoAction.DeleteEverything(
+                taskIds = snapshot.tasks.map { it.id },
+                projectIds = snapshot.projects.map { it.id },
+            ),
+            count = snapshot.tasks.size + snapshot.projects.size,
+        )
+    }
+
     fun setSortMode(mode: SortMode) = settingsStore.setSortMode(mode)
 
     fun setTheme(theme: ThemeChoice) = settingsStore.setTheme(theme)
@@ -666,6 +704,12 @@ class CadenceViewModel(
             is UndoAction.DeleteProject -> {
                 action.tasks.forEach { reminderScheduler.cancel(it.id) }
                 repository.deleteProject(action.project.id, action.deleteTasks)
+            }
+            is UndoAction.DeleteEverything -> {
+                // The repository reports what it actually tombstoned, which is a superset of the
+                // ids captured when the dialog was confirmed: anything a pull merged in during
+                // the undo window goes too, and its alarm has to be cancelled with the rest.
+                repository.deleteEverything().forEach { reminderScheduler.cancel(it) }
             }
         }
         armSync()

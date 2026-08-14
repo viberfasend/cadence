@@ -97,6 +97,42 @@ class SqlDelightStoreTest {
         assertNull(taskStore.byId("t1"))
     }
 
+    /** The danger zone in SQL: the rows stay, stamped, so the wipe travels to the other devices
+     *  the way every other delete does. */
+    @Test
+    fun `tombstoneAll empties both tables without removing a row`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        val projectStore = SqlDelightProjectStore(database, Dispatchers.Unconfined)
+        projectStore.insert(Project(id = "p1", name = "Home", updatedAt = now))
+        taskStore.insert(Task(id = "t1", title = "Water the plants", projectId = "p1", createdAt = now, updatedAt = now))
+
+        taskStore.tombstoneAll(now)
+        projectStore.tombstoneAll(now)
+
+        assertTrue(taskStore.getAll().isEmpty())
+        assertTrue(projectStore.getAll().isEmpty())
+        assertEquals(now.toEpochMilli(), database.taskQueries.selectAllIncludingDeleted().executeAsOne().deletedAt)
+        assertEquals(now.toEpochMilli(), database.projectQueries.selectAllIncludingDeleted().executeAsOne().deletedAt)
+    }
+
+    /** Idempotent, like every other tombstone here: a second wipe must not restamp what the first
+     *  one already deleted, or it would win a merge it has no business winning. */
+    @Test
+    fun `tombstoneAll leaves an existing tombstone's timestamp alone`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        taskStore.insert(Task(id = "t1", title = "Water the plants", createdAt = now, updatedAt = now))
+
+        taskStore.tombstoneAll(now)
+        taskStore.tombstoneAll(now.plusSeconds(60))
+
+        assertEquals(
+            now.toEpochMilli(),
+            database.taskQueries.selectAllIncludingDeleted().executeAsOne().deletedAt,
+        )
+    }
+
     @Test
     fun `restoring a backup merges into what is already stored`() = runTest {
         val database = newDatabase()

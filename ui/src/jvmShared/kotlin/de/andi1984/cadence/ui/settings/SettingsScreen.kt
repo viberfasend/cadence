@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -67,6 +69,7 @@ fun SettingsScreen(
     onSignIn: (String, String) -> Unit,
     onSyncNow: () -> Unit,
     onSignOut: () -> Unit,
+    onWipe: () -> Unit,
 ) {
     val settings = state.settings
 
@@ -187,6 +190,9 @@ fun SettingsScreen(
                 onImport = onImport,
                 onClearBackupOutcome = onClearBackupOutcome,
             )
+
+            SettingSection(stringResource(Res.string.settings_danger_zone))
+            DangerZone(state = state, onWipe = onWipe)
 
             SettingSection(stringResource(Res.string.settings_about))
             Text(
@@ -324,6 +330,78 @@ private fun BackupControls(
             },
             dismissButton = {
                 TextButton(onClick = { pendingImport = emptyList() }) {
+                    Text(stringResource(Res.string.action_cancel))
+                }
+            },
+        )
+    }
+}
+
+/**
+ * The one control in the app that empties it.
+ *
+ * Two steps on purpose — the button opens a dialog that names what will go — and a third net
+ * behind them: the write itself is deferred like every other delete, so the snackbar's **Undo**
+ * still catches a confirmed mistake for a few seconds. Both counts are spelled out rather than
+ * left as "everything", because a wipe of 3 tasks and a wipe of 900 are not the same decision.
+ *
+ * Disabled while there is nothing to delete: an empty app has no danger zone.
+ */
+@Composable
+private fun DangerZone(state: CadenceUiState, onWipe: () -> Unit) {
+    var confirming by remember { mutableStateOf(false) }
+    val empty = state.tasks.isEmpty() && state.projects.isEmpty()
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        OutlinedButton(
+            onClick = { confirming = true },
+            enabled = !empty,
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.error,
+            ),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+        ) {
+            Icon(AppIcons.Delete, contentDescription = null)
+            Text(
+                text = stringResource(Res.string.settings_wipe),
+                modifier = Modifier.padding(start = 10.dp),
+            )
+        }
+        Text(
+            text = stringResource(Res.string.settings_wipe_supporting),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text(stringResource(Res.string.settings_wipe_confirm_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        Res.string.settings_wipe_confirm_text,
+                        pluralStringResource(Res.plurals.task_count, state.tasks.size, state.tasks.size),
+                        pluralStringResource(Res.plurals.project_count, state.projects.size, state.projects.size),
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirming = false
+                        onWipe()
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) {
+                    Text(stringResource(Res.string.settings_wipe_confirm_action))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = false }) {
                     Text(stringResource(Res.string.action_cancel))
                 }
             },

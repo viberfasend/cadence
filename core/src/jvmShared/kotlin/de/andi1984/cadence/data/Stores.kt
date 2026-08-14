@@ -56,6 +56,17 @@ interface TaskStore {
     suspend fun tombstoneWithSubtasks(id: String, at: Instant)
 
     /**
+     * Tombstones every task there is — the Settings danger zone, and the only wipe in the app.
+     *
+     * Tombstones rather than `DELETE` for the same reason [tombstoneWithSubtasks] does: a wipe
+     * that leaves no trace reads to the other device as "rows I have never heard of", and the
+     * next pull hands the whole list straight back.
+     *
+     * Idempotent — a row already tombstoned keeps its original timestamp.
+     */
+    suspend fun tombstoneAll(at: Instant)
+
+    /**
      * Closes a task only if it is still open, and reports whether this call is the one that did it.
      *
      * @return 1 when the row was open and is now done, 0 when it was already done or is gone.
@@ -96,6 +107,9 @@ interface ProjectStore {
      * disappears from every list, which is worse than either outcome the flag chooses between.
      */
     suspend fun tombstoneWithChildren(id: String, deleteTasks: Boolean, at: Instant)
+
+    /** Tombstones every project — see [TaskStore.tombstoneAll], which wipes the tasks. */
+    suspend fun tombstoneAll(at: Instant)
 }
 
 interface BackupStore {
@@ -106,8 +120,10 @@ interface BackupStore {
      *
      * This replaced a `replaceAll` that deleted every row and reinserted, which is why importing
      * a backup used to be a data-loss event and why two devices sharing a file could each undo
-     * the other. There is now no operation anywhere that empties the database — the actual point
-     * of ADR 0001, finally implemented by ADR 0002.
+     * the other. No *write* empties the database as a side effect any more — the actual point of
+     * ADR 0001, finally implemented by ADR 0002. The Settings danger zone
+     * ([TaskStore.tombstoneAll]) empties it because that is what the user asked for, and it
+     * tombstones rather than deletes, so it is a delete like any other.
      *
      * The rule, per record, keyed by id: the greater [Task.updatedAt] wins the whole record, ties
      * keep what is already stored, and a tombstone competes on its timestamp like any other

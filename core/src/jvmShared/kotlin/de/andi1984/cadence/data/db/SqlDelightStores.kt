@@ -64,6 +64,11 @@ class SqlDelightTaskStore(
             queries.tombstoneWithSubtasks(at = at.toEpochMilli(), id = id)
         }
 
+    override suspend fun tombstoneAll(at: Instant): Unit =
+        withContext(ioDispatcher) {
+            queries.tombstoneAll(at = at.toEpochMilli())
+        }
+
     override suspend fun completeIfOpen(id: String, completedAt: Instant): Int =
         withContext(ioDispatcher) {
             database.transactionWithResult {
@@ -130,6 +135,11 @@ class SqlDelightProjectStore(
                 // this one is about to tombstone, and a tombstoned subproject is excluded there.
                 queries.tombstoneWithChildrenRows(at = stamp, id = id)
             }
+        }
+
+    override suspend fun tombstoneAll(at: Instant): Unit =
+        withContext(ioDispatcher) {
+            queries.tombstoneAllRows(at = at.toEpochMilli())
         }
 }
 

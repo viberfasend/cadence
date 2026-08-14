@@ -256,6 +256,7 @@ fun CadenceApp(
                         onSignIn = viewModel::signIn,
                         onSyncNow = { viewModel.syncNow() },
                         onSignOut = { viewModel.signOut() },
+                        onWipe = { viewModel.wipeEverything() },
                     )
                 }
                 composable(Routes.TRIAGE) {

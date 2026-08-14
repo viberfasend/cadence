@@ -46,9 +46,10 @@ class CadenceRepositoryTest {
         root = Files.createTempDirectory("cadence-blobs").toFile(),
         tmp = Files.createTempDirectory("cadence-blobs-tmp").toFile(),
     )
+    private val projectStore = FakeProjectStore()
     private val repository = CadenceRepository(
         taskStore,
-        FakeProjectStore(),
+        projectStore,
         FakeBackupStore(),
         attachmentStore,
         blobStore,
@@ -265,6 +266,43 @@ class CadenceRepositoryTest {
     // ── Attachments ────────────────────────────────────────────────────────────────
 
     @Test
+    fun `the danger zone tombstones every task and project rather than removing rows`() = runTest {
+        val first = store(Task(title = "Send the invoice"))
+        val second = store(Task(title = "Book flights", parentId = first.id))
+
+        val wiped = repository.deleteEverything()
+
+        assertEquals(setOf(first.id, second.id), wiped.toSet())
+        assertTrue(taskStore.rows().isEmpty())
+        // A hard delete would look identical to the list above and lose the deletion on sync.
+        assertNotNull(taskStore.row(first.id).deletedAt)
+        assertNotNull(taskStore.row(second.id).deletedAt)
+        assertNotNull(projectStore.wipedAt)
+    }
+
+    @Test
+    fun `the danger zone reclaims the blobs the wiped tasks named`() = runTest {
+        val task = store(Task(title = "Send the invoice"))
+        val hash = attach(task.id)
+
+        repository.deleteEverything()
+
+        assertTrue(attachmentStore.forTask(task.id).isEmpty())
+        assertNull(blobStore.file(hash))
+    }
+
+    @Test
+    fun `wiping twice leaves the first tombstone's timestamp alone`() = runTest {
+        val task = store(Task(title = "Send the invoice"))
+
+        repository.deleteEverything()
+        val stamped = taskStore.row(task.id).deletedAt
+        repository.deleteEverything()
+
+        assertEquals(stamped, taskStore.row(task.id).deletedAt)
+    }
+
+    @Test
     fun `deleting a task reclaims the blob its only attachment named`() = runTest {
         val task = store(Task(title = "Send the invoice"))
         val hash = attach(task.id)
@@ -422,6 +460,12 @@ private class FakeTaskStore : TaskStore {
         }
     }
 
+    override suspend fun tombstoneAll(at: Instant) {
+        table.value = table.value.mapValues { (_, task) ->
+            if (task.deletedAt == null) task.copy(deletedAt = at, updatedAt = at) else task
+        }
+    }
+
     override suspend fun completeIfOpen(id: String, completedAt: Instant): Int {
         val task = table.value[id]?.takeIf { it.deletedAt == null } ?: return 0
         if (task.completedAt != null) return 0
@@ -455,6 +499,14 @@ private class FakeProjectStore(private val tasksIn: List<String> = emptyList()) 
     override suspend fun taskIdsIn(id: String): List<String> = tasksIn
 
     override suspend fun tombstoneWithChildren(id: String, deleteTasks: Boolean, at: Instant) = Unit
+
+    /** Records the wipe so a test can assert the repository reached both tables, not just one. */
+    var wipedAt: Instant? = null
+        private set
+
+    override suspend fun tombstoneAll(at: Instant) {
+        wipedAt = at
+    }
 }
 
 private class FakeBackupStore : BackupStore {
