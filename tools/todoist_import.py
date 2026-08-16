@@ -43,7 +43,9 @@ Usage:
 reads "jährlich", not "23 Dec 2026" — so the next occurrence Todoist shows you is nowhere in the
 file, and the rule alone can only put the task on today. Pass `--todoist-token` (or set
 `TODOIST_API_TOKEN`) and the exact date and time of every task are read from the API and used
-instead; the token comes from Todoist -> Settings -> Integrations -> Developer.
+instead; the token comes from Todoist -> Settings -> Integrations -> Developer. Those dates are
+matched by project, section and title — titles repeat across sections, and matching on the
+project alone gave every copy of one whichever date Todoist listed last.
 
 `--split` writes `cadence-<project>.json` per Todoist project rather than one file for the
 whole export, so the import can be done a project at a time — the app's importer takes several
@@ -455,6 +457,19 @@ TODOIST_V2 = "https://api.todoist.com/rest/v2"
 
 
 @dataclass
+class DueEntry:
+    """One API task's due date, with the position Todoist lists it at."""
+
+    date: dt.date
+    time: str | None
+    order: int
+
+    @property
+    def value(self) -> tuple[dt.date, str | None]:
+        return self.date, self.time
+
+
+@dataclass
 class DueIndex:
     """The due dates Todoist knows and its CSV export does not.
 
@@ -462,19 +477,61 @@ class DueIndex:
     yearly task's actual next occurrence exists only inside Todoist. Reading it back needs the
     API, which is what `--todoist-token` is for; without one the rule alone decides the date and
     a yearly task lands on today.
+
+    The match is on the title, and **the section is part of the key**: "Gießen" under "Beet" and
+    "Gießen" under "Gewächshaus" are two tasks with two dates, and a project-wide index kept only
+    whichever the API listed last — every copy then imported carrying that one date. Each key
+    holds every task that answers to it, so a title repeated inside one section is handed its
+    dates in Todoist's own order rather than collapsing the same way.
     """
 
-    by_project: dict[tuple[str, str], tuple[dt.date, str | None]] = field(default_factory=dict)
-    by_content: dict[str, tuple[dt.date, str | None]] = field(default_factory=dict)
+    by_section: dict[tuple[str, str, str], list[DueEntry]] = field(default_factory=dict)
+    by_project: dict[tuple[str, str], list[DueEntry]] = field(default_factory=dict)
+    by_content: dict[str, list[DueEntry]] = field(default_factory=dict)
+    _cursors: dict[object, int] = field(default_factory=dict)
 
-    def lookup(self, project: str, title: str) -> tuple[dt.date, str | None] | None:
+    def lookup(self, project: str, title: str,
+               section: str | None = None) -> tuple[dt.date, str | None] | None:
         # The CSV writes labels into the title and the API keeps them apart, so both sides of
         # the match drop them.
         key = fold(split_labels(title.strip())[0])
-        return self.by_project.get((fold(project.strip()), key)) or self.by_content.get(key)
+        project_key = fold(project.strip())
+        candidates = (
+            (self.by_section, (project_key, fold((section or "").strip()), key), True),
+            (self.by_project, (project_key, key), False),
+            (self.by_content, key, False),
+        )
+        for table, table_key, ordered in candidates:
+            entries = table.get(table_key)
+            if not entries:
+                continue
+            hit = self._take(table_key, entries, ordered)
+            if hit is not None:
+                return hit
+        return None
+
+    def _take(self, key: object, entries: list[DueEntry],
+              ordered: bool) -> tuple[dt.date, str | None] | None:
+        """The date this key means — handing them out one by one only where the key is exact.
+
+        A key every entry agrees on answers every time. Where they disagree, a *section* key is
+        specific enough to hand them out one per row in Todoist's order; a project-wide or
+        title-only key is not, and answering from one is what put one section's date on another
+        section's task, so it answers nothing and the date the CSV implied stands.
+        """
+        values = {entry.value for entry in entries}
+        if len(values) == 1:
+            return entries[0].value
+        if not ordered:
+            return None
+        used = self._cursors.get(key, 0)
+        if used >= len(entries):
+            return None
+        self._cursors[key] = used + 1
+        return entries[used].value
 
     def __len__(self) -> int:
-        return len(self.by_project)
+        return sum(len(entries) for entries in self.by_content.values())
 
 
 def parse_api_due(due: dict) -> tuple[dt.date, str | None] | None:
@@ -504,29 +561,43 @@ def parse_api_due(due: dict) -> tuple[dt.date, str | None] | None:
     return stamp.date(), stamp.strftime("%H:%M")
 
 
-def build_due_index(tasks: Iterable[dict], projects: Iterable[dict]) -> DueIndex:
-    """Indexes the API's tasks by project and title, the two things a CSV row also carries.
+def _api_order(task: dict, fallback: int) -> int:
+    """Todoist's own ordering of a task inside its section (`child_order`, `order` on REST v2)."""
+    for key in ("child_order", "order"):
+        raw = task.get(key)
+        if isinstance(raw, int):
+            return raw
+        if isinstance(raw, str) and raw.strip().lstrip("-").isdigit():
+            return int(raw.strip())
+    return fallback
+
+
+def build_due_index(tasks: Iterable[dict], projects: Iterable[dict],
+                    sections: Iterable[dict] = ()) -> DueIndex:
+    """Indexes the API's tasks by project, section and title — what a CSV row also carries.
 
     Ids are no use as a key — the export does not contain them — so the match is on the title,
     with the labels stripped: the CSV writes them into `CONTENT` ("Mirabelle schneiden @Baum")
-    and the API keeps them in a field of their own.
+    and the API keeps them in a field of their own. Titles repeat, though, which is why the
+    section is in the key and why a key keeps every task rather than the last one to be seen.
     """
     names = {str(project.get("id")): project.get("name") or "" for project in projects}
+    section_names = {str(section.get("id")): section.get("name") or "" for section in sections}
     index = DueIndex()
-    ambiguous: set[str] = set()
-    for task in tasks:
+    for position, task in enumerate(tasks):
         parsed = parse_api_due(task.get("due") or {})
         if parsed is None:
             continue
         title = fold(split_labels((task.get("content") or "").strip())[0])
         project = fold(names.get(str(task.get("project_id")), ""))
-        index.by_project[(project, title)] = parsed
-        if title in index.by_content and index.by_content[title] != parsed:
-            ambiguous.add(title)
-        index.by_content[title] = parsed
-    # A title that means two different dates in two projects cannot answer a project-less match.
-    for title in ambiguous:
-        index.by_content.pop(title, None)
+        section = fold(section_names.get(str(task.get("section_id") or ""), ""))
+        entry = DueEntry(parsed[0], parsed[1], _api_order(task, position))
+        index.by_section.setdefault((project, section, title), []).append(entry)
+        index.by_project.setdefault((project, title), []).append(entry)
+        index.by_content.setdefault(title, []).append(entry)
+    # Rows are handed out in Todoist's order, not in whatever order the pages arrived in.
+    for entries in index.by_section.values():
+        entries.sort(key=lambda entry: entry.order)
     return index
 
 
@@ -560,8 +631,12 @@ def _api_list(base: str, path: str, token: str) -> list[dict]:
             return items
 
 
-def fetch_todoist(token: str) -> tuple[list[dict], list[dict]]:
-    """Active tasks and projects, from whichever API version this token reaches."""
+def fetch_todoist(token: str) -> tuple[list[dict], list[dict], list[dict]]:
+    """Active tasks, projects and sections, from whichever API version this token reaches.
+
+    The sections are not optional: two tasks in one project may share a title and differ only by
+    which section they sit in, and without their names the index cannot tell those two apart.
+    """
     for base in (TODOIST_V1, TODOIST_V2):
         try:
             tasks = _api_list(base, "tasks", token)
@@ -569,8 +644,8 @@ def fetch_todoist(token: str) -> tuple[list[dict], list[dict]]:
             if error.code == 404 and base is TODOIST_V1:
                 continue                        # older token/endpoint: fall back to REST v2
             raise
-        return tasks, _api_list(base, "projects", token)
-    return [], []
+        return tasks, _api_list(base, "projects", token), _api_list(base, "sections", token)
+    return [], [], []
 
 
 def stable_id(*parts: object) -> str:
@@ -711,7 +786,8 @@ class Converter:
 
             # An Inbox row has no project of its own, so it sits in the staging project itself
             # rather than dropping straight into the device's Inbox.
-            task = self.convert_task(row, row_index, name, section_id or root_id or staging, order)
+            task = self.convert_task(row, row_index, name, section_id or root_id or staging,
+                                     order, section_name)
             order += 1
             indent = int((row.get("INDENT") or "1").strip() or 1)
             if indent >= 2 and current_parent is not None:
@@ -725,10 +801,9 @@ class Converter:
             self.tasks.append(task)
             last_task = task
 
-        _ = section_name  # kept for readability of the section handling above
-
     def convert_task(self, row: dict, row_index: int, file_name: str,
-                     project_id: str | None, order: int) -> dict:
+                     project_id: str | None, order: int,
+                     section_name: str | None = None) -> dict:
         title = (row.get("CONTENT") or "").strip()
         extra_notes: list[str] = []
         if self.options.strip_labels:
@@ -768,8 +843,10 @@ class Converter:
         # Todoist itself is the authority on *when*: the export writes a recurring task's rule
         # and drops its next occurrence entirely, so a yearly task read from the CSV alone lands
         # on today rather than on the 23rd of December. Where the API answered, its date and
-        # time replace whatever the phrase implied — the rule stays as parsed.
-        exact = self.due_index.lookup(file_name, title)
+        # time replace whatever the phrase implied — the rule stays as parsed. The section goes
+        # with the title, or two tasks named the same in two sections both take the second one's
+        # date.
+        exact = self.due_index.lookup(file_name, title, section_name)
         if exact is not None:
             due_date, due_time = exact[0], exact[1] or due_time
             self.stats.exact += 1
@@ -941,8 +1018,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     token = options.todoist_token or os.environ.get("TODOIST_API_TOKEN")
     due_index = None
     if token:
-        tasks, api_projects = fetch_todoist(token)
-        due_index = build_due_index(tasks, api_projects)
+        tasks, api_projects, api_sections = fetch_todoist(token)
+        due_index = build_due_index(tasks, api_projects, api_sections)
         print(f"Todoist API: {len(tasks)} task(s), {len(due_index)} with a due date")
 
     if options.split:
@@ -1164,6 +1241,55 @@ class DueIndexTest(unittest.TestCase):
         self.assertEqual(index.lookup("quartal", "Backup"), (dt.date(2026, 10, 1), None))
         self.assertIsNone(index.lookup("woanders", "Backup"))
 
+    def test_the_same_title_in_two_sections_keeps_both_dates(self):
+        # The bug this replaced: a (project, title) key kept whichever task the API listed last,
+        # so every "Gießen" in the project imported with the 15th of December.
+        index = build_due_index(
+            [
+                {"content": "Gießen", "project_id": "1", "section_id": "10",
+                 "due": {"date": "2026-09-01"}},
+                {"content": "Gießen", "project_id": "1", "section_id": "11",
+                 "due": {"date": "2026-12-15"}},
+            ],
+            [{"id": "1", "name": "Garten"}],
+            [{"id": "10", "name": "Beet"}, {"id": "11", "name": "Gewächshaus"}],
+        )
+        self.assertEqual(index.lookup("Garten", "Gießen", "Beet"), (dt.date(2026, 9, 1), None))
+        self.assertEqual(index.lookup("Garten", "Gießen", "Gewächshaus"),
+                         (dt.date(2026, 12, 15), None))
+        # With no section to go on, neither date is the one this row means.
+        self.assertIsNone(index.lookup("Garten", "Gießen"))
+
+    def test_a_title_repeated_inside_one_section_is_handed_out_in_todoists_order(self):
+        index = build_due_index(
+            [
+                {"content": "Gießen", "project_id": "1", "section_id": "10", "child_order": 2,
+                 "due": {"date": "2026-12-15"}},
+                {"content": "Gießen", "project_id": "1", "section_id": "10", "child_order": 1,
+                 "due": {"date": "2026-09-01"}},
+            ],
+            [{"id": "1", "name": "Garten"}],
+            [{"id": "10", "name": "Beet"}],
+        )
+        self.assertEqual(index.lookup("Garten", "Gießen", "Beet"), (dt.date(2026, 9, 1), None))
+        self.assertEqual(index.lookup("Garten", "Gießen", "Beet"), (dt.date(2026, 12, 15), None))
+        # Three CSV rows against two API tasks: the extra one keeps what the CSV implied.
+        self.assertIsNone(index.lookup("Garten", "Gießen", "Beet"))
+
+    def test_one_date_answers_every_row_that_shares_the_title(self):
+        index = build_due_index(
+            [
+                {"content": "Gießen", "project_id": "1", "section_id": "10",
+                 "due": {"date": "2026-09-01"}},
+                {"content": "Gießen", "project_id": "1", "section_id": "11",
+                 "due": {"date": "2026-09-01"}},
+            ],
+            [{"id": "1", "name": "Garten"}],
+            [{"id": "10", "name": "Beet"}, {"id": "11", "name": "Gewächshaus"}],
+        )
+        self.assertEqual(index.lookup("Garten", "Gießen"), (dt.date(2026, 9, 1), None))
+        self.assertEqual(index.lookup("Garten", "Gießen", "Beet"), (dt.date(2026, 9, 1), None))
+
 
 def _options(**overrides) -> argparse.Namespace:
     base = dict(inbox_name="Inbox", strip_labels=False, invert_priority=False,
@@ -1307,6 +1433,37 @@ class ConversionTest(unittest.TestCase):
         self.assertEqual(stats.exact, 1)
         # A task the API did not answer for keeps what the CSV implied.
         self.assertEqual(self.task("reinigen")["dueDate"], "2026-07-19")
+
+    def test_two_sections_sharing_a_task_title_get_their_own_dates(self):
+        # Todoist has sections and Cadence has none, but the *dates* still have to come apart:
+        # every "Gießen" in the project used to import with the last one's date.
+        garten = os.path.join(self.dir, "garten [6g62GH268rQjFQ92].csv")
+        with open(garten, "w", encoding="utf-8") as handle:
+            handle.write(SAMPLE.splitlines()[0] + "\n")
+            handle.write("section,Beet,,False,,,,,,,,,,,\n")
+            handle.write("task,Gießen,,,4,1,,,jährlich,de,Europe/Berlin,,,,\n")
+            handle.write("section,Gewächshaus,,False,,,,,,,,,,,\n")
+            handle.write("task,Gießen,,,4,1,,,jährlich,de,Europe/Berlin,,,,\n")
+
+        index = build_due_index(
+            [
+                {"content": "Gießen", "project_id": "7", "section_id": "10",
+                 "due": {"date": "2026-09-01", "is_recurring": True}},
+                {"content": "Gießen", "project_id": "7", "section_id": "11",
+                 "due": {"date": "2026-12-15", "is_recurring": True}},
+            ],
+            [{"id": "7", "name": "garten"}],
+            [{"id": "10", "name": "Beet"}, {"id": "11", "name": "Gewächshaus"}],
+        )
+        document, stats = convert([garten], _options(),
+                                  dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF,
+                                  due_index=index)
+
+        projects = {p["id"]: p["name"] for p in document["projects"]}
+        dates = {projects[t["projectId"]]: t["dueDate"] for t in document["tasks"]}
+        self.assertEqual(dates, {"garten · Beet": "2026-09-01",
+                                 "garten · Gewächshaus": "2026-12-15"})
+        self.assertEqual(stats.exact, 2)
 
     def test_ids_are_uuids_and_stable_across_runs(self):
         again, _ = convert([self.path], _options(),

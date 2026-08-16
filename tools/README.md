@@ -55,9 +55,9 @@ python3 tools/todoist_import.py "Todoist backup …" --todoist-token 0123456789a
 TODOIST_API_TOKEN=0123… python3 tools/todoist_import.py "Todoist backup …"
 ```
 
-The token is in Todoist → Settings → Integrations → Developer. Tasks are matched by project and
-title, the recurrence rule still comes from the CSV, and the report says how many dates came
-back exactly:
+The token is in Todoist → Settings → Integrations → Developer. Tasks are matched by project,
+**section** and title, the recurrence rule still comes from the CSV, and the report says how
+many dates came back exactly:
 
 ```
 Todoist API: 149 task(s), 128 with a due date
@@ -68,6 +68,13 @@ Todoist API: 149 task(s), 128 with a due date
 Times come across the same way: a task due at 09:30 Berlin time arrives at 09:30, whether the
 API reported it in UTC or not. Without a token nothing breaks — dated tasks still get their
 dates from the CSV, and only recurring ones fall back to "today".
+
+The section is part of the match because titles repeat: "Gießen" under *Beet* and "Gießen" under
+*Gewächshaus* are two tasks with two dates, and matching on the project alone handed every one
+of them whichever date Todoist happened to list last. A title that repeats *inside* one section
+takes its dates in Todoist's own order, and a title the API cannot pin down — the same name in
+two sections when the CSV row is in neither — keeps the date the CSV implied rather than
+borrowing a wrong one.
 
 ### Everything arrives in one staging project
 
