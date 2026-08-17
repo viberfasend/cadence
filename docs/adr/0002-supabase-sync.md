@@ -124,6 +124,22 @@ tombstones, merge-import and the removal of `replaceAll` are one commit, not thr
 Attachment rows are still deleted outright and their blobs still reclaimed: attachments do not sync
 (see consequences), so there is nothing for a tombstone to reconcile.
 
+**The server collects its own** (phase 4, `supabase/migrations/*_tombstone_gc.sql`). A device can
+only ever collect its copy, and the copy that matters is the server's: it is what the next device
+pulls, and what a fresh install pages over before it sees a single live task. So a `pg_cron` job
+runs `public.collect_tombstones()` nightly, deleting tombstoned rows across every account whose
+`server_updated_at` is past the same 90-day horizon. `server_updated_at`, not `deleted_at` —
+`deleted_at` is a device's clock, and a device whose clock runs fast could hand over a tombstone
+that is already collectable and have it swept before the other device ever pulled it. The server's
+clock is the one the pull cursor reads, so 90 days by that clock is 90 days every device had.
+
+The job runs as the migration's owner under `security definer`, and that role gets exactly two
+policies — select and delete, both `using (deleted_at is not null)`. A live row is as invisible to
+the sweep as it is to another account, which is a narrower grant than the obvious alternative of a
+role with `bypassrls`. Both are needed rather than the delete alone: `DELETE ... WHERE` reads the
+columns it filters on, so the `SELECT` policies apply to it too, and with the delete policy alone
+the statement is legal, matches nothing and reports success.
+
 ### 5. The wire carries the published shape, not the storage shape
 
 Dates go over as ISO-8601 (`date`, `time`, `timestamptz`) and recurrence as a `jsonb` object — the
