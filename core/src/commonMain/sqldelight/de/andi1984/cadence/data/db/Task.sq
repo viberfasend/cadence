@@ -31,10 +31,20 @@ CREATE TABLE taskRow (
     -- than reading as "a row I have never heard of" and being helpfully re-created
     -- (docs/adr/0002-supabase-sync.md, decision 4). Every read below filters these out; only the
     -- sync push and the 90-day sweep look at them.
-    deletedAt INTEGER
+    deletedAt INTEGER,
+    -- The section of `projectId` this task is grouped under, or null for the project's ungrouped
+    -- band. Only meaningful next to `projectId`, so moving a task to another project clears it.
+    --
+    -- **Last on purpose, out of order with every other column.** `3.sqm` adds it with
+    -- `ALTER TABLE … ADD COLUMN`, which SQLite can only append, and the queries below are
+    -- `SELECT *` — a fresh database that declared it after `projectId` would hand the mapper its
+    -- columns in a different order than a migrated one. Any column added from here on goes here
+    -- too, at the end, for the same reason.
+    sectionId TEXT
 );
 
 CREATE INDEX idx_task_project ON taskRow(projectId);
+CREATE INDEX idx_task_section ON taskRow(sectionId);
 CREATE INDEX idx_task_parent ON taskRow(parentId);
 CREATE INDEX idx_task_spawned_from ON taskRow(spawnedFromId);
 CREATE INDEX idx_task_due ON taskRow(dueDate);
@@ -71,7 +81,8 @@ SELECT * FROM taskRow WHERE parentId = :parentId AND deletedAt IS NULL ORDER BY 
 
 updateRow:
 UPDATE taskRow SET title = :title, notes = :notes, priority = :priority, projectId = :projectId,
-    parentId = :parentId, spawnedFromId = :spawnedFromId, dueDate = :dueDate, dueTime = :dueTime,
+    sectionId = :sectionId, parentId = :parentId, spawnedFromId = :spawnedFromId,
+    dueDate = :dueDate, dueTime = :dueTime,
     reminderTime = :reminderTime, completedAt = :completedAt, createdAt = :createdAt,
     sortOrder = :sortOrder, recurrence = :recurrence, updatedAt = :updatedAt,
     deletedAt = :deletedAt
@@ -81,7 +92,8 @@ WHERE id = :id;
 -- back first. Ties keep what is stored, the same rule the server's trigger applies.
 updateIfOlder:
 UPDATE taskRow SET title = :title, notes = :notes, priority = :priority, projectId = :projectId,
-    parentId = :parentId, spawnedFromId = :spawnedFromId, dueDate = :dueDate, dueTime = :dueTime,
+    sectionId = :sectionId, parentId = :parentId, spawnedFromId = :spawnedFromId,
+    dueDate = :dueDate, dueTime = :dueTime,
     reminderTime = :reminderTime, completedAt = :completedAt, createdAt = :createdAt,
     sortOrder = :sortOrder, recurrence = :recurrence, updatedAt = :updatedAt,
     deletedAt = :deletedAt
@@ -93,18 +105,19 @@ WHERE id = :id AND updatedAt < :updatedAt;
 -- server still holds, or the next pull deletes it straight back. Sync never calls this.
 reviveIfDeleted:
 UPDATE taskRow SET title = :title, notes = :notes, priority = :priority, projectId = :projectId,
-    parentId = :parentId, spawnedFromId = :spawnedFromId, dueDate = :dueDate, dueTime = :dueTime,
+    sectionId = :sectionId, parentId = :parentId, spawnedFromId = :spawnedFromId,
+    dueDate = :dueDate, dueTime = :dueTime,
     reminderTime = :reminderTime, completedAt = :completedAt, createdAt = :createdAt,
     sortOrder = :sortOrder, recurrence = :recurrence, updatedAt = :revivedAt, deletedAt = NULL
 WHERE id = :id AND deletedAt IS NOT NULL;
 
 insertIfAbsent:
 INSERT OR IGNORE INTO taskRow(
-    id, title, notes, priority, projectId, parentId, spawnedFromId,
+    id, title, notes, priority, projectId, sectionId, parentId, spawnedFromId,
     dueDate, dueTime, reminderTime, completedAt, createdAt, sortOrder, recurrence,
     updatedAt, deletedAt
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- Closes a task only if it is still open. Follow with `changes` to learn whether this call was
 -- the one that did it — the guard the whole idempotent-completion rule depends on.
