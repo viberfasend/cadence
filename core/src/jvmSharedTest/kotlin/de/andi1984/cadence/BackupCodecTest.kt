@@ -10,6 +10,7 @@ import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceMode
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -97,6 +98,63 @@ class BackupCodecTest {
         assertTrue(json, json.contains("\"dueTime\": \"09:30\""))
         assertTrue(json, json.contains("\"exportedAt\": \"2026-08-05T09:00:00Z\""))
         assertTrue(json, json.contains("\"format\": \"cadence.backup\""))
+    }
+
+    @Test
+    fun `sections and the tasks grouped under them survive a round trip`() {
+        val section = Section(id = "s1", projectId = "7", name = "This week", sortOrder = 3)
+        val grouped = task.copy(sectionId = "s1")
+
+        val restored = roundTrip(
+            BackupSnapshot(projects = listOf(project), sections = listOf(section), tasks = listOf(grouped)),
+        )
+
+        assertEquals(listOf(section), restored.sections)
+        assertEquals("s1", restored.tasks.single().sectionId)
+    }
+
+    /** The regression: `encode` once dropped the whole list while `decode` still read it, so an
+     *  export silently lost every heading and every task's place in one. */
+    @Test
+    fun `the encoded file carries the sections`() {
+        val section = Section(id = "s1", projectId = "7", name = "This week", sortOrder = 3)
+
+        val json = BackupCodec.encode(
+            BackupSnapshot(projects = listOf(project), sections = listOf(section), tasks = listOf(task.copy(sectionId = "s1"))),
+            exportedAt,
+        )
+
+        assertTrue(json, json.contains("\"name\": \"This week\""))
+        assertTrue(json, json.contains("\"sectionId\": \"s1\""))
+    }
+
+    @Test
+    fun `a section naming a project the file lacks is dropped, and its tasks keep the project`() {
+        val orphanSection = Section(id = "s1", projectId = "99", name = "Nowhere")
+        val grouped = task.copy(sectionId = "s1")
+
+        val restored = roundTrip(
+            BackupSnapshot(projects = listOf(project), sections = listOf(orphanSection), tasks = listOf(grouped)),
+        )
+
+        assertTrue(restored.sections.isEmpty())
+        assertEquals("7", restored.tasks.single().projectId)
+        assertNull(restored.tasks.single().sectionId)
+    }
+
+    @Test
+    fun `a task grouped under a section of another project loses the heading`() {
+        val other = Project(id = "8", name = "Work", colorHex = "#123456")
+        val section = Section(id = "s1", projectId = "8", name = "Work week")
+        val grouped = task.copy(sectionId = "s1")
+
+        val restored = roundTrip(
+            BackupSnapshot(projects = listOf(project, other), sections = listOf(section), tasks = listOf(grouped)),
+        )
+
+        assertEquals(listOf("s1"), restored.sections.map { it.id })
+        assertEquals("7", restored.tasks.single().projectId)
+        assertNull(restored.tasks.single().sectionId)
     }
 
     @Test
