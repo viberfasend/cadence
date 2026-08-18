@@ -87,6 +87,7 @@ class ForeignKeyCascadeTest {
 
         backupStore.mergeAll(
             projects = emptyList(),
+            sections = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Pack for Rome", createdAt = now, updatedAt = later)),
             revivedAt = now,
         )
@@ -107,6 +108,7 @@ class ForeignKeyCascadeTest {
 
         backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "House", updatedAt = later)),
+            sections = emptyList(),
             tasks = emptyList(),
             revivedAt = now,
         )
@@ -147,6 +149,7 @@ class ForeignKeyCascadeTest {
 
         backupStore.mergeAll(
             projects = emptyList(),
+            sections = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Book flights", projectId = "p1", createdAt = now, updatedAt = now)),
             revivedAt = now,
         )
@@ -155,6 +158,7 @@ class ForeignKeyCascadeTest {
         // …and the project arriving later joins up with it rather than leaving it in the Inbox.
         backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "Rome", updatedAt = now)),
+            sections = emptyList(),
             tasks = emptyList(),
             revivedAt = now,
         )
@@ -179,9 +183,15 @@ class ForeignKeyCascadeTest {
         // The child first, the way a file lists whatever order it was written in.
         val child = Project(id = "p2", name = "Errands", parentId = "p1", updatedAt = now)
 
-        backupStore.mergeAll(projects = listOf(child, parent), tasks = emptyList(), revivedAt = now)
+        backupStore.mergeAll(
+            projects = listOf(child, parent),
+            sections = emptyList(),
+            tasks = emptyList(),
+            revivedAt = now,
+        )
         backupStore.mergeAll(
             projects = listOf(child.copy(updatedAt = later), parent.copy(updatedAt = later)),
+            sections = emptyList(),
             tasks = emptyList(),
             revivedAt = now,
         )

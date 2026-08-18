@@ -5,6 +5,7 @@ import de.andi1984.cadence.data.BackupStore
 import de.andi1984.cadence.data.BlobStore
 import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.data.ProjectStore
+import de.andi1984.cadence.data.SectionStore
 import de.andi1984.cadence.data.RepositoryResult
 import de.andi1984.cadence.data.StoreResult
 import de.andi1984.cadence.data.TaskStore
@@ -14,6 +15,7 @@ import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,6 +52,7 @@ class CadenceRepositoryTest {
     private val repository = CadenceRepository(
         taskStore,
         projectStore,
+        FakeSectionStore(),
         FakeBackupStore(),
         attachmentStore,
         blobStore,
@@ -345,6 +348,7 @@ class CadenceRepositoryTest {
         val withProject = CadenceRepository(
             taskStore,
             projectStore,
+            FakeSectionStore(),
             FakeBackupStore(),
             attachmentStore,
             blobStore,
@@ -363,6 +367,7 @@ class CadenceRepositoryTest {
         val withProject = CadenceRepository(
             taskStore,
             projectStore,
+            FakeSectionStore(),
             FakeBackupStore(),
             attachmentStore,
             blobStore,
@@ -511,7 +516,43 @@ private class FakeProjectStore(private val tasksIn: List<String> = emptyList()) 
 
 private class FakeBackupStore : BackupStore {
 
-    override suspend fun mergeAll(projects: List<Project>, tasks: List<Task>, revivedAt: Instant) = Unit
+    override suspend fun mergeAll(
+        projects: List<Project>,
+        sections: List<Section>,
+        tasks: List<Task>,
+        revivedAt: Instant,
+    ) = Unit
+}
+
+/** An in-memory [SectionStore]. Nothing here asserts against sections yet — the repository just
+ *  needs one to exist. */
+private class FakeSectionStore : SectionStore {
+
+    private val table = MutableStateFlow<Map<String, Section>>(emptyMap())
+
+    override fun observeAll(): Flow<List<Section>> = table.map { it.values.toList() }
+
+    override suspend fun getAll(): List<Section> = table.value.values.toList()
+
+    override suspend fun insert(section: Section) {
+        table.value = table.value + (section.id to section)
+    }
+
+    override suspend fun update(section: Section) {
+        table.value = table.value + (section.id to section)
+    }
+
+    override suspend fun tombstone(id: String, at: Instant) {
+        val section = table.value[id] ?: return
+        if (section.deletedAt != null) return
+        table.value = table.value + (id to section.copy(deletedAt = at, updatedAt = at))
+    }
+
+    override suspend fun tombstoneAll(at: Instant) {
+        table.value = table.value.mapValues { (_, section) ->
+            if (section.deletedAt != null) section else section.copy(deletedAt = at, updatedAt = at)
+        }
+    }
 }
 
 /** An in-memory [AttachmentStore] mirroring [FakeTaskStore]'s shape. */
