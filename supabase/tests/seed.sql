@@ -27,11 +27,20 @@ values
     ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-0000000000a2',
      'stale tombstone', '#ffffff', 0, now(), now(), now());
 
+insert into public.sections
+    (user_id, id, project_id, name, sort_order, updated_at, deleted_at, server_updated_at)
+values
+    ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-0000000000b1',
+     '00000000-0000-0000-0000-0000000000a1', 'live', 0, now(), null, now()),
+    ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-0000000000b2',
+     '00000000-0000-0000-0000-0000000000a1', 'stale tombstone', 0, now(), now(), now());
+
 -- The stale-write trigger stamps `server_updated_at` itself and drops any UPDATE that does not
 -- raise `updated_at`, so it has to be off to age the rows meant to sit past the horizon. Which is
 -- also the proof that nothing but the server's own clock ever writes that column.
 alter table public.tasks disable trigger tasks_reject_stale;
 alter table public.projects disable trigger projects_reject_stale;
+alter table public.sections disable trigger sections_reject_stale;
 
 update public.tasks set server_updated_at = now() - interval '200 days'
     where id in ('00000000-0000-0000-0000-000000000003',
@@ -39,6 +48,9 @@ update public.tasks set server_updated_at = now() - interval '200 days'
                  '00000000-0000-0000-0000-000000000005');
 update public.projects set server_updated_at = now() - interval '200 days'
     where id = '00000000-0000-0000-0000-0000000000a2';
+update public.sections set server_updated_at = now() - interval '200 days'
+    where id = '00000000-0000-0000-0000-0000000000b2';
 
 alter table public.tasks enable trigger tasks_reject_stale;
 alter table public.projects enable trigger projects_reject_stale;
+alter table public.sections enable trigger sections_reject_stale;

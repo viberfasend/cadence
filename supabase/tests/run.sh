@@ -88,10 +88,10 @@ expect "the sweep sees tombstones and only tombstones" \
     "3" "select count(*) from public.tasks"
 expect "a live row is not deletable by the sweeping role" \
     "DELETE 0" "delete from public.tasks where deleted_at is null"
-expect "the sweep collects 2 tasks and 1 project" \
-    "2|1" "select * from public.collect_tombstones()"
+expect "the sweep collects 2 tasks, 1 project and 1 section" \
+    "2|1|1" "select * from public.collect_tombstones()"
 expect "a second sweep collects nothing" \
-    "0|0" "select * from public.collect_tombstones()"
+    "0|0|0" "select * from public.collect_tombstones()"
 expect_error "a horizon shorter than the clients' is refused" \
     "shorter than the 90 days" "select * from public.collect_tombstones(interval '1 day')"
 expect_error "signed-in users cannot run the sweep" \
@@ -110,6 +110,14 @@ if [[ "$projects" == "live" ]]; then
     echo "  ok    the live project survives"
 else
     echo "  FAIL  projects: got '$projects'"
+    failures=$((failures + 1))
+fi
+
+sections="$(psql_as postgres -c "select string_agg(name, ', ' order by id) from public.sections")"
+if [[ "$sections" == "live" ]]; then
+    echo "  ok    the live section survives"
+else
+    echo "  FAIL  sections: got '$sections'"
     failures=$((failures + 1))
 fi
 

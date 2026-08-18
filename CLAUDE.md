@@ -68,9 +68,9 @@ green while the module the desktop app is mostly made of stopped compiling for t
 
 JDK 17, compileSdk/targetSdk 35, minSdk 26. No lint or format task is wired up.
 
-The server half of sync is `supabase/migrations/*.sql` — two tables, forced RLS, the stale-write
-trigger and the nightly `pg_cron` job that collects tombstones past the same 90-day horizon the
-client uses (by `server_updated_at`, the server's clock, since `deleted_at` is a device's). It is
+The server half of sync is `supabase/migrations/*.sql` — three tables, forced RLS, the stale-write
+trigger and the nightly `pg_cron` job that collects tombstones from all three past the same 90-day
+horizon the client uses (by `server_updated_at`, the server's clock, since `deleted_at` is a device's). It is
 committed rather than left in the dashboard because it is the one part of the system the Kotlin
 suite cannot reach; apply it with `supabase db push` or by pasting it into a fresh project's SQL
 editor. No Gradle task will tell you any of it is wrong, so it has a test of its own:

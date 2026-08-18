@@ -71,6 +71,13 @@ create index if not exists projects_tombstones
 --     select * from public.collect_tombstones();
 --     select * from public.collect_tombstones(interval '365 days');   -- a gentler one-off
 
+-- Dropped first, not merely replaced: `create or replace` cannot change a function's result
+-- columns, and a later migration widens them (sections). Re-applying this file over that wider
+-- function — which is what pasting the whole directory into a SQL editor a second time does —
+-- would otherwise fail here. The files run in name order, so the later one puts its own shape
+-- back in the same pass.
+drop function if exists public.collect_tombstones(interval);
+
 create or replace function public.collect_tombstones(horizon interval default interval '90 days')
 returns table (tasks_collected bigint, projects_collected bigint)
 language plpgsql
