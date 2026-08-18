@@ -65,7 +65,10 @@ class SqlDelightSyncStore(
         projectCursor: String?,
     ): Unit = withContext(ioDispatcher) {
         database.transaction {
-            database.mergeRecords(projects, tasks)
+            // Sections have a record and a table but no wire half yet, so a pulled page never
+            // carries one — see `RemoteRecords.kt`. This is not a merge that drops sections; it
+            // is a merge that was handed none.
+            database.mergeRecords(projects, emptyList(), tasks)
             if (taskCursor != null) queries.setTaskCursor(taskCursor)
             if (projectCursor != null) queries.setProjectCursor(projectCursor)
         }

@@ -79,7 +79,8 @@ object BackupCodec {
             BackupDocument(
                 exportedAt = exportedAt.toString(),
                 projects = snapshot.projects.map { it.toBackup() },
-                sections = snapshot.sections.map { it.toBackup() },
+                // Sections are not in the file format yet — the codec half of the section work
+                // still follows, and [BackupSnapshot.sections] is what it will write from.
                 tasks = snapshot.tasks.map { it.toBackup() },
                 settings = snapshot.settings,
             ),

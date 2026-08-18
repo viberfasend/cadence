@@ -143,6 +143,7 @@ class SqlDelightStoreTest {
 
         backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "Home", updatedAt = now)),
+            sections = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Fresh task", projectId = "p1", createdAt = now, updatedAt = now)),
             revivedAt = now,
         )
@@ -167,6 +168,7 @@ class SqlDelightStoreTest {
         // Older than what is stored, so it loses; a tie would also keep the stored row.
         backupStore.mergeAll(
             projects = emptyList(),
+            sections = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Stale", createdAt = now, updatedAt = now)),
             revivedAt = now,
         )
@@ -174,6 +176,7 @@ class SqlDelightStoreTest {
 
         backupStore.mergeAll(
             projects = emptyList(),
+            sections = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Newer", createdAt = now, updatedAt = later.plusSeconds(1))),
             revivedAt = now,
         )
@@ -192,6 +195,7 @@ class SqlDelightStoreTest {
         // deletedAt into an unconditional delete, so a stale delete beat a newer edit.
         backupStore.mergeAll(
             projects = emptyList(),
+            sections = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Deleted there", createdAt = now, updatedAt = now, deletedAt = now)),
             revivedAt = now,
         )
@@ -201,6 +205,7 @@ class SqlDelightStoreTest {
         val deletedAt = later.plusSeconds(1)
         backupStore.mergeAll(
             projects = emptyList(),
+            sections = emptyList(),
             tasks = listOf(
                 Task(id = "t1", title = "Deleted there", createdAt = now, updatedAt = deletedAt, deletedAt = deletedAt),
             ),
@@ -217,6 +222,7 @@ class SqlDelightStoreTest {
 
         backupStore.mergeAll(
             projects = emptyList(),
+            sections = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Gone", createdAt = now, updatedAt = now, deletedAt = now)),
             revivedAt = now,
         )
@@ -252,6 +258,7 @@ class SqlDelightStoreTest {
         // The file is older than the tombstones — it was written before the delete.
         backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "Import", updatedAt = now)),
+            sections = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Back", projectId = "p1", createdAt = now, updatedAt = now)),
             revivedAt = importedAt,
         )
@@ -274,6 +281,7 @@ class SqlDelightStoreTest {
 
         backupStore.mergeAll(
             projects = emptyList(),
+            sections = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Also gone", createdAt = now, updatedAt = now, deletedAt = now)),
             revivedAt = deletedAt.plusSeconds(60),
         )
