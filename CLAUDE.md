@@ -72,8 +72,26 @@ The server half of sync is `supabase/migrations/*.sql` — three tables, forced 
 trigger and the nightly `pg_cron` job that collects tombstones from all three past the same 90-day
 horizon the client uses (by `server_updated_at`, the server's clock, since `deleted_at` is a device's). It is
 committed rather than left in the dashboard because it is the one part of the system the Kotlin
-suite cannot reach; apply it with `supabase db push` or by pasting it into a fresh project's SQL
-editor. No Gradle task will tell you any of it is wrong, so it has a test of its own:
+suite cannot reach.
+
+**Apply it with `npx supabase db push`, and only that.** The CLI arrives through `npx` (pinned in
+`package.json`) and `supabase/config.toml` is committed, so a clone needs `supabase link
+--project-ref <ref>` and nothing else. The dashboard's SQL editor and the Management API — which
+is what an agent's `apply_migration` tool reaches — do apply the SQL, but they stamp
+`supabase_migrations.schema_migrations` with a version taken from the server's clock at apply
+time rather than from the filename. The filenames here are hand-picked (`…120000`), so the two
+never match, and the next `db push` refuses with *"Remote migration versions not found in local
+migrations directory"*. Untangling that is `supabase migration repair --status reverted <the
+server's versions>` followed by `--status applied <the filenames>`; both touch the history table
+only, never the schema. The SQL editor is still the right answer for a fresh project that will
+never see the CLI.
+
+`supabase db pull` is not the way out of a mismatch: it diffs the live database against the
+migrations and writes the difference as a generated `_remote_schema.sql`, which is unreadable
+beside these hand-written files and sorts to whatever timestamp it was generated at. Say no to
+its *"Update remote migration history table?"* prompt and delete the file.
+
+No Gradle task will tell you any of it is wrong, so it has a test of its own:
 `bash supabase/tests/run.sh` applies every migration (twice, since they get pasted into projects
 that already carry half of them) to a throwaway `postgres:16` container with `auth.users` and
 `cron.schedule` stubbed, and checks what the sweep collects and what it leaves alone. Needs

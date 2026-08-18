@@ -1,5 +1,9 @@
 *.iml
 .gradle/
+# The Supabase CLI arrives through `npx supabase`, which installs it here. The lockfile beside it
+# is what pins the version; this is the copy it unpacks to.
+node_modules/
+__pycache__/
 /local.properties
 /.idea/
 .DS_Store
