@@ -1,0 +1,84 @@
+-- Named sectionRow, not section, so the generated row class does not collide with the domain
+-- Section. A section is a heading inside one project's task list — see Section.kt for why it is
+-- not simply a subproject.
+CREATE TABLE sectionRow (
+    id TEXT NOT NULL PRIMARY KEY,
+    -- The project this section groups. Deliberately not a REFERENCES clause, for the reason every
+    -- other link in this schema is not one either: rows arrive from a pull in whatever order the
+    -- pages happen to carry them, and a section landing before its project would fail the whole
+    -- merge with SQLITE_CONSTRAINT_FOREIGNKEY.
+    projectId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    sortOrder INTEGER NOT NULL,
+    -- Last write, local or merged in. The merge engine resolves conflicts by this.
+    updatedAt INTEGER NOT NULL,
+    -- Tombstone — see taskRow.deletedAt.
+    deletedAt INTEGER
+);
+
+CREATE INDEX idx_section_project ON sectionRow(projectId);
+CREATE INDEX idx_section_sort ON sectionRow(sortOrder);
+-- What the push reads: everything written since the watermark.
+CREATE INDEX idx_section_updated ON sectionRow(updatedAt);
+
+selectAll:
+SELECT * FROM sectionRow WHERE deletedAt IS NULL ORDER BY sortOrder;
+
+selectById:
+SELECT * FROM sectionRow WHERE id = :id AND deletedAt IS NULL;
+
+-- See taskRow.selectByIdIncludingDeleted: the merge must be able to see a local tombstone.
+selectByIdIncludingDeleted:
+SELECT * FROM sectionRow WHERE id = :id;
+
+-- ── Writing a row ──────────────────────────────────────────────────────────────────
+--
+-- The same upsert pair as `Task.sq` and `Project.sq`, and for the same reasons: SQLite implements
+-- `INSERT OR REPLACE` as delete-then-insert, and SQLite before 3.24 (minSdk 26 ships 3.19) has no
+-- `ON CONFLICT … DO UPDATE`. The store runs both statements in one transaction.
+
+updateRow:
+UPDATE sectionRow SET projectId = :projectId, name = :name, sortOrder = :sortOrder,
+    updatedAt = :updatedAt, deletedAt = :deletedAt
+WHERE id = :id;
+
+-- The merge's half of the pair: last writer wins, decided in SQL. Ties keep what is stored.
+updateIfOlder:
+UPDATE sectionRow SET projectId = :projectId, name = :name, sortOrder = :sortOrder,
+    updatedAt = :updatedAt, deletedAt = :deletedAt
+WHERE id = :id AND updatedAt < :updatedAt;
+
+-- Importing a file only — see the same query in `Task.sq`.
+reviveIfDeleted:
+UPDATE sectionRow SET projectId = :projectId, name = :name, sortOrder = :sortOrder,
+    updatedAt = :revivedAt, deletedAt = NULL
+WHERE id = :id AND deletedAt IS NOT NULL;
+
+insertIfAbsent:
+INSERT OR IGNORE INTO sectionRow(id, projectId, name, sortOrder, updatedAt, deletedAt)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- Deleting a section. `deletedAt IS NULL` keeps it idempotent, the same way every other tombstone
+-- in this schema does: deleting twice must not restamp the row.
+tombstoneRow:
+UPDATE sectionRow SET deletedAt = :at, updatedAt = :at WHERE id = :id AND deletedAt IS NULL;
+
+-- The other half of deleting a section: its tasks stay in the project, ungrouped. A section is a
+-- heading, not a container that owns the work — the same rule `projectRow` follows for the Inbox.
+clearTasksIn:
+UPDATE taskRow SET sectionId = NULL, updatedAt = :updatedAt
+WHERE sectionId = :id AND deletedAt IS NULL;
+
+-- The Settings danger zone — see `taskRow.tombstoneAll`.
+tombstoneAllRows:
+UPDATE sectionRow SET deletedAt = :at, updatedAt = :at WHERE deletedAt IS NULL;
+
+-- Sync's two views, and the only ones that see tombstones.
+selectChangedSince:
+SELECT * FROM sectionRow WHERE updatedAt > :since ORDER BY updatedAt;
+
+selectAllIncludingDeleted:
+SELECT * FROM sectionRow ORDER BY updatedAt;
+
+collectTombstones:
+DELETE FROM sectionRow WHERE deletedAt IS NOT NULL AND deletedAt < :before;

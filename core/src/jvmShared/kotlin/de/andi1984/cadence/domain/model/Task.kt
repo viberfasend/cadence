@@ -13,6 +13,15 @@ data class Task(
     val priority: Priority = Priority.DEFAULT,
     val projectId: String? = null,
     /**
+     * The [Section] of [projectId] this task is grouped under, or null for the project's
+     * ungrouped band.
+     *
+     * Only ever meaningful together with [projectId] — a section belongs to one project — so
+     * moving a task to another project clears this rather than carrying a heading that project
+     * has never heard of.
+     */
+    val sectionId: String? = null,
+    /**
      * The task this one is a step of, or null for a task that stands on its own.
      *
      * Nesting is one level deep on purpose: a subtask never becomes a parent itself, so a

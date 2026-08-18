@@ -7,6 +7,7 @@ import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceMode
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -18,6 +19,7 @@ import java.time.LocalTime
 /** Everything the app owns, in one value: what an export writes and an import restores. */
 data class BackupSnapshot(
     val projects: List<Project> = emptyList(),
+    val sections: List<Section> = emptyList(),
     val tasks: List<Task> = emptyList(),
     val settings: BackupSettings? = null,
 )
@@ -77,6 +79,7 @@ object BackupCodec {
             BackupDocument(
                 exportedAt = exportedAt.toString(),
                 projects = snapshot.projects.map { it.toBackup() },
+                sections = snapshot.sections.map { it.toBackup() },
                 tasks = snapshot.tasks.map { it.toBackup() },
                 settings = snapshot.settings,
             ),

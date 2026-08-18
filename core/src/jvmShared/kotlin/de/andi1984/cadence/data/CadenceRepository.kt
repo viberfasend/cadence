@@ -5,6 +5,7 @@ import de.andi1984.cadence.domain.id.UuidV7
 import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Project
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
 import kotlinx.coroutines.flow.Flow
@@ -36,6 +37,7 @@ sealed class RepositoryResult<out T> {
 class CadenceRepository(
     private val taskStore: TaskStore,
     private val projectStore: ProjectStore,
+    private val sectionStore: SectionStore,
     private val backupStore: BackupStore,
     private val attachmentStore: AttachmentStore,
     private val blobStore: BlobStore,
@@ -44,6 +46,8 @@ class CadenceRepository(
     val tasks: Flow<List<Task>> = taskStore.observeAll()
 
     val projects: Flow<List<Project>> = projectStore.observeAll()
+
+    val sections: Flow<List<Section>> = sectionStore.observeAll()
 
     val attachments: Flow<List<Attachment>> = attachmentStore.observeAll()
 
@@ -92,11 +96,11 @@ class CadenceRepository(
      * Attachment rows and their blobs go first and explicitly, the same way [deleteTask] does it,
      * rather than being left to a cascade the fakes do not model.
      *
-     * Tasks are wiped before projects. The two are separate statements — nothing spans both
-     * stores in one transaction anywhere in this class — and a process killed between them leaves
-     * empty projects behind rather than tasks filed under projects that no longer answer, which
-     * is the failure the whole `deleteWithChildren` rule exists to avoid. Running the wipe again
-     * finishes the job: both halves are idempotent.
+     * Tasks are wiped first, then sections, then projects. The three are separate statements —
+     * nothing spans several stores in one transaction anywhere in this class — and a process
+     * killed between them leaves empty projects behind rather than tasks filed under projects
+     * that no longer answer, which is the failure the whole `deleteWithChildren` rule exists to
+     * avoid. Running the wipe again finishes the job: every part is idempotent.
      */
     suspend fun deleteEverything(): List<String> {
         val taskIds = taskStore.getAll().map { it.id }
@@ -104,6 +108,7 @@ class CadenceRepository(
         attachmentStore.deleteForTasks(taskIds)
         val at = now()
         taskStore.tombstoneAll(at)
+        sectionStore.tombstoneAll(at)
         projectStore.tombstoneAll(at)
         reclaim(hashes)
         return taskIds
@@ -151,12 +156,33 @@ class CadenceRepository(
         }
     }
 
-    /** A task and its steps live in the same project, so moving one moves the whole checklist. */
+    /**
+     * A task and its steps live in the same project, so moving one moves the whole checklist.
+     *
+     * The section is dropped, not carried: a section belongs to one project, so the heading the
+     * task had means nothing in the project it is arriving at.
+     */
     suspend fun moveToProject(task: Task, projectId: String?) {
         val now = now()
-        taskStore.update(task.copy(projectId = projectId, updatedAt = now))
+        taskStore.update(task.copy(projectId = projectId, sectionId = null, updatedAt = now))
+        taskStore.subtasksOf(task.id).forEach {
+            taskStore.update(it.copy(projectId = projectId, sectionId = null, updatedAt = now))
+        }
+    }
+
+    /**
+     * Files a task under one of its project's sections, or under none.
+     *
+     * The steps follow, the same way they follow their task into a project: a checklist drawn
+     * under a different heading than the task it belongs to would read as two separate pieces of
+     * work. A task with no project has nowhere to be grouped, so this does nothing for one.
+     */
+    suspend fun moveToSection(task: Task, sectionId: String?) {
+        if (task.projectId == null && sectionId != null) return
+        val now = now()
+        taskStore.update(task.copy(sectionId = sectionId, updatedAt = now))
         taskStore.subtasksOf(task.id)
-            .forEach { taskStore.update(it.copy(projectId = projectId, updatedAt = now)) }
+            .forEach { taskStore.update(it.copy(sectionId = sectionId, updatedAt = now)) }
     }
 
     /**
@@ -347,6 +373,46 @@ class CadenceRepository(
         return affected
     }
 
+    // ── Sections ───────────────────────────────────────────────────────────────────
+
+    /**
+     * Validates and upserts a section.
+     *
+     * Far less to check than [upsertProject]: sections never nest, so there is no depth to
+     * measure and no cycle to rule out — a name and the project it belongs to is the whole
+     * record.
+     */
+    suspend fun upsertSection(section: Section): RepositoryResult<String> {
+        if (section.name.isBlank() || section.projectId.isBlank()) {
+            return RepositoryResult.ValidationError
+        }
+        return try {
+            val stamped = section.copy(name = section.name.trim(), updatedAt = now())
+            val id = if (stamped.id.isBlank()) {
+                val minted = stamped.copy(id = UuidV7.random())
+                sectionStore.insert(minted)
+                minted.id
+            } else {
+                sectionStore.update(stamped)
+                stamped.id
+            }
+            RepositoryResult.Success(id)
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to save section", e)
+        }
+    }
+
+    /**
+     * Removes a section. Its tasks stay exactly where they are and lose only the heading.
+     *
+     * There is deliberately no "delete the tasks too" the way [deleteProject] offers one: a
+     * section is a band in a list, and nobody means "and everything in it" by dragging a heading
+     * away. Deleting the work is what deleting a task or a project is for.
+     */
+    suspend fun deleteSection(id: String) {
+        sectionStore.tombstone(id, now())
+    }
+
     // ── Attachments ────────────────────────────────────────────────────────────────
 
     sealed class AddAttachmentResult {
@@ -440,6 +506,7 @@ class CadenceRepository(
     /** One-shot read of everything, for an export. */
     suspend fun snapshot(): BackupSnapshot = BackupSnapshot(
         projects = projectStore.getAll(),
+        sections = sectionStore.getAll(),
         tasks = taskStore.getAll(),
         settings = null, // Settings are added by the app-specific BackupIo
     )
@@ -470,6 +537,7 @@ class CadenceRepository(
     suspend fun restore(snapshot: BackupSnapshot) {
         backupStore.mergeAll(
             projects = snapshot.projects,
+            sections = snapshot.sections,
             tasks = snapshot.tasks,
             revivedAt = now(),
         )

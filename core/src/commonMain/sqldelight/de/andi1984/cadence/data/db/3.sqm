@@ -1,0 +1,31 @@
+-- 3 → 4: sections. A third synced table, one new column on `taskRow` and one on `syncStateRow`.
+--
+-- Every one of the three is an `ALTER TABLE … ADD COLUMN` or a `CREATE TABLE`, deliberately: this
+-- migration rebuilds nothing. `2.sqm` had to rebuild both tables because SQLite cannot drop a
+-- constraint, and rebuilding is where an attachment cascade nearly took the blobs with it. There
+-- is nothing to drop here, so there is nothing to rebuild.
+--
+-- SQLite can only *append* an added column, which is why `taskRow.sectionId` and
+-- `syncStateRow.sectionCursor` are declared last in their `.sq` files as well. The queries are
+-- `SELECT *`, so a fresh database and a migrated one have to agree on column order exactly.
+
+ALTER TABLE taskRow ADD COLUMN sectionId TEXT;
+
+CREATE INDEX idx_task_section ON taskRow(sectionId);
+
+CREATE TABLE sectionRow (
+    id TEXT NOT NULL PRIMARY KEY,
+    projectId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    sortOrder INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    deletedAt INTEGER
+);
+
+CREATE INDEX idx_section_project ON sectionRow(projectId);
+CREATE INDEX idx_section_sort ON sectionRow(sortOrder);
+CREATE INDEX idx_section_updated ON sectionRow(updatedAt);
+
+-- A device that has already synced keeps its task and project cursors; the section cursor starts
+-- empty, so the first round after this pulls every section the account has from the beginning.
+ALTER TABLE syncStateRow ADD COLUMN sectionCursor TEXT;

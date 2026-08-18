@@ -6,11 +6,13 @@ import app.cash.sqldelight.coroutines.mapToOneOrNull
 import de.andi1984.cadence.data.AttachmentStore
 import de.andi1984.cadence.data.BackupStore
 import de.andi1984.cadence.data.ProjectStore
+import de.andi1984.cadence.data.SectionStore
 import de.andi1984.cadence.data.TaskStore
 import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -131,8 +133,10 @@ class SqlDelightProjectStore(
                 } else {
                     queries.moveTasksToInbox(updatedAt = stamp, id = id)
                 }
-                // Last, not first: both statements above select by `parentId = :id` against rows
-                // this one is about to tombstone, and a tombstoned subproject is excluded there.
+                queries.tombstoneSectionsIn(at = stamp, id = id)
+                // Last, not first: all three statements above select by `parentId = :id` against
+                // rows this one is about to tombstone, and a tombstoned subproject is excluded
+                // there.
                 queries.tombstoneWithChildrenRows(at = stamp, id = id)
             }
         }
@@ -141,6 +145,44 @@ class SqlDelightProjectStore(
         withContext(ioDispatcher) {
             queries.tombstoneAllRows(at = at.toEpochMilli())
         }
+}
+
+class SqlDelightSectionStore(
+    private val database: CadenceDatabase,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : SectionStore {
+
+    private val queries = database.sectionQueries
+
+    override fun observeAll(): Flow<List<Section>> =
+        queries.selectAll(mapper = ::toSection).asFlow().mapToList(ioDispatcher)
+
+    override suspend fun getAll(): List<Section> = withContext(ioDispatcher) {
+        queries.selectAll(mapper = ::toSection).executeAsList()
+    }
+
+    override suspend fun insert(section: Section) = withContext(ioDispatcher) {
+        database.transaction { queries.upsertRow(section) }
+    }
+
+    /** The same upsert as [insert] — see [SqlDelightProjectStore.update] for why an update alone
+     *  is not enough. */
+    override suspend fun update(section: Section) = insert(section)
+
+    override suspend fun tombstone(id: String, at: Instant): Unit = withContext(ioDispatcher) {
+        val stamp = at.toEpochMilli()
+        database.transaction {
+            // The tasks first: `clearTasksIn` selects by `sectionId = :id`, which the tombstone
+            // does not change, but keeping the pair in one transaction is what makes "the heading
+            // is gone and its tasks are ungrouped" a single fact rather than two.
+            queries.clearTasksIn(updatedAt = stamp, id = id)
+            queries.tombstoneRow(at = stamp, id = id)
+        }
+    }
+
+    override suspend fun tombstoneAll(at: Instant): Unit = withContext(ioDispatcher) {
+        queries.tombstoneAllRows(at = at.toEpochMilli())
+    }
 }
 
 class SqlDelightAttachmentStore(
@@ -221,10 +263,11 @@ class SqlDelightBackupStore(
      */
     override suspend fun mergeAll(
         projects: List<Project>,
+        sections: List<Section>,
         tasks: List<Task>,
         revivedAt: Instant,
     ): Unit = withContext(ioDispatcher) {
-        database.transaction { database.mergeRecords(projects, tasks, revivedAt) }
+        database.transaction { database.mergeRecords(projects, sections, tasks, revivedAt) }
     }
 
 }
@@ -241,10 +284,12 @@ class SqlDelightBackupStore(
  */
 internal fun CadenceDatabase.mergeRecords(
     projects: List<Project>,
+    sections: List<Section>,
     tasks: List<Task>,
     revivedAt: Instant? = null,
 ) {
     for (project in projects) projectQueries.mergeRow(project, revivedAt)
+    for (section in sections) sectionQueries.mergeRow(section, revivedAt)
     for (task in tasks) taskQueries.mergeRow(task, revivedAt)
 }
 
@@ -260,6 +305,7 @@ internal fun TaskQueries.upsertRow(task: Task) {
         notes = task.notes,
         priority = task.priority.level.toLong(),
         projectId = task.projectId,
+        sectionId = task.sectionId,
         parentId = task.parentId,
         spawnedFromId = task.spawnedFromId,
         dueDate = task.dueDate?.toEpochDay(),
@@ -292,6 +338,7 @@ internal fun TaskQueries.mergeRow(task: Task, revivedAt: Instant? = null) {
             notes = task.notes,
             priority = task.priority.level.toLong(),
             projectId = task.projectId,
+            sectionId = task.sectionId,
             parentId = task.parentId,
             spawnedFromId = task.spawnedFromId,
             dueDate = task.dueDate?.toEpochDay(),
@@ -310,6 +357,7 @@ internal fun TaskQueries.mergeRow(task: Task, revivedAt: Instant? = null) {
         notes = task.notes,
         priority = task.priority.level.toLong(),
         projectId = task.projectId,
+        sectionId = task.sectionId,
         parentId = task.parentId,
         spawnedFromId = task.spawnedFromId,
         dueDate = task.dueDate?.toEpochDay(),
@@ -333,6 +381,7 @@ private fun TaskQueries.insertIfAbsent(task: Task) {
         notes = task.notes,
         priority = task.priority.level.toLong(),
         projectId = task.projectId,
+        sectionId = task.sectionId,
         parentId = task.parentId,
         spawnedFromId = task.spawnedFromId,
         dueDate = task.dueDate?.toEpochDay(),
@@ -397,6 +446,52 @@ private fun ProjectQueries.insertIfAbsent(project: Project) {
     )
 }
 
+/** The section half of the same pair — see [upsertRow]. */
+internal fun SectionQueries.upsertRow(section: Section) {
+    updateRow(
+        projectId = section.projectId,
+        name = section.name,
+        sortOrder = section.sortOrder.toLong(),
+        updatedAt = section.updatedAt.toEpochMilli(),
+        deletedAt = section.deletedAt?.toEpochMilli(),
+        id = section.id,
+    )
+    insertIfAbsent(section)
+}
+
+/** The section half of the merge, [revivedAt] included — see [TaskQueries.mergeRow]. */
+internal fun SectionQueries.mergeRow(section: Section, revivedAt: Instant? = null) {
+    if (revivedAt != null && section.deletedAt == null) {
+        reviveIfDeleted(
+            projectId = section.projectId,
+            name = section.name,
+            sortOrder = section.sortOrder.toLong(),
+            revivedAt = revivedAt.toEpochMilli(),
+            id = section.id,
+        )
+    }
+    updateIfOlder(
+        projectId = section.projectId,
+        name = section.name,
+        sortOrder = section.sortOrder.toLong(),
+        updatedAt = section.updatedAt.toEpochMilli(),
+        deletedAt = section.deletedAt?.toEpochMilli(),
+        id = section.id,
+    )
+    insertIfAbsent(section)
+}
+
+private fun SectionQueries.insertIfAbsent(section: Section) {
+    insertIfAbsent(
+        id = section.id,
+        projectId = section.projectId,
+        name = section.name,
+        sortOrder = section.sortOrder.toLong(),
+        updatedAt = section.updatedAt.toEpochMilli(),
+        deletedAt = section.deletedAt?.toEpochMilli(),
+    )
+}
+
 /** Attachments keep their `INSERT OR REPLACE`: no table references `attachmentRow`, so the
  *  delete-then-insert REPLACE performs cascades nowhere, and every id here is freshly minted. */
 private fun AttachmentQueries.insertRow(attachment: Attachment) {
@@ -431,12 +526,16 @@ internal fun toTask(
     recurrence: String?,
     updatedAt: Long,
     deletedAt: Long?,
+    // Last, because `SELECT *` hands the mapper the table's own column order and `3.sqm` could
+    // only append this one — see the note on `taskRow.sectionId`.
+    sectionId: String?,
 ) = Task(
     id = id,
     title = title,
     notes = notes,
     priority = Priority.fromLevel(priority.toInt()),
     projectId = projectId,
+    sectionId = sectionId,
     parentId = parentId,
     spawnedFromId = spawnedFromId,
     dueDate = dueDate?.let { LocalDate.ofEpochDay(it) },
@@ -463,6 +562,22 @@ internal fun toProject(
     name = name,
     colorHex = colorHex,
     parentId = parentId,
+    sortOrder = sortOrder.toInt(),
+    updatedAt = Instant.ofEpochMilli(updatedAt),
+    deletedAt = deletedAt?.let { Instant.ofEpochMilli(it) },
+)
+
+internal fun toSection(
+    id: String,
+    projectId: String,
+    name: String,
+    sortOrder: Long,
+    updatedAt: Long,
+    deletedAt: Long?,
+) = Section(
+    id = id,
+    projectId = projectId,
+    name = name,
     sortOrder = sortOrder.toInt(),
     updatedAt = Instant.ofEpochMilli(updatedAt),
     deletedAt = deletedAt?.let { Instant.ofEpochMilli(it) },

@@ -2,6 +2,7 @@ package de.andi1984.cadence.data
 
 import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.Project
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
@@ -112,11 +113,37 @@ interface ProjectStore {
     suspend fun tombstoneAll(at: Instant)
 }
 
+interface SectionStore {
+
+    fun observeAll(): Flow<List<Section>>
+
+    suspend fun getAll(): List<Section>
+
+    /** Inserts a section that already carries its final id, minted by the caller. */
+    suspend fun insert(section: Section)
+
+    suspend fun update(section: Section)
+
+    /**
+     * Tombstones a section and frees the tasks under it.
+     *
+     * Both halves together: a section is a heading, not a container that owns the work, so its
+     * tasks stay in the project and lose only their grouping. A task left naming a heading no
+     * section answers to would be drawn under a band that is not there.
+     *
+     * Idempotent — a section already tombstoned keeps its original timestamp.
+     */
+    suspend fun tombstone(id: String, at: Instant)
+
+    /** Tombstones every section — see [TaskStore.tombstoneAll]. */
+    suspend fun tombstoneAll(at: Instant)
+}
+
 interface BackupStore {
 
     /**
-     * Folds [projects] and [tasks] into what is already stored, and reports nothing: a merge has
-     * no failure mode short of the whole transaction rolling back.
+     * Folds [projects], [sections] and [tasks] into what is already stored, and reports nothing:
+     * a merge has no failure mode short of the whole transaction rolling back.
      *
      * This replaced a `replaceAll` that deleted every row and reinserted, which is why importing
      * a backup used to be a data-loss event and why two devices sharing a file could each undo
@@ -138,7 +165,12 @@ interface BackupStore {
      *
      * All or nothing: a failed merge must not leave the app half-written.
      */
-    suspend fun mergeAll(projects: List<Project>, tasks: List<Task>, revivedAt: Instant)
+    suspend fun mergeAll(
+        projects: List<Project>,
+        sections: List<Section>,
+        tasks: List<Task>,
+        revivedAt: Instant,
+    )
 }
 
 /**

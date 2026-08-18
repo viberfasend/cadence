@@ -81,8 +81,10 @@ WHERE deletedAt IS NULL
   AND (projectId = :id
        OR projectId IN (SELECT id FROM projectRow WHERE parentId = :id AND deletedAt IS NULL));
 
+-- `sectionId` goes with the project: a section belongs to one project, so a task landing in the
+-- Inbox cannot keep a heading nothing answers to.
 moveTasksToInbox:
-UPDATE taskRow SET projectId = NULL, updatedAt = :updatedAt
+UPDATE taskRow SET projectId = NULL, sectionId = NULL, updatedAt = :updatedAt
 WHERE deletedAt IS NULL
   AND (projectId = :id
        OR projectId IN (SELECT id FROM projectRow WHERE parentId = :id AND deletedAt IS NULL));
@@ -91,6 +93,15 @@ WHERE deletedAt IS NULL
 -- their parent is in the same project, so `parentId IN (...)` would be redundant here.
 tombstoneTasksIn:
 UPDATE taskRow SET deletedAt = :at, updatedAt = :at
+WHERE deletedAt IS NULL
+  AND (projectId = :id
+       OR projectId IN (SELECT id FROM projectRow WHERE parentId = :id AND deletedAt IS NULL));
+
+-- A section is part of the project, not of the work: whichever way the tasks go, the headings go
+-- with the project. Run before `tombstoneWithChildrenRows` for the same reason the two statements
+-- above are — it reads `parentId = :id` against rows that one is about to tombstone.
+tombstoneSectionsIn:
+UPDATE sectionRow SET deletedAt = :at, updatedAt = :at
 WHERE deletedAt IS NULL
   AND (projectId = :id
        OR projectId IN (SELECT id FROM projectRow WHERE parentId = :id AND deletedAt IS NULL));

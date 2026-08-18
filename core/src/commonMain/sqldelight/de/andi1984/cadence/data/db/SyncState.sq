@@ -20,12 +20,16 @@ CREATE TABLE syncStateRow (
     pushWatermark INTEGER NOT NULL DEFAULT 0,
     -- When the last round finished, for the Settings line and for the once-a-day tombstone sweep.
     lastSyncedAt INTEGER,
-    lastSweepAt INTEGER
+    lastSweepAt INTEGER,
+    -- The third table's cursor. Last on purpose, out of order with the two beside it: `3.sqm`
+    -- adds it with `ALTER TABLE … ADD COLUMN`, which SQLite can only append, and `select` below
+    -- is a `SELECT *` — see the same note on `taskRow.sectionId`.
+    sectionCursor TEXT
 );
 
 -- The row is inserted with the table, so every read can assume it is there.
-INSERT INTO syncStateRow(id, session, taskCursor, projectCursor, pushWatermark, lastSyncedAt, lastSweepAt)
-VALUES (1, NULL, NULL, NULL, 0, NULL, NULL);
+INSERT INTO syncStateRow(id, session, taskCursor, projectCursor, pushWatermark, lastSyncedAt, lastSweepAt, sectionCursor)
+VALUES (1, NULL, NULL, NULL, 0, NULL, NULL, NULL);
 
 select:
 SELECT * FROM syncStateRow WHERE id = 1;
@@ -38,6 +42,9 @@ UPDATE syncStateRow SET taskCursor = :cursor WHERE id = 1;
 
 setProjectCursor:
 UPDATE syncStateRow SET projectCursor = :cursor WHERE id = 1;
+
+setSectionCursor:
+UPDATE syncStateRow SET sectionCursor = :cursor WHERE id = 1;
 
 setPushWatermark:
 UPDATE syncStateRow SET pushWatermark = :watermark WHERE id = 1;
@@ -53,6 +60,6 @@ UPDATE syncStateRow SET lastSweepAt = :at WHERE id = 1;
 -- source of truth and signing out is not a delete.
 clearSync:
 UPDATE syncStateRow
-SET session = NULL, taskCursor = NULL, projectCursor = NULL, pushWatermark = 0,
-    lastSyncedAt = NULL, lastSweepAt = NULL
+SET session = NULL, taskCursor = NULL, projectCursor = NULL, sectionCursor = NULL,
+    pushWatermark = 0, lastSyncedAt = NULL, lastSweepAt = NULL
 WHERE id = 1;
