@@ -6,6 +6,7 @@ import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceMode
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -18,7 +19,7 @@ import java.time.OffsetDateTime
 import java.time.temporal.ChronoUnit
 
 /**
- * What a task and a project look like on the wire.
+ * What a task, a project and a section look like on the wire.
  *
  * The published shape, not the storage shape (ADR 0002, decision 5): a date is a `date`, a time
  * is a `time`, an instant is a `timestamptz` and recurrence is an object — deliberately not the
@@ -68,6 +69,7 @@ data class RemoteTask(
     /** 1…4, matching [Priority.level]. */
     val priority: Int = Priority.DEFAULT.level,
     @SerialName("project_id") val projectId: String? = null,
+    @SerialName("section_id") val sectionId: String? = null,
     @SerialName("parent_id") val parentId: String? = null,
     @SerialName("spawned_from_id") val spawnedFromId: String? = null,
     @SerialName("due_date") val dueDate: String? = null,
@@ -96,6 +98,17 @@ data class RemoteProject(
 )
 
 @Serializable
+data class RemoteSection(
+    val id: String,
+    @SerialName("project_id") val projectId: String,
+    val name: String,
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    @SerialName("updated_at") val updatedAt: String,
+    @SerialName("deleted_at") val deletedAt: String? = null,
+    @SerialName("server_updated_at") val serverUpdatedAt: String? = null,
+)
+
+@Serializable
 data class RemoteRecurrence(
     val mode: String = RecurrenceMode.SCHEDULE.name,
     val interval: Int = 1,
@@ -115,6 +128,7 @@ fun Task.toRemote() = RemoteTask(
     notes = notes,
     priority = priority.level,
     projectId = projectId,
+    sectionId = sectionId,
     parentId = parentId,
     spawnedFromId = spawnedFromId,
     dueDate = dueDate?.toString(),
@@ -145,6 +159,7 @@ fun RemoteTask.toDomain() = Task(
     notes = notes?.takeIf { it.isNotBlank() },
     priority = Priority.fromLevel(priority),
     projectId = projectId?.takeIf { it.isNotBlank() },
+    sectionId = sectionId?.takeIf { it.isNotBlank() },
     parentId = parentId?.takeIf { it.isNotBlank() },
     spawnedFromId = spawnedFromId?.takeIf { it.isNotBlank() },
     dueDate = dueDate.parseOrNull { LocalDate.parse(it) },
@@ -173,6 +188,24 @@ fun RemoteProject.toDomain() = Project(
     name = name,
     colorHex = colorHex,
     parentId = parentId?.takeIf { it.isNotBlank() },
+    sortOrder = sortOrder,
+    updatedAt = updatedAt.parseInstantOrNull() ?: Instant.EPOCH,
+    deletedAt = deletedAt.parseInstantOrNull(),
+)
+
+fun Section.toRemote() = RemoteSection(
+    id = id,
+    projectId = projectId,
+    name = name,
+    sortOrder = sortOrder,
+    updatedAt = updatedAt.toString(),
+    deletedAt = deletedAt?.toString(),
+)
+
+fun RemoteSection.toDomain() = Section(
+    id = id,
+    projectId = projectId,
+    name = name,
     sortOrder = sortOrder,
     updatedAt = updatedAt.parseInstantOrNull() ?: Instant.EPOCH,
     deletedAt = deletedAt.parseInstantOrNull(),

@@ -226,11 +226,33 @@
     <string name="project_section_overdue">Overdue</string>
     <string name="project_section_all">All tasks</string>
 
+    <!-- ── Sections: the bands inside one project's task list ──────────────────────── -->
+    <string name="sections_new">New section</string>
+    <string name="sections_rename">Rename section</string>
+    <string name="sections_delete">Delete section</string>
+    <!-- %1$s is the section name. -->
+    <string name="sections_actions">Actions for %1$s</string>
+    <!-- The band above the first heading: everything in the project that is not filed anywhere. -->
+    <string name="sections_ungrouped">No section</string>
+    <string name="sections_dialog_new">New section</string>
+    <string name="sections_dialog_edit">Rename section</string>
+    <string name="sections_dialog_name">Section name</string>
+    <!-- Delete confirmation; %1$s is the section name. -->
+    <string name="sections_delete_confirm_title">Delete “%1$s”?</string>
+    <string name="sections_delete_no_tasks">The section is empty.</string>
+    <plurals name="sections_delete_tasks_kept">
+        <item quantity="one">The task stays in the project, without a section.</item>
+        <item quantity="other">All %1$d tasks stay in the project, without a section.</item>
+    </plurals>
+
     <!-- ── Task detail ─────────────────────────────────────────────────────────────── -->
     <string name="task_not_found_title">Task not found</string>
     <string name="deleted_supporting">It may have been deleted.</string>
     <string name="task_delete">Delete task</string>
     <string name="task_move_to_project">Move to project</string>
+    <string name="task_move_to_section">Move to section</string>
+    <!-- The section chip beside the project chip, shown only when the project has sections. -->
+    <string name="task_no_section">No section</string>
     <string name="task_set_time">Set time</string>
     <string name="task_importance">Importance</string>
     <string name="task_due">Due %1$s</string>
@@ -425,4 +447,5 @@
     <string name="snackbar_error">Something went wrong: %1$s</string>
     <string name="snackbar_subtask_invalid">Please enter a valid subtask title</string>
     <string name="snackbar_project_name_empty">Project name cannot be empty</string>
+    <string name="snackbar_section_name_empty">Section name cannot be empty</string>
 </resources>

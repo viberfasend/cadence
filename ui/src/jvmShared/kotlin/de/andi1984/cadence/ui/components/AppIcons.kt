@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.Today
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material.icons.rounded.UnfoldMore
+import androidx.compose.material.icons.rounded.ViewAgenda
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /** One place to map the design's Material Symbols to the icon set shipped with Compose. */
@@ -80,4 +81,7 @@ object AppIcons {
     val Tune: ImageVector = Icons.Rounded.Tune
     val Upload: ImageVector = Icons.Rounded.Upload
     val UnfoldMore: ImageVector = Icons.Rounded.UnfoldMore
+
+    /** A section — stacked bands, because that is what one is: a heading over part of a list. */
+    val Section: ImageVector = Icons.Rounded.ViewAgenda
 }

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import de.andi1984.cadence.ui.resources.Res
 import de.andi1984.cadence.ui.resources.*
 import de.andi1984.cadence.domain.model.Project
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.projectPath
 import java.time.Instant
 import java.time.LocalDate
@@ -156,6 +157,77 @@ fun ProjectPickerDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(Res.string.action_cancel)) }
         },
     )
+}
+
+/**
+ * Which band of its project a task sits in.
+ *
+ * "No section" is a real choice at the top rather than a way of cancelling, the same way the Inbox
+ * is in [ProjectPickerDialog]: a project's ungrouped band is where most tasks live, so moving one
+ * back out of a heading has to be as easy as moving it in.
+ */
+@Composable
+fun SectionPickerDialog(
+    sections: List<Section>,
+    selectedId: String?,
+    onDismiss: () -> Unit,
+    onPick: (String?) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(Res.string.task_move_to_section)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                SectionOption(
+                    label = stringResource(Res.string.task_no_section),
+                    selected = selectedId == null,
+                    onClick = {
+                        onPick(null)
+                        onDismiss()
+                    },
+                )
+                sections.forEach { section ->
+                    SectionOption(
+                        label = section.name,
+                        selected = section.id == selectedId,
+                        onClick = {
+                            onPick(section.id)
+                            onDismiss()
+                        },
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(Res.string.action_cancel)) }
+        },
+    )
+}
+
+@Composable
+private fun SectionOption(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            modifier = Modifier.weight(1f),
+        )
+    }
 }
 
 @Composable

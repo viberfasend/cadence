@@ -284,6 +284,7 @@ fun CadenceDesktopApp(
                             onOpenTask = { push(Route.TaskDetail(it.id)) },
                             onAddSubtask = viewModel::addSubtask,
                             onMoveToProject = viewModel::setProject,
+                            onMoveToSection = viewModel::setSection,
                         )
                     }
 
@@ -302,6 +303,9 @@ fun CadenceDesktopApp(
                         onCreateProject = viewModel::addProject,
                         onEditProject = viewModel::editProject,
                         onDeleteProject = viewModel::deleteProject,
+                        onCreateSection = viewModel::addSection,
+                        onRenameSection = viewModel::renameSection,
+                        onDeleteSection = viewModel::deleteSection,
                     )
                 }
             }

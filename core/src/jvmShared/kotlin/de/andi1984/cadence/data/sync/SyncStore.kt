@@ -1,6 +1,7 @@
 package de.andi1984.cadence.data.sync
 
 import de.andi1984.cadence.domain.model.Project
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import java.time.Instant
 
@@ -18,6 +19,9 @@ data class SyncState(
     val session: String? = null,
     val taskCursor: String? = null,
     val projectCursor: String? = null,
+    /** The third table's cursor. Null on a device that synced before sections existed, which is
+     *  exactly right: its first round after upgrading pulls every section from the beginning. */
+    val sectionCursor: String? = null,
     val pushWatermark: Instant = Instant.EPOCH,
     val lastSyncedAt: Instant? = null,
     val lastSweepAt: Instant? = null,
@@ -34,22 +38,26 @@ interface SyncStore {
 
     suspend fun projectsChangedSince(since: Instant): List<Project>
 
+    suspend fun sectionsChangedSince(since: Instant): List<Section>
+
     /**
      * Folds a pulled page in and advances the cursors, in **one** transaction.
      *
      * Together or not at all, because the two orders both lose data on a crash between them: a
      * cursor advanced before the merge skips rows on the next round, and a merge without the
      * cursor is only saved by the merge being idempotent. A null cursor leaves that table's
-     * cursor where it was — a page can be empty for one table and full for the other.
+     * cursor where it was — a page can be empty for one table and full for the others.
      *
      * The merge itself is the same one importing a backup uses: greater `updatedAt` wins, ties
      * keep what is stored, a tombstone is a version like any other.
      */
     suspend fun mergeAndAdvance(
         projects: List<Project>,
+        sections: List<Section>,
         tasks: List<Task>,
         taskCursor: String?,
         projectCursor: String?,
+        sectionCursor: String?,
     )
 
     suspend fun setPushWatermark(at: Instant)

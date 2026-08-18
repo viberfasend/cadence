@@ -15,9 +15,10 @@ user moves it there deliberately. `--import-project NAME` renames the pile and
 How a Todoist row lands in Cadence:
 
     file "Name [id].csv"  -> a subproject of the staging project, the "Inbox" file included
-    section row           -> a sibling subproject named "Project · Section", because the staging
-                             project has taken the one level of nesting Cadence allows
-    task row, INDENT 1    -> a task in the current project or section
+    section row           -> a section of that project — a heading inside its task list, which is
+                             what Cadence's own sections are; the tasks under it stay the
+                             project's rather than moving into a project of their own
+    task row, INDENT 1    -> a task in the current project, carrying the current section
     task row, INDENT >= 2 -> a subtask of the last INDENT 1 task (deeper levels flatten onto it,
                              because Cadence nests subtasks exactly one level)
     note row              -> appended to the task above it, prefixed with the note's date
@@ -687,6 +688,7 @@ class Converter:
         self.now_iso = now.replace(microsecond=(now.microsecond // 1000) * 1000).isoformat().replace("+00:00", "Z")
         self.ref = ref
         self.projects: list[dict] = []
+        self.sections: list[dict] = []
         self.tasks: list[dict] = []
         self.stats = Stats()
         # Everything imported is parked under one staging project — see staging_id(). Nothing
@@ -703,6 +705,22 @@ class Converter:
             "name": name,
             "colorHex": color,
             "parentId": parent_id,
+            "sortOrder": order,
+            "updatedAt": self.now_iso,
+            "deletedAt": None,
+        })
+        return ident
+
+    def add_section(self, ident: str, project_id: str, name: str, order: int) -> str:
+        """A heading inside one project's list — never a project of its own.
+
+        The importer drops a section whose `projectId` names no project in the same file, so this
+        is only ever called once the project it belongs to has been written.
+        """
+        self.sections.append({
+            "id": ident,
+            "projectId": project_id,
+            "name": name,
             "sortOrder": order,
             "updatedAt": self.now_iso,
             "deletedAt": None,
@@ -735,9 +753,13 @@ class Converter:
         if not is_inbox or not self.options.no_import_project:
             root_id = stable_id("project", name)
 
-        pending_sections: list[tuple[str, str]] = []   # (id, name), created on first task
+        # id -> (name, position), created on the first task that lands in it. The position is
+        # where the section row stands among the file's section rows, which is the order the
+        # project's headings are drawn in; an empty section leaves a gap in it and nothing minds.
+        pending_sections: dict[str, tuple[str, int]] = {}
         section_id: str | None = None
         section_name: str | None = None
+        seen_sections = 0
         current_parent: dict | None = None             # last INDENT 1 task, for subtasks
         last_task: dict | None = None                  # last task of any level, for notes
         order = 0
@@ -749,7 +771,8 @@ class Converter:
             if kind == "section":
                 section_name = content
                 section_id = stable_id("section", name, content, row_index)
-                pending_sections.append((section_id, content))
+                pending_sections[section_id] = (content, seen_sections)
+                seen_sections += 1
                 current_parent = None
                 last_task = None
                 continue
@@ -762,38 +785,38 @@ class Converter:
                 continue
 
             # Projects and sections are created lazily: an empty section would otherwise import
-            # as an empty subproject, and Todoist exports plenty of those.
+            # as a heading with nothing under it, and Todoist exports plenty of those.
             staging = self.staging_id()
             if root_id and not created_root:
                 self.add_project(root_id, name, staging, len(self.projects), color)
                 created_root = True
                 self.stats.projects += 1
-            if pending_sections and section_id:
-                for pending_id, pending_name in pending_sections:
-                    if pending_id == section_id:
-                        # Cadence nests projects exactly one level, and the staging project has
-                        # taken that level. A section therefore becomes a sibling of its own
-                        # project, carrying the project's name — no grouping is lost, and both
-                        # disappear once the user has moved the tasks into their own system.
-                        if staging:
-                            self.add_project(pending_id, f"{name} · {pending_name}", staging,
-                                             len(self.projects), color)
-                        else:
-                            self.add_project(pending_id, pending_name, root_id,
-                                             len(self.projects), color)
-                        self.stats.sections += 1
-                pending_sections = [s for s in pending_sections if s[0] != section_id]
+            # A section groups the project's own list, so it needs a project to hang from. The
+            # one row that has none is a task in the Todoist Inbox imported with
+            # --no-import-project, which lands in Cadence's Inbox — and the Inbox is not a
+            # project, so there is nothing there for a heading to belong to. Its tasks arrive
+            # ungrouped rather than dragging a project-less section along.
+            grouped_by: str | None = None
+            if section_id and root_id:
+                pending = pending_sections.pop(section_id, None)
+                if pending is not None:
+                    self.add_section(section_id, root_id, pending[0], pending[1])
+                    self.stats.sections += 1
+                grouped_by = section_id
 
-            # An Inbox row has no project of its own, so it sits in the staging project itself
-            # rather than dropping straight into the device's Inbox.
-            task = self.convert_task(row, row_index, name, section_id or root_id or staging,
+            # The Inbox with no staging project is the only file whose rows have no project of
+            # their own; everything else sits in the project its file became.
+            task = self.convert_task(row, row_index, name, root_id or staging, grouped_by,
                                      order, section_name)
             order += 1
             indent = int((row.get("INDENT") or "1").strip() or 1)
             if indent >= 2 and current_parent is not None:
                 task["parentId"] = current_parent["id"]
-                # A subtask inherits its parent's project: Cadence moves the two together.
+                # A subtask inherits its parent's project *and* its section: Cadence moves the
+                # two together, and a step drawn under a different heading than its parent would
+                # be a step nobody finds.
                 task["projectId"] = current_parent["projectId"]
+                task["sectionId"] = current_parent["sectionId"]
                 self.stats.subtasks += 1
             else:
                 current_parent = task
@@ -802,7 +825,7 @@ class Converter:
             last_task = task
 
     def convert_task(self, row: dict, row_index: int, file_name: str,
-                     project_id: str | None, order: int,
+                     project_id: str | None, section_id: str | None, order: int,
                      section_name: str | None = None) -> dict:
         title = (row.get("CONTENT") or "").strip()
         extra_notes: list[str] = []
@@ -874,6 +897,7 @@ class Converter:
             "_notes": [(row.get("DESCRIPTION") or "").strip(), *extra_notes],
             "priority": level,
             "projectId": project_id,
+            "sectionId": section_id,
             "parentId": None,
             "spawnedFromId": None,
             "dueDate": due_date.isoformat() if due_date else None,
@@ -899,6 +923,7 @@ class Converter:
             "version": BACKUP_VERSION,
             "exportedAt": self.now_iso,
             "projects": self.projects,
+            "sections": self.sections,
             "tasks": tasks,
         }
 
@@ -1327,12 +1352,19 @@ class ConversionTest(unittest.TestCase):
     def task(self, title):
         return next(t for t in self.document["tasks"] if t["title"].startswith(title))
 
+    def section(self, name):
+        return next(s for s in self.document["sections"] if s["name"] == name)
+
     def test_project_name_drops_the_todoist_id(self):
         self.assertEqual(project_name(self.path), "wohnung")
         self.assertEqual([p["name"] for p in self.document["projects"]],
-                         ["Import 2026-08-13", "wohnung", "wohnung · Ofen"])
+                         ["Import 2026-08-13", "wohnung"])
 
     def test_empty_sections_are_not_imported(self):
+        # "Leer" is a section row no task follows, and Todoist exports plenty of those. A
+        # heading with nothing under it is noise in the project's list, so it is never written —
+        # neither as a section nor, as it once was, as an empty project.
+        self.assertEqual([s["name"] for s in self.document["sections"]], ["Ofen"])
         self.assertNotIn("wohnung · Leer", [p["name"] for p in self.document["projects"]])
 
     def test_everything_is_parked_under_one_staging_project(self):
@@ -1346,12 +1378,26 @@ class ConversionTest(unittest.TestCase):
         self.assertTrue(all(t["projectId"] is not None for t in self.document["tasks"]))
         self.assertEqual(self.stats.staging, "Import 2026-08-13")
 
-    def test_a_section_keeps_its_project_in_its_name(self):
-        # Projects nest exactly one level and the staging project has taken it, so a section is
-        # a sibling of its own project rather than a child of it.
-        ofen = next(p for p in self.document["projects"] if p["name"] == "wohnung · Ofen")
-        self.assertEqual(ofen["parentId"], self.document["projects"][0]["id"])
-        self.assertEqual(self.task("reinigen")["projectId"], ofen["id"])
+    def test_a_section_belongs_to_the_project_it_was_exported_from(self):
+        # A Todoist section is a heading inside one project's list, and Cadence has exactly that
+        # now. It used to arrive as a sibling project named "wohnung · Ofen", because the app had
+        # no sections and the staging project had taken the one level of nesting projects allow.
+        wohnung = next(p for p in self.document["projects"] if p["name"] == "wohnung")
+        ofen = self.section("Ofen")
+        self.assertEqual(ofen["projectId"], wohnung["id"])
+        # "Leer" stands ahead of it in the file, so "Ofen" is the project's second heading.
+        self.assertEqual(ofen["sortOrder"], 1)
+        self.assertEqual(self.task("reinigen")["sectionId"], ofen["id"])
+
+    def test_a_task_in_a_section_still_belongs_to_the_project(self):
+        # The section groups the row; it does not own it. A task whose projectId named the
+        # section instead would vanish from the project it was exported from.
+        wohnung = next(p for p in self.document["projects"] if p["name"] == "wohnung")
+        reinigen = self.task("reinigen")
+        self.assertEqual(reinigen["projectId"], wohnung["id"])
+        self.assertNotEqual(reinigen["projectId"], reinigen["sectionId"])
+        # A row that stands above every section row is in the project's ungrouped band.
+        self.assertIsNone(self.task("Fenster")["sectionId"])
 
     def test_the_staging_project_can_be_renamed_or_skipped(self):
         named, _ = convert([self.path], _options(import_project="Todoist"),
@@ -1360,8 +1406,12 @@ class ConversionTest(unittest.TestCase):
 
         flat, stats = convert([self.path], _options(no_import_project=True),
                               dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF)
-        self.assertEqual([p["name"] for p in flat["projects"]], ["wohnung", "Ofen"])
+        self.assertEqual([p["name"] for p in flat["projects"]], ["wohnung"])
         self.assertIsNone(flat["projects"][0]["parentId"])
+        # Without the staging project the section still hangs off "wohnung": nothing about the
+        # pile decides where a heading belongs any more.
+        self.assertEqual([(s["name"], s["projectId"]) for s in flat["sections"]],
+                         [("Ofen", flat["projects"][0]["id"])])
         self.assertIsNone(stats.staging)
 
     def test_indent_two_is_a_subtask_sharing_the_parents_project(self):
@@ -1414,6 +1464,11 @@ class ConversionTest(unittest.TestCase):
                           dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF)
         loose = next(t for t in flat["tasks"] if t["title"].startswith("Fenster"))
         self.assertIsNone(loose["projectId"])
+        # A section groups one project's list and the Inbox is not a project, so the file's
+        # section rows have nothing to belong to: their tasks arrive ungrouped rather than
+        # carrying a sectionId the importer would only drop again.
+        self.assertEqual(flat["sections"], [])
+        self.assertTrue(all(t["sectionId"] is None for t in flat["tasks"]))
 
     def test_the_api_supplies_the_date_the_export_left_out(self):
         # What the CSV says is "jährlich" and nothing more; Todoist knows it is due 23 December.
@@ -1435,8 +1490,9 @@ class ConversionTest(unittest.TestCase):
         self.assertEqual(self.task("reinigen")["dueDate"], "2026-07-19")
 
     def test_two_sections_sharing_a_task_title_get_their_own_dates(self):
-        # Todoist has sections and Cadence has none, but the *dates* still have to come apart:
-        # every "Gießen" in the project used to import with the last one's date.
+        # Both rows are one project's tasks and differ only by the heading they sit under, so
+        # the *dates* are what has to come apart: every "Gießen" in the project used to import
+        # with the last one's date, because the index was keyed on the project alone.
         garten = os.path.join(self.dir, "garten [6g62GH268rQjFQ92].csv")
         with open(garten, "w", encoding="utf-8") as handle:
             handle.write(SAMPLE.splitlines()[0] + "\n")
@@ -1459,11 +1515,13 @@ class ConversionTest(unittest.TestCase):
                                   dt.datetime(2026, 8, 13, tzinfo=dt.timezone.utc), REF,
                                   due_index=index)
 
-        projects = {p["id"]: p["name"] for p in document["projects"]}
-        dates = {projects[t["projectId"]]: t["dueDate"] for t in document["tasks"]}
-        self.assertEqual(dates, {"garten · Beet": "2026-09-01",
-                                 "garten · Gewächshaus": "2026-12-15"})
+        sections = {s["id"]: s["name"] for s in document["sections"]}
+        dates = {sections[t["sectionId"]]: t["dueDate"] for t in document["tasks"]}
+        self.assertEqual(dates, {"Beet": "2026-09-01", "Gewächshaus": "2026-12-15"})
         self.assertEqual(stats.exact, 2)
+        # Both rows stayed in "garten" — only the heading above them differs.
+        garten = next(p for p in document["projects"] if p["name"] == "garten")
+        self.assertEqual({t["projectId"] for t in document["tasks"]}, {garten["id"]})
 
     def test_ids_are_uuids_and_stable_across_runs(self):
         again, _ = convert([self.path], _options(),

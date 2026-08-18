@@ -88,7 +88,7 @@ class ForeignKeyCascadeTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
-            tasks = listOf(Task(id = "t1", title = "Pack for Rome", createdAt = now, updatedAt = later)),
+            tasks =listOf(Task(id = "t1", title = "Pack for Rome", createdAt = now, updatedAt = later)),
             revivedAt = now,
         )
 
@@ -109,7 +109,7 @@ class ForeignKeyCascadeTest {
         backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "House", updatedAt = later)),
             sections = emptyList(),
-            tasks = emptyList(),
+            tasks =emptyList(),
             revivedAt = now,
         )
 
@@ -150,7 +150,7 @@ class ForeignKeyCascadeTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
-            tasks = listOf(Task(id = "t1", title = "Book flights", projectId = "p1", createdAt = now, updatedAt = now)),
+            tasks =listOf(Task(id = "t1", title = "Book flights", projectId = "p1", createdAt = now, updatedAt = now)),
             revivedAt = now,
         )
         assertEquals("p1", taskStore.byId("t1")?.projectId)
@@ -159,7 +159,7 @@ class ForeignKeyCascadeTest {
         backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "Rome", updatedAt = now)),
             sections = emptyList(),
-            tasks = emptyList(),
+            tasks =emptyList(),
             revivedAt = now,
         )
         assertEquals(listOf("t1"), projectStore.taskIdsIn("p1"))
@@ -192,7 +192,7 @@ class ForeignKeyCascadeTest {
         backupStore.mergeAll(
             projects = listOf(child.copy(updatedAt = later), parent.copy(updatedAt = later)),
             sections = emptyList(),
-            tasks = emptyList(),
+            tasks =emptyList(),
             revivedAt = now,
         )
 

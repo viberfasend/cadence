@@ -16,8 +16,11 @@ import java.time.LocalDate
  * `tools/todoist_import.py` writes this shape, and the app has to keep reading it.
  *
  * The fixture is a trimmed copy of that script's output — same keys, same date and instant
- * formats, same "everything hangs under one staging project" and "INDENT 2 is a subtask"
- * decisions. Nothing here exercises the script itself (it has its own tests, `--self-test`);
+ * formats, same "everything hangs under one staging project", "a Todoist section is a section of
+ * its project" and "INDENT 2 is a subtask" decisions. The `sections` array and the tasks'
+ * `sectionId` are part of that shape now, and the version alongside them deliberately did not
+ * move: both keys are additive, so an older install ignores them rather than refusing the file.
+ * Nothing here exercises the script itself (it has its own tests, `--self-test`);
  * what it guards is the other half of the contract: that a change to [BackupCodec] cannot
  * quietly stop the converter's files from importing.
  */
@@ -46,13 +49,14 @@ class TodoistImportFixtureTest {
               "sortOrder": 1,
               "updatedAt": "2026-08-13T20:05:11.382000Z",
               "deletedAt": null
-            },
+            }
+          ],
+          "sections": [
             {
               "id": "6f0f9bd0-2a1f-5a4f-9a6c-6b4f1f6d7a11",
-              "name": "wohnung · Ofen",
-              "colorHex": "#3E6373",
-              "parentId": "b1c6b2b4-2f27-5c0e-9f6a-1f0f6d3a7c02",
-              "sortOrder": 2,
+              "projectId": "cf0bf792-ffb2-5bc9-97d9-8b5ba5085ed3",
+              "name": "Ofen",
+              "sortOrder": 1,
               "updatedAt": "2026-08-13T20:05:11.382000Z",
               "deletedAt": null
             }
@@ -64,6 +68,7 @@ class TodoistImportFixtureTest {
               "notes": "2018-06-08 · Ballistol benutzt\n\nDeadline: 2027-01-19",
               "priority": 2,
               "projectId": "cf0bf792-ffb2-5bc9-97d9-8b5ba5085ed3",
+              "sectionId": null,
               "parentId": null,
               "spawnedFromId": null,
               "dueDate": "2026-08-13",
@@ -92,6 +97,7 @@ class TodoistImportFixtureTest {
               "notes": null,
               "priority": 4,
               "projectId": "cf0bf792-ffb2-5bc9-97d9-8b5ba5085ed3",
+              "sectionId": null,
               "parentId": "43ad82ed-339f-5fe2-9bee-53f9e58d6bb2",
               "spawnedFromId": null,
               "dueDate": null,
@@ -109,7 +115,8 @@ class TodoistImportFixtureTest {
               "title": "reinigen",
               "notes": null,
               "priority": 4,
-              "projectId": "6f0f9bd0-2a1f-5a4f-9a6c-6b4f1f6d7a11",
+              "projectId": "cf0bf792-ffb2-5bc9-97d9-8b5ba5085ed3",
+              "sectionId": "6f0f9bd0-2a1f-5a4f-9a6c-6b4f1f6d7a11",
               "parentId": null,
               "spawnedFromId": null,
               "dueDate": "2026-08-13",
@@ -141,7 +148,8 @@ class TodoistImportFixtureTest {
     @Test
     fun `a converted export is a readable backup`() {
         assertTrue(BackupCodec.decode(fixture) is BackupReadResult.Ok)
-        assertEquals(3, snapshot.projects.size)
+        assertEquals(2, snapshot.projects.size)
+        assertEquals(1, snapshot.sections.size)
         assertEquals(3, snapshot.tasks.size)
     }
 
@@ -156,13 +164,22 @@ class TodoistImportFixtureTest {
     }
 
     @Test
-    fun `a Todoist section arrives beside its project, carrying its name`() {
-        // Projects nest exactly one level and the staging project has taken it, so the section
-        // is a sibling of "wohnung" rather than a child of it.
-        val staging = snapshot.projects.single { it.parentId == null }
-        val section = snapshot.projects.first { it.name == "wohnung · Ofen" }
-        assertEquals(staging.id, section.parentId)
-        assertEquals(section.id, snapshot.tasks.first { it.title == "reinigen" }.projectId)
+    fun `a Todoist section arrives as a section of the project it came from`() {
+        // Todoist's sections are Cadence's, one for one. The converter used to write each of
+        // them as a sibling project named "wohnung · Ofen", because there were no sections and
+        // the staging project had taken the one level of nesting projects allow.
+        val wohnung = snapshot.projects.first { it.name == "wohnung" }
+        val section = snapshot.sections.single()
+        assertEquals("Ofen", section.name)
+        assertEquals(wohnung.id, section.projectId)
+
+        // The heading groups the row; it does not own it. A task whose projectId named the
+        // section would be a task the project it was exported from no longer lists.
+        val grouped = snapshot.tasks.first { it.title == "reinigen" }
+        assertEquals(wohnung.id, grouped.projectId)
+        assertEquals(section.id, grouped.sectionId)
+        // A row exported above every section row is in the project's ungrouped band.
+        assertNull(snapshot.tasks.first { it.title == "Bad putzen" }.sectionId)
     }
 
     @Test

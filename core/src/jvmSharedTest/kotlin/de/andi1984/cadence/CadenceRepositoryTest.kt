@@ -5,8 +5,8 @@ import de.andi1984.cadence.data.BackupStore
 import de.andi1984.cadence.data.BlobStore
 import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.data.ProjectStore
-import de.andi1984.cadence.data.SectionStore
 import de.andi1984.cadence.data.RepositoryResult
+import de.andi1984.cadence.data.SectionStore
 import de.andi1984.cadence.data.StoreResult
 import de.andi1984.cadence.data.TaskStore
 import de.andi1984.cadence.domain.model.Attachment
@@ -49,10 +49,11 @@ class CadenceRepositoryTest {
         tmp = Files.createTempDirectory("cadence-blobs-tmp").toFile(),
     )
     private val projectStore = FakeProjectStore()
+    private val sectionStore = FakeSectionStore(taskStore)
     private val repository = CadenceRepository(
         taskStore,
         projectStore,
-        FakeSectionStore(),
+        sectionStore,
         FakeBackupStore(),
         attachmentStore,
         blobStore,
@@ -266,6 +267,98 @@ class CadenceRepositoryTest {
         assertFalse(rows.single().isDone)
     }
 
+    // ── Sections ───────────────────────────────────────────────────────────────────
+
+    /** Adds a section to `p1` and returns the id the repository minted for it. */
+    private suspend fun section(name: String = "This week", projectId: String = "p1"): String {
+        val result = repository.upsertSection(Section(projectId = projectId, name = name))
+        return (result as RepositoryResult.Success).data
+    }
+
+    @Test
+    fun `deleting a section frees its tasks rather than taking them with it`() = runTest {
+        val sectionId = section()
+        val task = store(Task(title = "Send the invoice", projectId = "p1", sectionId = sectionId))
+
+        repository.deleteSection(sectionId)
+
+        // The heading is gone and the work is not: it is still in the project, one band higher.
+        assertNotNull(sectionStore.row(sectionId).deletedAt)
+        assertTrue(sectionStore.rows().isEmpty())
+        val freed = taskStore.row(task.id)
+        assertNull(freed.sectionId)
+        assertEquals("p1", freed.projectId)
+        assertNull(freed.deletedAt)
+    }
+
+    @Test
+    fun `deleting a section twice leaves the first tombstone's timestamp alone`() = runTest {
+        val sectionId = section()
+
+        repository.deleteSection(sectionId)
+        val stamped = sectionStore.row(sectionId).deletedAt
+        repository.deleteSection(sectionId)
+
+        assertEquals(stamped, sectionStore.row(sectionId).deletedAt)
+    }
+
+    @Test
+    fun `moving a task to another project drops the heading it had`() = runTest {
+        val sectionId = section()
+        val task = store(Task(title = "Send the invoice", projectId = "p1", sectionId = sectionId))
+        val step = store(Task(title = "Find the receipt", parentId = task.id, projectId = "p1", sectionId = sectionId))
+
+        repository.moveToProject(taskStore.row(task.id), "p2")
+
+        // A section belongs to one project, so the heading means nothing in the new one — and the
+        // checklist follows its task rather than staying behind under a band it no longer shares.
+        assertEquals("p2", taskStore.row(task.id).projectId)
+        assertNull(taskStore.row(task.id).sectionId)
+        assertEquals("p2", taskStore.row(step.id).projectId)
+        assertNull(taskStore.row(step.id).sectionId)
+    }
+
+    @Test
+    fun `filing a task under a section takes its checklist with it`() = runTest {
+        val sectionId = section()
+        val task = store(Task(title = "Send the invoice", projectId = "p1"))
+        val step = store(Task(title = "Find the receipt", parentId = task.id, projectId = "p1"))
+
+        repository.moveToSection(taskStore.row(task.id), sectionId)
+
+        assertEquals(sectionId, taskStore.row(task.id).sectionId)
+        assertEquals(sectionId, taskStore.row(step.id).sectionId)
+    }
+
+    @Test
+    fun `a task with no project cannot be filed under a section`() = runTest {
+        val sectionId = section()
+        val task = store(Task(title = "Send the invoice"))
+
+        repository.moveToSection(taskStore.row(task.id), sectionId)
+
+        // There is nowhere for it to be grouped: the Inbox draws no headings.
+        assertNull(taskStore.row(task.id).sectionId)
+    }
+
+    @Test
+    fun `a section with a blank name is refused rather than stored`() = runTest {
+        val result = repository.upsertSection(Section(projectId = "p1", name = "   "))
+
+        assertTrue(result is RepositoryResult.ValidationError)
+        assertTrue(sectionStore.rows().isEmpty())
+    }
+
+    @Test
+    fun `the danger zone tombstones the sections too`() = runTest {
+        val sectionId = section()
+
+        repository.deleteEverything()
+
+        assertNotNull(sectionStore.row(sectionId).deletedAt)
+        assertTrue(sectionStore.rows().isEmpty())
+    }
+
     // ── Attachments ────────────────────────────────────────────────────────────────
 
     @Test
@@ -348,7 +441,7 @@ class CadenceRepositoryTest {
         val withProject = CadenceRepository(
             taskStore,
             projectStore,
-            FakeSectionStore(),
+            sectionStore,
             FakeBackupStore(),
             attachmentStore,
             blobStore,
@@ -367,7 +460,7 @@ class CadenceRepositoryTest {
         val withProject = CadenceRepository(
             taskStore,
             projectStore,
-            FakeSectionStore(),
+            sectionStore,
             FakeBackupStore(),
             attachmentStore,
             blobStore,
@@ -485,6 +578,17 @@ private class FakeTaskStore : TaskStore {
         return 1
     }
 
+    /** `Section.sq`'s `clearTasksIn`, which the store runs beside the section's own tombstone. */
+    fun clearSection(sectionId: String, at: Instant) {
+        table.value = table.value.mapValues { (_, task) ->
+            if (task.sectionId == sectionId && task.deletedAt == null) {
+                task.copy(sectionId = null, updatedAt = at)
+            } else {
+                task
+            }
+        }
+    }
+
     override suspend fun openSuccessorsOf(id: String): List<String> = rows()
         .filter { it.spawnedFromId == id && it.completedAt == null }
         .map { it.id }
@@ -524,15 +628,26 @@ private class FakeBackupStore : BackupStore {
     ) = Unit
 }
 
-/** An in-memory [SectionStore]. Nothing here asserts against sections yet — the repository just
- *  needs one to exist. */
-private class FakeSectionStore : SectionStore {
+/**
+ * An in-memory [SectionStore], holding a [FakeTaskStore] because the real one does too.
+ *
+ * `tombstone` is two writes in one transaction in SQL — stamp the row, free its tasks — and a fake
+ * that only stamped would let "deleting a section leaves its tasks pointing at a heading nothing
+ * answers to" through unnoticed.
+ */
+private class FakeSectionStore(private val tasks: FakeTaskStore) : SectionStore {
 
     private val table = MutableStateFlow<Map<String, Section>>(emptyMap())
 
-    override fun observeAll(): Flow<List<Section>> = table.map { it.values.toList() }
+    /** The raw row, tombstone included — how a test asserts a delete stamped rather than removed. */
+    fun row(id: String): Section = table.value[id] ?: error("no section with id $id")
 
-    override suspend fun getAll(): List<Section> = table.value.values.toList()
+    fun rows(): List<Section> = table.value.values.filter { it.deletedAt == null }
+
+    override fun observeAll(): Flow<List<Section>> =
+        table.map { m -> m.values.filter { it.deletedAt == null } }
+
+    override suspend fun getAll(): List<Section> = rows()
 
     override suspend fun insert(section: Section) {
         table.value = table.value + (section.id to section)
@@ -543,6 +658,7 @@ private class FakeSectionStore : SectionStore {
     }
 
     override suspend fun tombstone(id: String, at: Instant) {
+        tasks.clearSection(id, at)
         val section = table.value[id] ?: return
         if (section.deletedAt != null) return
         table.value = table.value + (id to section.copy(deletedAt = at, updatedAt = at))
@@ -550,7 +666,7 @@ private class FakeSectionStore : SectionStore {
 
     override suspend fun tombstoneAll(at: Instant) {
         table.value = table.value.mapValues { (_, section) ->
-            if (section.deletedAt != null) section else section.copy(deletedAt = at, updatedAt = at)
+            if (section.deletedAt == null) section.copy(deletedAt = at, updatedAt = at) else section
         }
     }
 }

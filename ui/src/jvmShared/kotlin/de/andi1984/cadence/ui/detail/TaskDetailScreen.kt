@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -64,6 +66,7 @@ import de.andi1984.cadence.ui.components.CompletionCircle
 import de.andi1984.cadence.ui.components.EmptyState
 import de.andi1984.cadence.ui.components.ProjectPickerDialog
 import de.andi1984.cadence.ui.components.ProjectSwatch
+import de.andi1984.cadence.ui.components.SectionPickerDialog
 import de.andi1984.cadence.ui.components.SegmentedRow
 import de.andi1984.cadence.ui.components.TaskRow
 import de.andi1984.cadence.ui.components.priorityColor
@@ -75,6 +78,7 @@ import de.andi1984.cadence.ui.recurrence.RecurrenceSheet
 import de.andi1984.cadence.ui.theme.LocalCadenceColors
 import java.time.LocalDate
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TaskDetailScreen(
     task: Task?,
@@ -88,6 +92,7 @@ fun TaskDetailScreen(
     onOpenTask: (Task) -> Unit,
     onAddSubtask: (Task, String) -> Unit,
     onMoveToProject: (Task, String?) -> Unit,
+    onMoveToSection: (Task, String?) -> Unit,
 ) {
     if (task == null) {
         EmptyState(
@@ -106,6 +111,7 @@ fun TaskDetailScreen(
     var timePickerOpen by remember { mutableStateOf(false) }
     var reminderPickerOpen by remember { mutableStateOf(false) }
     var projectPickerOpen by remember { mutableStateOf(false) }
+    var sectionPickerOpen by remember { mutableStateOf(false) }
     var recurrenceOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -114,6 +120,9 @@ fun TaskDetailScreen(
         ?: stringResource(Res.string.inbox_title)
     val parent = state.parentOf(task)
     val subtasks = state.subtasks(task.id)
+    // The chip appears only where there is something to choose: a task in the Inbox has no bands
+    // to sit in, and neither has a project nobody has added a heading to.
+    val sections = task.projectId?.let { state.sectionsIn(it) }.orEmpty()
 
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
         Row(
@@ -214,31 +223,68 @@ fun TaskDetailScreen(
                 )
             }
 
-            Row(
-                modifier = Modifier
-                    .height(40.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(scheme.surfaceContainerHigh)
-                    .clickable { projectPickerOpen = true }
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                ProjectSwatch(
-                    colorHex = state.project(task.projectId)?.colorHex ?: "#6F7976",
-                    size = 10,
-                )
-                Text(
-                    text = projectLabel,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurface,
-                )
-                Icon(
-                    imageVector = AppIcons.UnfoldMore,
-                    contentDescription = null,
-                    tint = scheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
+                Row(
+                    modifier = Modifier
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(scheme.surfaceContainerHigh)
+                        .clickable { projectPickerOpen = true }
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ProjectSwatch(
+                        colorHex = state.project(task.projectId)?.colorHex ?: "#6F7976",
+                        size = 10,
+                    )
+                    Text(
+                        text = projectLabel,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurface,
+                    )
+                    Icon(
+                        imageVector = AppIcons.UnfoldMore,
+                        contentDescription = null,
+                        tint = scheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+
+                if (sections.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(scheme.surfaceContainerHigh)
+                            .clickable { sectionPickerOpen = true }
+                            .padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            imageVector = AppIcons.Section,
+                            contentDescription = null,
+                            tint = scheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = state.section(task.sectionId)?.name
+                                ?: stringResource(Res.string.task_no_section),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = scheme.onSurface,
+                        )
+                        Icon(
+                            imageVector = AppIcons.UnfoldMore,
+                            contentDescription = null,
+                            tint = scheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
             }
 
             Text(
@@ -448,6 +494,16 @@ fun TaskDetailScreen(
             onDismiss = { projectPickerOpen = false },
             // Not onSave: the subtasks follow their task into the new project.
             onPick = { onMoveToProject(task, it) },
+        )
+    }
+    if (sectionPickerOpen) {
+        SectionPickerDialog(
+            sections = sections,
+            selectedId = task.sectionId,
+            onDismiss = { sectionPickerOpen = false },
+            // Not onSave either, and for the same reason: a checklist drawn under a different
+            // heading than the task it belongs to would read as two separate pieces of work.
+            onPick = { onMoveToSection(task, it) },
         )
     }
     if (recurrenceOpen) {

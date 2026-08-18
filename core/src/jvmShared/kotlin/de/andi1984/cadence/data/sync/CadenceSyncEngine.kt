@@ -1,6 +1,7 @@
 package de.andi1984.cadence.data.sync
 
 import de.andi1984.cadence.domain.model.Project
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
@@ -208,7 +209,7 @@ class CadenceSyncEngine(
     }
 
     /**
-     * Signs out and forgets the session, both cursors and the watermark.
+     * Signs out and forgets the session, every cursor and the watermark.
      *
      * It deliberately deletes nothing: the local database is the source of truth and signing out
      * is not a delete. Clearing the cursors is what makes signing back in start from the
@@ -300,12 +301,12 @@ class CadenceSyncEngine(
     }
 
     /**
-     * One channel, both tables, filtered server-side on `user_id`.
+     * One channel, all three tables, filtered server-side on `user_id`.
      *
      * The filter is not decoration: without it the socket carries every account's rows and RLS
      * drops them at delivery, which is waste plus one more thing to get wrong.
      *
-     * Returns when the session ends; throws when the socket does. Both flows are collected before
+     * Returns when the session ends; throws when the socket does. Every flow is collected before
      * [RealtimeChannel.subscribe] because a `postgres_changes` binding is registered as its flow
      * is collected and only travels with the join that follows it.
      */
@@ -319,10 +320,15 @@ class CadenceSyncEngine(
             table = TABLE_PROJECTS
             filter(COLUMN_USER_ID, FilterOperator.EQ, userId)
         }
+        val sections = channel.postgresChangeFlow<PostgresAction>(schema = SCHEMA) {
+            table = TABLE_SECTIONS
+            filter(COLUMN_USER_ID, FilterOperator.EQ, userId)
+        }
 
         val listeners = listOf(
             launch { tasks.collect { action -> action.record()?.let { mergeRemoteTask(it) } } },
             launch { projects.collect { action -> action.record()?.let { mergeRemoteProject(it) } } },
+            launch { sections.collect { action -> action.record()?.let { mergeRemoteSection(it) } } },
             // Every reconnect the library manages under us gets its own full round, for the same
             // reason the first subscribe does: the socket's downtime is exactly the gap the
             // cursor covers. `drop(1)` skips the *first* connected — that one is the socket this
@@ -365,9 +371,11 @@ class CadenceSyncEngine(
         mutex.withLock {
             store.mergeAndAdvance(
                 projects = emptyList(),
+                sections = emptyList(),
                 tasks = listOf(task.toDomain()),
                 taskCursor = null,
                 projectCursor = null,
+                sectionCursor = null,
             )
         }
     }
@@ -379,9 +387,27 @@ class CadenceSyncEngine(
         mutex.withLock {
             store.mergeAndAdvance(
                 projects = listOf(project.toDomain()),
+                sections = emptyList(),
                 tasks = emptyList(),
                 taskCursor = null,
                 projectCursor = null,
+                sectionCursor = null,
+            )
+        }
+    }
+
+    private suspend fun mergeRemoteSection(record: JsonObject) {
+        val section =
+            runCatching { SyncJson.decodeFromJsonElement(RemoteSection.serializer(), record) }
+                .getOrNull() ?: return
+        mutex.withLock {
+            store.mergeAndAdvance(
+                projects = emptyList(),
+                sections = listOf(section.toDomain()),
+                tasks = emptyList(),
+                taskCursor = null,
+                projectCursor = null,
+                sectionCursor = null,
             )
         }
     }
@@ -414,7 +440,7 @@ class CadenceSyncEngine(
     // ── Pull ───────────────────────────────────────────────────────────────────────
 
     /**
-     * Reads both tables forward from their cursors and merges each page as it lands.
+     * Reads all three tables forward from their cursors and merges each page as it lands.
      *
      * The cursor is re-read five seconds early every round. `now()` in Postgres is
      * transaction-start time, so a transaction that began before ours and committed after it can
@@ -425,34 +451,42 @@ class CadenceSyncEngine(
         val state = store.state()
         var taskCursor = state.taskCursor
         var projectCursor = state.projectCursor
+        var sectionCursor = state.sectionCursor
         var merged = 0
-        // Tracked per table rather than for the pull as a whole. The two are paged independently,
-        // and asking a table that already answered with a short page costs a request that can
-        // only return rows this round has merged already — which is what the old shared `done`
-        // flag did on every iteration while the other table was still catching up.
+        // Tracked per table rather than for the pull as a whole. The three are paged
+        // independently, and asking a table that already answered with a short page costs a
+        // request that can only return rows this round has merged already — which is what the old
+        // shared `done` flag did on every iteration while another table was still catching up.
         var moreTasks = true
         var moreProjects = true
+        var moreSections = true
 
-        while (moreTasks || moreProjects) {
-            // Neither table's page depends on the other's, so they travel together: one round
-            // trip's latency per iteration instead of two.
+        while (moreTasks || moreProjects || moreSections) {
+            // No table's page depends on another's, so they travel together: one round trip's
+            // latency per iteration instead of three.
             val projectPage = if (moreProjects) async { fetchProjects(projectCursor) } else null
+            val sectionPage = if (moreSections) async { fetchSections(sectionCursor) } else null
             val taskPage = if (moreTasks) async { fetchTasks(taskCursor) } else null
             val projects = projectPage?.await().orEmpty()
+            val sections = sectionPage?.await().orEmpty()
             val tasks = taskPage?.await().orEmpty()
-            if (projects.isEmpty() && tasks.isEmpty()) break
+            if (projects.isEmpty() && sections.isEmpty() && tasks.isEmpty()) break
 
             val nextTaskCursor = tasks.mapNotNull { it.serverUpdatedAt }.maxByOrNull { it.asInstant() }
             val nextProjectCursor =
                 projects.mapNotNull { it.serverUpdatedAt }.maxByOrNull { it.asInstant() }
+            val nextSectionCursor =
+                sections.mapNotNull { it.serverUpdatedAt }.maxByOrNull { it.asInstant() }
 
             store.mergeAndAdvance(
                 projects = projects.map { it.toDomain() },
+                sections = sections.map { it.toDomain() },
                 tasks = tasks.map { it.toDomain() },
                 taskCursor = nextTaskCursor,
                 projectCursor = nextProjectCursor,
+                sectionCursor = nextSectionCursor,
             )
-            merged += projects.size + tasks.size
+            merged += projects.size + sections.size + tasks.size
 
             // A full page whose newest row carries the cursor we already had would ask for the
             // same page forever: more than a thousand rows sharing one microsecond. Stopping is
@@ -460,8 +494,10 @@ class CadenceSyncEngine(
             // still there. Paging past this properly is phase 4's problem.
             moreTasks = tasks.size >= PAGE_SIZE && nextTaskCursor != taskCursor
             moreProjects = projects.size >= PAGE_SIZE && nextProjectCursor != projectCursor
+            moreSections = sections.size >= PAGE_SIZE && nextSectionCursor != sectionCursor
             taskCursor = nextTaskCursor ?: taskCursor
             projectCursor = nextProjectCursor ?: projectCursor
+            sectionCursor = nextSectionCursor ?: sectionCursor
         }
         merged
     }
@@ -480,10 +516,23 @@ class CadenceSyncEngine(
             limit(PAGE_SIZE.toLong())
         }.decodeList()
 
+    private suspend fun fetchSections(cursor: String?): List<RemoteSection> =
+        client.from(TABLE_SECTIONS).select {
+            filter { cursor?.let { gte(COLUMN_SERVER_UPDATED_AT, it.minusOverlap()) } }
+            order(COLUMN_SERVER_UPDATED_AT, Order.ASCENDING)
+            limit(PAGE_SIZE.toLong())
+        }.decodeList()
+
     // ── Push ───────────────────────────────────────────────────────────────────────
 
     /**
-     * Sends everything written since the watermark, projects first.
+     * Sends everything written since the watermark: projects, then sections, then tasks.
+     *
+     * The order is the reference order — a section names its project and a task names its section
+     * — so a round that fails part-way leaves the server with rows whose links already resolve.
+     * Postgres enforces none of it (the mirror carries no foreign key either, for the reason the
+     * local schema carries none), but a web client reading between two batches sees a coherent
+     * list rather than a heading pointing at a project it has not been sent yet.
      *
      * The new watermark is the newest `updatedAt` actually sent, not "now": a row written while
      * this push was in flight has a stamp above that and is therefore still waiting for the next
@@ -492,11 +541,17 @@ class CadenceSyncEngine(
     private suspend fun push(): Int {
         val watermark = store.state().pushWatermark
         val projects = store.projectsChangedSince(watermark)
+        val sections = store.sectionsChangedSince(watermark)
         val tasks = store.tasksChangedSince(watermark)
-        if (projects.isEmpty() && tasks.isEmpty()) return 0
+        if (projects.isEmpty() && sections.isEmpty() && tasks.isEmpty()) return 0
 
         projects.chunked(BATCH_SIZE).forEach { batch ->
             client.from(TABLE_PROJECTS).upsert(batch.map { it.toRemote() }) {
+                onConflict = CONFLICT_KEY
+            }
+        }
+        sections.chunked(BATCH_SIZE).forEach { batch ->
+            client.from(TABLE_SECTIONS).upsert(batch.map { it.toRemote() }) {
                 onConflict = CONFLICT_KEY
             }
         }
@@ -506,9 +561,13 @@ class CadenceSyncEngine(
             }
         }
 
-        val newest = (projects.map(Project::updatedAt) + tasks.map(Task::updatedAt)).max()
+        val newest = (
+            projects.map(Project::updatedAt) +
+                sections.map(Section::updatedAt) +
+                tasks.map(Task::updatedAt)
+            ).max()
         store.setPushWatermark(newest)
-        return projects.size + tasks.size
+        return projects.size + sections.size + tasks.size
     }
 
     /** Tombstones are only collectable once they have been handed over, so this runs after a
@@ -541,18 +600,19 @@ class CadenceSyncEngine(
     private companion object {
         const val TABLE_TASKS = "tasks"
         const val TABLE_PROJECTS = "projects"
+        const val TABLE_SECTIONS = "sections"
         const val COLUMN_SERVER_UPDATED_AT = "server_updated_at"
         const val COLUMN_USER_ID = "user_id"
         const val SCHEMA = "public"
 
-        /** One channel carries both tables — two would be two sockets' worth of bookkeeping for
-         *  the same account's rows. */
+        /** One channel carries all three tables — one per table would be three sockets' worth of
+         *  bookkeeping for the same account's rows. */
         const val REALTIME_CHANNEL = "cadence"
 
         val REALTIME_MIN_BACKOFF: Duration = Duration.ofSeconds(1)
         val REALTIME_MAX_BACKOFF: Duration = Duration.ofSeconds(30)
 
-        /** The primary key both tables carry, and therefore what an upsert conflicts on. */
+        /** The primary key every table carries, and therefore what an upsert conflicts on. */
         const val CONFLICT_KEY = "user_id,id"
 
         const val PAGE_SIZE = 1000

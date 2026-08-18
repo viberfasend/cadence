@@ -3,9 +3,11 @@ package de.andi1984.cadence.data.sync
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import de.andi1984.cadence.data.db.CadenceDatabase
 import de.andi1984.cadence.data.db.SqlDelightProjectStore
+import de.andi1984.cadence.data.db.SqlDelightSectionStore
 import de.andi1984.cadence.data.db.SqlDelightSyncStore
 import de.andi1984.cadence.data.db.SqlDelightTaskStore
 import de.andi1984.cadence.domain.model.Project
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -15,7 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 
-/** What sync remembers, and the two tombstone-aware views only it uses. */
+/** What sync remembers, and the three tombstone-aware views only it uses. */
 class SqlDelightSyncStoreTest {
 
     private fun newDatabase(): CadenceDatabase {
@@ -37,6 +39,7 @@ class SqlDelightSyncStoreTest {
             assertNull(state.session)
             assertNull(state.taskCursor)
             assertNull(state.projectCursor)
+            assertNull(state.sectionCursor)
             assertEquals(Instant.EPOCH, state.pushWatermark)
             assertNull(state.lastSyncedAt)
         }
@@ -46,18 +49,27 @@ class SqlDelightSyncStoreTest {
         val store = syncStore(newDatabase())
 
         store.setSession("{\"access_token\":\"abc\"}")
-        store.mergeAndAdvance(emptyList(), emptyList(), "2026-08-11T09:00:00Z", null)
+        store.mergeAndAdvance(
+            projects = emptyList(),
+            sections = emptyList(),
+            tasks = emptyList(),
+            taskCursor = "2026-08-11T09:00:00Z",
+            projectCursor = null,
+            sectionCursor = "2026-08-11T09:00:00Z",
+        )
         store.setPushWatermark(now)
         store.setLastSyncedAt(now)
 
         assertEquals("{\"access_token\":\"abc\"}", store.state().session)
         assertEquals("2026-08-11T09:00:00Z", store.state().taskCursor)
+        assertEquals("2026-08-11T09:00:00Z", store.state().sectionCursor)
 
         store.clear()
 
         val cleared = store.state()
         assertNull(cleared.session)
         assertNull(cleared.taskCursor)
+        assertNull(cleared.sectionCursor)
         assertNull(cleared.lastSyncedAt)
         assertEquals(Instant.EPOCH, cleared.pushWatermark)
     }
@@ -96,20 +108,57 @@ class SqlDelightSyncStoreTest {
         val database = newDatabase()
         val tasks = SqlDelightTaskStore(database, Dispatchers.Unconfined)
         val projects = SqlDelightProjectStore(database, Dispatchers.Unconfined)
+        val sections = SqlDelightSectionStore(database, Dispatchers.Unconfined)
         val store = syncStore(database)
         tasks.insert(Task(id = "t1", title = "Local", createdAt = now, updatedAt = now))
         projects.insert(Project(id = "p1", name = "Local", updatedAt = now))
 
         store.mergeAndAdvance(
             projects = listOf(Project(id = "p1", name = "Stale", updatedAt = now.minusSeconds(1))),
+            sections = listOf(Section(id = "s1", projectId = "p1", name = "Newer", updatedAt = now.plusSeconds(1))),
             tasks = listOf(Task(id = "t1", title = "Newer", createdAt = now, updatedAt = now.plusSeconds(1))),
             taskCursor = "2026-08-11T09:00:01Z",
             projectCursor = "2026-08-11T09:00:01Z",
+            sectionCursor = "2026-08-11T09:00:01Z",
         )
 
         assertEquals("Newer", tasks.byId("t1")?.title)
         assertEquals("Local", projects.getAll().single().name)
+        assertEquals("Newer", sections.getAll().single().name)
         assertEquals("2026-08-11T09:00:01Z", store.state().taskCursor)
+        assertEquals("2026-08-11T09:00:01Z", store.state().sectionCursor)
+    }
+
+    /** Sections are pushed like anything else: the third view over the same watermark. */
+    @Test
+    fun `sections written after the watermark are pushed, tombstones included`() = runTest {
+        val database = newDatabase()
+        val sections = SqlDelightSectionStore(database, Dispatchers.Unconfined)
+        val later = now.plusSeconds(60)
+        sections.insert(Section(id = "s1", projectId = "p1", name = "Old", updatedAt = now))
+        sections.insert(Section(id = "s2", projectId = "p1", name = "New", updatedAt = later))
+        sections.insert(Section(id = "s3", projectId = "p1", name = "Gone", updatedAt = now))
+        sections.tombstone("s3", later)
+
+        val pushed = syncStore(database).sectionsChangedSince(now)
+
+        assertEquals(setOf("s2", "s3"), pushed.map { it.id }.toSet())
+        assertEquals(later, pushed.first { it.id == "s3" }.deletedAt)
+    }
+
+    @Test
+    fun `the sweep drops section tombstones past the horizon too`() = runTest {
+        val database = newDatabase()
+        val sections = SqlDelightSectionStore(database, Dispatchers.Unconfined)
+        val store = syncStore(database)
+        val old = now.minusSeconds(200L * 24 * 60 * 60)
+        sections.insert(Section(id = "s1", projectId = "p1", name = "Long gone", updatedAt = old))
+        sections.insert(Section(id = "s2", projectId = "p1", name = "Alive", updatedAt = now))
+        sections.tombstone("s1", old)
+
+        store.collectTombstones(before = now.minusSeconds(90L * 24 * 60 * 60), at = now)
+
+        assertEquals(listOf("s2"), store.sectionsChangedSince(Instant.EPOCH).map { it.id })
     }
 
     /**
@@ -130,9 +179,11 @@ class SqlDelightSyncStoreTest {
 
         store.mergeAndAdvance(
             projects = emptyList(),
+            sections = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Still there", createdAt = now, updatedAt = now)),
             taskCursor = "2026-08-11T09:00:01Z",
             projectCursor = null,
+            sectionCursor = null,
         )
 
         assertNull(tasks.byId("t1"))
@@ -143,12 +194,27 @@ class SqlDelightSyncStoreTest {
     @Test
     fun `a null cursor leaves that table's cursor where it was`() = runTest {
         val store = syncStore(newDatabase())
-        store.mergeAndAdvance(emptyList(), emptyList(), "2026-08-11T09:00:00Z", "2026-08-11T08:00:00Z")
+        store.mergeAndAdvance(
+            projects = emptyList(),
+            sections = emptyList(),
+            tasks = emptyList(),
+            taskCursor = "2026-08-11T09:00:00Z",
+            projectCursor = "2026-08-11T08:00:00Z",
+            sectionCursor = "2026-08-11T07:00:00Z",
+        )
 
-        store.mergeAndAdvance(emptyList(), emptyList(), "2026-08-11T10:00:00Z", null)
+        store.mergeAndAdvance(
+            projects = emptyList(),
+            sections = emptyList(),
+            tasks = emptyList(),
+            taskCursor = "2026-08-11T10:00:00Z",
+            projectCursor = null,
+            sectionCursor = null,
+        )
 
         assertEquals("2026-08-11T10:00:00Z", store.state().taskCursor)
         assertEquals("2026-08-11T08:00:00Z", store.state().projectCursor)
+        assertEquals("2026-08-11T07:00:00Z", store.state().sectionCursor)
     }
 
     @Test
