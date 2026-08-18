@@ -32,8 +32,8 @@ class DatabaseDriverFactoryTest {
     fun `opening an existing database again neither re-creates nor re-migrates it`() {
         val first = DatabaseDriverFactory(folder.root).createDriver()
         CadenceDatabase(first).taskQueries.insertIfAbsent(
-            id = "t1", title = "Survives", notes = null, priority = 2, projectId = null, sectionId = null,
-            parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
+            id = "t1", title = "Survives", notes = null, priority = 2, projectId = null,
+            sectionId = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
             reminderTime = null, completedAt = null, createdAt = 0, sortOrder = 0,
             recurrence = null, updatedAt = 0, deletedAt = null,
         )
@@ -55,15 +55,14 @@ class DatabaseDriverFactoryTest {
     fun `a version-1 install from before user_version was tracked is migrated, not re-created`() {
         val setup = DatabaseDriverFactory(folder.root).createDriver()
         CadenceDatabase(setup).taskQueries.insertIfAbsent(
-            id = "t1", title = "Older than sync", notes = null, priority = 2, projectId = null, sectionId = null,
-            parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
+            id = "t1", title = "Older than sync", notes = null, priority = 2, projectId = null,
+            sectionId = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
             reminderTime = null, completedAt = null, createdAt = 0, sortOrder = 0,
             recurrence = null, updatedAt = 0, deletedAt = null,
         )
-        // Wind the file back to what a phase-1 install looks like on disk: every table a later
-        // migration added has to go, or the migration that adds it runs into its own work.
-        // `taskRow.sectionId` stays — `2.sqm` rebuilds the table from an explicit column list and
-        // drops it on the way, which is exactly what a real version-1 file goes through.
+        // Wind the file back to what a phase-1 install looks like on disk. `taskRow` may keep its
+        // extra columns — `2.sqm` rebuilds it from a named column list either way — but a table
+        // `3.sqm` will `CREATE` outright has to be gone.
         setup.execute(null, "DROP TABLE syncStateRow", 0)
         setup.execute(null, "DROP TABLE sectionRow", 0)
         setup.execute(null, "PRAGMA user_version = 0", 0)
@@ -92,11 +91,12 @@ class DatabaseDriverFactoryTest {
         setup.execute(null, "DROP TABLE taskRow", 0)
         setup.execute(null, "DROP TABLE projectRow", 0)
         setup.execute(null, "DROP TABLE attachmentRow", 0)
-        // Sections arrived in 3.sqm; a version-2 file has never heard of them, and its
-        // `syncStateRow` carries no section cursor either.
+        // Version 2 knew nothing of sections, and `3.sqm` creates the table and adds the column
+        // outright — leaving either behind would make this file a version-4 one wearing a 2.
         setup.execute(null, "DROP TABLE sectionRow", 0)
         setup.execute(null, "DROP TABLE syncStateRow", 0)
         VERSION_2_TABLES.forEach { setup.execute(null, it, 0) }
+        VERSION_2_SYNC_STATE.forEach { setup.execute(null, it, 0) }
         setup.execute(
             null,
             "INSERT INTO projectRow(id, name, colorHex, parentId, sortOrder, updatedAt, deletedAt) " +
@@ -128,12 +128,54 @@ class DatabaseDriverFactoryTest {
         assertEquals(1, database.attachmentQueries.selectAll { _, _, _, _, _, _, _, _, _, _ -> Unit }.executeAsList().size)
         // The row a pull can now deliver before the project it names.
         database.taskQueries.insertIfAbsent(
-            id = "t2", title = "Not pulled yet", notes = null, priority = 2, projectId = "ghost", sectionId = null,
-            parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
+            id = "t2", title = "Not pulled yet", notes = null, priority = 2, projectId = "ghost",
+            sectionId = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
             reminderTime = null, completedAt = null, createdAt = 0, sortOrder = 0,
             recurrence = null, updatedAt = 1, deletedAt = null,
         )
         assertEquals(2, database.taskQueries.selectAll(::toTask).executeAsList().size)
+        migrated.close()
+    }
+
+    /**
+     * The 3 → 4 migration, which adds a table and two columns and rebuilds nothing.
+     *
+     * The one thing it can still get wrong is column *order*. `ALTER TABLE … ADD COLUMN` can only
+     * append, every read in `Task.sq` is a `SELECT *`, and the mapper takes its arguments
+     * positionally — so a fresh database that declared `sectionId` anywhere but last would hand
+     * `toTask` a different column in that slot than a migrated one does. Reading a migrated row
+     * back through the generated mapper is what proves the two agree.
+     */
+    @Test
+    fun `the 3 to 4 migration adds sections without disturbing the columns before them`() {
+        val setup = DatabaseDriverFactory(folder.root).createDriver()
+        setup.execute(null, "DROP TABLE sectionRow", 0)
+        setup.execute(null, "DROP TABLE taskRow", 0)
+        setup.execute(null, "DROP TABLE syncStateRow", 0)
+        VERSION_3_TASK_TABLE.forEach { setup.execute(null, it, 0) }
+        VERSION_2_SYNC_STATE.forEach { setup.execute(null, it, 0) }
+        setup.execute(
+            null,
+            "INSERT INTO taskRow(id, title, priority, projectId, createdAt, sortOrder, updatedAt) " +
+                "VALUES ('t1', 'Water the plants', 2, 'p1', 0, 0, 1)",
+            0,
+        )
+        setup.execute(null, "PRAGMA user_version = 3", 0)
+        setup.close()
+
+        val migrated = DatabaseDriverFactory(folder.root).createDriver()
+
+        val database = CadenceDatabase(migrated)
+        assertEquals(CadenceDatabase.Schema.version, migrated.userVersion())
+        val task = database.taskQueries.selectAll(::toTask).executeAsOne()
+        assertEquals("Water the plants", task.title)
+        // The column the migration appended: absent from the old row, and readable as null.
+        assertEquals(null, task.sectionId)
+        database.sectionQueries.insertIfAbsent(
+            id = "s1", projectId = "p1", name = "This week", sortOrder = 0, updatedAt = 1,
+            deletedAt = null,
+        )
+        assertEquals(1, database.sectionQueries.selectAll(::toSection).executeAsList().size)
         migrated.close()
     }
 
@@ -208,7 +250,10 @@ class DatabaseDriverFactoryTest {
             "CREATE INDEX idx_project_sort ON projectRow(sortOrder)",
             "CREATE INDEX idx_attachment_task ON attachmentRow(taskId)",
             "CREATE INDEX idx_attachment_sha ON attachmentRow(sha256)",
-            // As `1.sqm` left it — `3.sqm` is what adds `sectionCursor`.
+        )
+
+        /** `syncStateRow` as `1.sqm` created it — no `sectionCursor`, which `3.sqm` appends. */
+        val VERSION_2_SYNC_STATE = listOf(
             """
             CREATE TABLE syncStateRow (
                 id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
@@ -221,6 +266,37 @@ class DatabaseDriverFactoryTest {
             )
             """.trimIndent(),
             "INSERT INTO syncStateRow(id, pushWatermark) VALUES (1, 0)",
+        )
+
+        /** `taskRow` as `2.sqm` left it: no foreign keys, and no `sectionId` yet. */
+        val VERSION_3_TASK_TABLE = listOf(
+            """
+            CREATE TABLE taskRow (
+                id TEXT NOT NULL PRIMARY KEY,
+                title TEXT NOT NULL,
+                notes TEXT,
+                priority INTEGER NOT NULL,
+                projectId TEXT,
+                parentId TEXT,
+                spawnedFromId TEXT,
+                dueDate INTEGER,
+                dueTime INTEGER,
+                reminderTime INTEGER,
+                completedAt INTEGER,
+                createdAt INTEGER NOT NULL,
+                sortOrder INTEGER NOT NULL,
+                recurrence TEXT,
+                updatedAt INTEGER NOT NULL,
+                deletedAt INTEGER
+            )
+            """.trimIndent(),
+            "CREATE INDEX idx_task_project ON taskRow(projectId)",
+            "CREATE INDEX idx_task_parent ON taskRow(parentId)",
+            "CREATE INDEX idx_task_spawned_from ON taskRow(spawnedFromId)",
+            "CREATE INDEX idx_task_due ON taskRow(dueDate)",
+            "CREATE INDEX idx_task_completed ON taskRow(completedAt)",
+            "CREATE INDEX idx_task_sort ON taskRow(sortOrder)",
+            "CREATE INDEX idx_task_updated ON taskRow(updatedAt)",
         )
     }
 }

@@ -10,6 +10,7 @@ import de.andi1984.cadence.domain.backup.BackupOutcome
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceRule
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.SubtaskProgress
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.model.projectPath
@@ -123,6 +124,7 @@ data class TaskListRow(val task: Task, val isSubtaskRow: Boolean)
 data class CadenceUiState(
     val tasks: List<Task> = emptyList(),
     val projects: List<Project> = emptyList(),
+    val sections: List<Section> = emptyList(),
     val settings: CadenceSettings = CadenceSettings(),
     /** Result of the last export or import, shown once under the Settings buttons. */
     val backupOutcome: BackupOutcome? = null,
@@ -209,6 +211,31 @@ data class CadenceUiState(
     fun tasksIn(projectId: String): List<Task> {
         val childIds = subprojects(projectId).map { it.id }.toSet()
         return rootTasks().filter { it.projectId == projectId || it.projectId in childIds }
+    }
+
+    fun section(id: String?): Section? = id?.let { sectionId ->
+        sections.firstOrNull { it.id == sectionId }
+    }
+
+    /** The bands of a project's list, in the order they are drawn. */
+    fun sectionsIn(projectId: String): List<Section> = sections
+        .filter { it.projectId == projectId }
+        .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+
+    /**
+     * One band of a project's list: [sectionId]'s tasks, or the ungrouped band for null.
+     *
+     * The ungrouped band deliberately catches more than `sectionId == null`. A project's screen
+     * also shows the tasks of its subprojects, and one of those may be filed under a section of
+     * *its own* project — a heading this list never draws. Matching only nulls would leave that
+     * task in no band at all and drop it off the screen, which is the same failure the "deleting a
+     * project never silently hides tasks" rule exists to prevent.
+     */
+    fun tasksInSection(projectId: String, sectionId: String?): List<Task> {
+        val tasks = tasksIn(projectId)
+        if (sectionId != null) return tasks.filter { it.sectionId == sectionId }
+        val drawn = sectionsIn(projectId).mapTo(mutableSetOf()) { it.id }
+        return tasks.filter { it.sectionId == null || it.sectionId !in drawn }
     }
 
     /**
@@ -305,19 +332,42 @@ class CadenceViewModel(
         Transient(backup, pending, snackMessage)
     }
 
-    val state: StateFlow<CadenceUiState> = combine(
+    /**
+     * The three record flows, folded into one for the same reason [Transient] exists: `combine`
+     * takes five flows at most, and sections would have been the sixth. They belong together
+     * anyway — a section without its project, or a task without its section, is half a screen.
+     */
+    private data class Records(
+        val tasks: List<Task>,
+        val projects: List<Project>,
+        val sections: List<Section>,
+    )
+
+    private val records = combine(
         repository.tasks,
         repository.projects,
+        repository.sections,
+    ) { tasks, projects, sections -> Records(tasks, projects, sections) }
+
+    val state: StateFlow<CadenceUiState> = combine(
+        records,
         settingsStore.state,
         syncState,
         transient,
-    ) { tasks, projects, settings, sync, t ->
+    ) { r, settings, sync, t ->
         CadenceUiState(
             // Pending-deletes are hidden here, at the source, so every list and every direct
             // read of `state.tasks` drops them at once — the delete is not in the database yet,
             // and an undo simply clears the set and lets the flow re-emit the rows.
-            tasks = if (t.pendingDelete.isEmpty()) tasks else tasks.filter { it.id !in t.pendingDelete },
-            projects = if (t.pendingDelete.isEmpty()) projects else projects.filter { it.id !in t.pendingDelete },
+            tasks = if (t.pendingDelete.isEmpty()) r.tasks else r.tasks.filter { it.id !in t.pendingDelete },
+            projects = if (t.pendingDelete.isEmpty()) r.projects else r.projects.filter { it.id !in t.pendingDelete },
+            // Sections follow their project: a heading whose project is being deleted must not
+            // outlive it on screen for the length of the undo window.
+            sections = if (t.pendingDelete.isEmpty()) {
+                r.sections
+            } else {
+                r.sections.filter { it.projectId !in t.pendingDelete }
+            },
             pendingDeleteIds = t.pendingDelete,
             settings = settings,
             backupOutcome = t.backup,
@@ -428,6 +478,12 @@ class CadenceViewModel(
         armSync()
     }
 
+    /** Files a task under one of its project's sections, or under none. The steps follow it. */
+    fun setSection(task: Task, sectionId: String?) = scope.launch {
+        repository.moveToSection(task, sectionId)
+        armSync()
+    }
+
     fun snooze(task: Task, days: Long = 1L) = scope.launch {
         repository.shiftDueDate(task, days)
         armSync()
@@ -528,6 +584,48 @@ class CadenceViewModel(
             UndoAction.DeleteProject(project, tasksInProject, deleteTasks),
             count = if (deleteTasks) 1 + tasksInProject.size else 1,
         )
+    }
+
+    // ── Sections ─────────────────────────────────────────────────────────────────────
+
+    /** Adds a band to the end of a project's list. */
+    fun addSection(projectId: String, name: String) = scope.launch {
+        if (name.isBlank()) {
+            showSnackbar(Res.string.snackbar_section_name_empty)
+            return@launch
+        }
+        val order = state.value.sectionsIn(projectId).size
+        val section = Section(projectId = projectId, name = name.trim(), sortOrder = order)
+        when (val result = repository.upsertSection(section)) {
+            is RepositoryResult.Success -> armSync()
+            is RepositoryResult.Error -> showSnackbar(Res.string.snackbar_error, listOf(result.message))
+            RepositoryResult.ValidationError -> showSnackbar(Res.string.snackbar_section_name_empty)
+        }
+    }
+
+    fun renameSection(section: Section, name: String) = scope.launch {
+        if (name.isBlank()) {
+            showSnackbar(Res.string.snackbar_section_name_empty)
+            return@launch
+        }
+        when (val result = repository.upsertSection(section.copy(name = name.trim()))) {
+            is RepositoryResult.Success -> armSync()
+            is RepositoryResult.Error -> showSnackbar(Res.string.snackbar_error, listOf(result.message))
+            RepositoryResult.ValidationError -> showSnackbar(Res.string.snackbar_section_name_empty)
+        }
+    }
+
+    /**
+     * Removes a band. Its tasks stay in the project and lose only the heading.
+     *
+     * Written straight through rather than deferred behind the undo window the three deletes
+     * above use: nothing disappears here. The rows the section grouped are all still on the same
+     * screen a moment later, one band higher — there is no work to rescue, so there is nothing
+     * for an undo to give back.
+     */
+    fun deleteSection(section: Section) = scope.launch {
+        repository.deleteSection(section.id)
+        armSync()
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────────────

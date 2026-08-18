@@ -215,11 +215,33 @@
     <string name="project_section_overdue">Überfällig</string>
     <string name="project_section_all">Alle Aufgaben</string>
 
+    <!-- ── Abschnitte: die Bänder innerhalb der Aufgabenliste eines Projekts ───────── -->
+    <string name="sections_new">Neuer Abschnitt</string>
+    <string name="sections_rename">Abschnitt umbenennen</string>
+    <string name="sections_delete">Abschnitt löschen</string>
+    <!-- %1$s ist der Abschnittsname. -->
+    <string name="sections_actions">Aktionen für %1$s</string>
+    <!-- Das Band über der ersten Überschrift: alles im Projekt, das nirgends einsortiert ist. -->
+    <string name="sections_ungrouped">Ohne Abschnitt</string>
+    <string name="sections_dialog_new">Neuer Abschnitt</string>
+    <string name="sections_dialog_edit">Abschnitt umbenennen</string>
+    <string name="sections_dialog_name">Name des Abschnitts</string>
+    <!-- Löschbestätigung; %1$s ist der Abschnittsname. -->
+    <string name="sections_delete_confirm_title">„%1$s“ löschen?</string>
+    <string name="sections_delete_no_tasks">Der Abschnitt ist leer.</string>
+    <plurals name="sections_delete_tasks_kept">
+        <item quantity="one">Die Aufgabe bleibt im Projekt, ohne Abschnitt.</item>
+        <item quantity="other">Alle %1$d Aufgaben bleiben im Projekt, ohne Abschnitt.</item>
+    </plurals>
+
     <!-- ── Aufgabendetails ─────────────────────────────────────────────────────────── -->
     <string name="task_not_found_title">Aufgabe nicht gefunden</string>
     <string name="deleted_supporting">Sie wurde vermutlich gelöscht.</string>
     <string name="task_delete">Aufgabe löschen</string>
     <string name="task_move_to_project">In Projekt verschieben</string>
+    <string name="task_move_to_section">In Abschnitt verschieben</string>
+    <!-- Der Abschnitts-Chip neben dem Projekt-Chip; nur sichtbar, wenn das Projekt Abschnitte hat. -->
+    <string name="task_no_section">Ohne Abschnitt</string>
     <string name="task_set_time">Uhrzeit setzen</string>
     <string name="task_importance">Wichtigkeit</string>
     <string name="task_due">Fällig %1$s</string>
@@ -410,4 +432,5 @@
     <string name="snackbar_error">Etwas ging schief: %1$s</string>
     <string name="snackbar_subtask_invalid">Bitte gib einen gültigen Teilaufgaben-Titel ein</string>
     <string name="snackbar_project_name_empty">Der Projektname darf nicht leer sein</string>
+    <string name="snackbar_section_name_empty">Der Abschnittsname darf nicht leer sein</string>
 </resources>

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -29,9 +30,11 @@ import androidx.compose.ui.unit.dp
 import de.andi1984.cadence.ui.resources.Res
 import de.andi1984.cadence.ui.resources.*
 import de.andi1984.cadence.domain.model.Project
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.model.projectPath
 import de.andi1984.cadence.ui.CadenceUiState
+import de.andi1984.cadence.ui.TaskListRow
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.EmptyState
 import de.andi1984.cadence.ui.components.ProjectSwatch
@@ -54,9 +57,13 @@ fun ProjectDetailScreen(
     onCreateProject: (String, String, String?) -> Unit,
     onEditProject: (Project, String, String, String?) -> Unit,
     onDeleteProject: (Project, Boolean) -> Unit,
+    onCreateSection: (String, String) -> Unit,
+    onRenameSection: (Section, String) -> Unit,
+    onDeleteSection: (Section) -> Unit,
 ) {
     val project = state.project(projectId)
     var dialog by remember { mutableStateOf<ProjectDialogState?>(null) }
+    var sectionDialog by remember { mutableStateOf<SectionDialogState?>(null) }
     if (project == null) {
         EmptyState(
             title = stringResource(Res.string.project_not_found_title),
@@ -66,6 +73,7 @@ fun ProjectDetailScreen(
     }
 
     val subprojects = state.subprojects(project.id)
+    val sections = state.sectionsIn(project.id)
     val tasks = state.tasksIn(project.id)
         .filter { state.settings.showCompleted || !it.isDone }
         .sortedFor(state.settings.sortMode)
@@ -120,6 +128,7 @@ fun ProjectDetailScreen(
                 onEdit = { dialog = ProjectDialogState.Edit(project) },
                 onAddSubproject = { dialog = ProjectDialogState.Create(parentId = project.id) },
                 onDelete = { dialog = ProjectDialogState.Delete(project) },
+                onAddSection = { sectionDialog = SectionDialogState.Create(project.id) },
             )
         }
 
@@ -151,58 +160,83 @@ fun ProjectDetailScreen(
                 }
             }
 
-            if (overdue.isNotEmpty()) {
-                item {
-                    SectionHeader(
-                        stringResource(Res.string.project_section_overdue),
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                items(
-                    state.expandedRows(overdue, expandedIds),
-                    key = { if (it.isSubtaskRow) "o-sub-${it.task.id}" else "o-${it.task.id}" },
-                ) { row ->
-                    val task = row.task
-                    TaskRow(
-                        task = task,
-                        projectLabel = state.projectLabel(task),
+            // Two layouts, and which one a project gets is decided by whether it has sections.
+            //
+            // Without them the list splits by urgency, the way it always has: overdue on top, the
+            // rest below. With them it splits by *where the user filed the work* instead —
+            // ungrouped band first, then each heading in its own order — because two splits at
+            // once would put a task's own section three headings away from it. An overdue task
+            // still reads as overdue inside its band; it just does not leave it.
+            if (sections.isEmpty()) {
+                if (overdue.isNotEmpty()) {
+                    item {
+                        SectionHeader(
+                            stringResource(Res.string.project_section_overdue),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    taskBand(
+                        rows = state.expandedRows(overdue, expandedIds),
+                        keyPrefix = "o",
+                        state = state,
                         today = today,
-                        onToggle = { onToggle(task) },
-                        onClick = { onTaskClick(task) },
                         overdueStyle = true,
-                        subtaskProgress = if (row.isSubtaskRow) null else state.subtaskProgress(task.id),
-                        expanded = task.id in expandedIds,
-                        onExpandToggle = if (!row.isSubtaskRow && state.subtaskProgress(task.id) != null) {
-                            { toggleExpanded(task.id) }
-                        } else {
-                            null
-                        },
-                        modifier = if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier,
+                        expandedIds = expandedIds,
+                        onToggleExpanded = ::toggleExpanded,
+                        onToggle = onToggle,
+                        onTaskClick = onTaskClick,
                     )
                 }
-            }
-            val rest = tasks.filterNot { it.isOverdue(today) }
-            if (rest.isNotEmpty()) {
-                item { SectionHeader(stringResource(Res.string.project_section_all)) }
-                items(
-                    state.expandedRows(rest, expandedIds),
-                    key = { if (it.isSubtaskRow) "sub-${it.task.id}" else it.task.id },
-                ) { row ->
-                    val task = row.task
-                    TaskRow(
-                        task = task,
-                        projectLabel = state.projectLabel(task),
+                val rest = tasks.filterNot { it.isOverdue(today) }
+                if (rest.isNotEmpty()) {
+                    item { SectionHeader(stringResource(Res.string.project_section_all)) }
+                    taskBand(
+                        rows = state.expandedRows(rest, expandedIds),
+                        keyPrefix = "a",
+                        state = state,
                         today = today,
-                        onToggle = { onToggle(task) },
-                        onClick = { onTaskClick(task) },
-                        subtaskProgress = if (row.isSubtaskRow) null else state.subtaskProgress(task.id),
-                        expanded = task.id in expandedIds,
-                        onExpandToggle = if (!row.isSubtaskRow && state.subtaskProgress(task.id) != null) {
-                            { toggleExpanded(task.id) }
-                        } else {
-                            null
-                        },
-                        modifier = if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier,
+                        expandedIds = expandedIds,
+                        onToggleExpanded = ::toggleExpanded,
+                        onToggle = onToggle,
+                        onTaskClick = onTaskClick,
+                    )
+                }
+            } else {
+                val bandIds = sections.mapTo(mutableSetOf()) { it.id }
+                // The ungrouped band goes first and keeps its heading even when it is empty, so
+                // the list never reads as if a task could only live under a section.
+                val ungrouped = tasks.filter { it.sectionId == null || it.sectionId !in bandIds }
+                item { SectionHeader(stringResource(Res.string.sections_ungrouped)) }
+                taskBand(
+                    rows = state.expandedRows(ungrouped, expandedIds),
+                    keyPrefix = "u",
+                    state = state,
+                    today = today,
+                    expandedIds = expandedIds,
+                    onToggleExpanded = ::toggleExpanded,
+                    onToggle = onToggle,
+                    onTaskClick = onTaskClick,
+                )
+                sections.forEach { section ->
+                    item(key = "h-${section.id}") {
+                        SectionBandHeader(
+                            section = section,
+                            onRename = { sectionDialog = SectionDialogState.Rename(section) },
+                            onDelete = { sectionDialog = SectionDialogState.Delete(section) },
+                        )
+                    }
+                    taskBand(
+                        rows = state.expandedRows(
+                            tasks.filter { it.sectionId == section.id },
+                            expandedIds,
+                        ),
+                        keyPrefix = section.id,
+                        state = state,
+                        today = today,
+                        expandedIds = expandedIds,
+                        onToggleExpanded = ::toggleExpanded,
+                        onToggle = onToggle,
+                        onTaskClick = onTaskClick,
                     )
                 }
             }
@@ -220,6 +254,75 @@ fun ProjectDetailScreen(
             onBack()
         },
     )
+
+    SectionDialogs(
+        dialog = sectionDialog,
+        state = state,
+        onDismiss = { sectionDialog = null },
+        onCreateSection = onCreateSection,
+        onRenameSection = onRenameSection,
+        onDeleteSection = onDeleteSection,
+    )
+}
+
+/**
+ * One band of task rows.
+ *
+ * Pulled out because the screen now draws as many bands as the project has sections plus one, and
+ * every one of them needs the same subtask-expansion bookkeeping. [keyPrefix] keeps the list keys
+ * unique: a task shows up in exactly one band, but a *subtask* row is drawn beneath its parent, so
+ * two prefixed keys are what stop the ungrouped band and a section from claiming the same one.
+ */
+private fun LazyListScope.taskBand(
+    rows: List<TaskListRow>,
+    keyPrefix: String,
+    state: CadenceUiState,
+    today: LocalDate,
+    expandedIds: Set<String>,
+    onToggleExpanded: (String) -> Unit,
+    onToggle: (Task) -> Unit,
+    onTaskClick: (Task) -> Unit,
+    overdueStyle: Boolean = false,
+) {
+    items(
+        rows,
+        key = { "$keyPrefix-${if (it.isSubtaskRow) "sub" else "row"}-${it.task.id}" },
+    ) { row ->
+        val task = row.task
+        val progress = if (row.isSubtaskRow) null else state.subtaskProgress(task.id)
+        TaskRow(
+            task = task,
+            projectLabel = state.projectLabel(task),
+            today = today,
+            onToggle = { onToggle(task) },
+            onClick = { onTaskClick(task) },
+            overdueStyle = overdueStyle,
+            subtaskProgress = progress,
+            expanded = task.id in expandedIds,
+            onExpandToggle = if (progress != null) {
+                { onToggleExpanded(task.id) }
+            } else {
+                null
+            },
+            modifier = if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier,
+        )
+    }
+}
+
+/** A section's heading, with the rename/delete menu the band's own actions live in. */
+@Composable
+private fun SectionBandHeader(
+    section: Section,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SectionHeader(text = section.name, modifier = Modifier.weight(1f))
+        SectionMenu(section = section, onRename = onRename, onDelete = onDelete)
+    }
 }
 
 /** A subproject as it appears on its parent's screen — a way in, not a task row. */

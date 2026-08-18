@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import de.andi1984.cadence.ui.resources.Res
 import de.andi1984.cadence.ui.resources.*
 import de.andi1984.cadence.domain.model.Project
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.CadenceChip
@@ -109,6 +110,200 @@ fun ProjectDialogs(
     }
 }
 
+/** Which section dialog is on screen, if any. */
+sealed interface SectionDialogState {
+    /** Creating one at the end of [projectId]'s list. */
+    data class Create(val projectId: String) : SectionDialogState
+
+    data class Rename(val section: Section) : SectionDialogState
+
+    data class Delete(val section: Section) : SectionDialogState
+}
+
+/** Hosts the create/rename/delete dialogs for a project's sections. */
+@Composable
+fun SectionDialogs(
+    dialog: SectionDialogState?,
+    state: CadenceUiState,
+    onDismiss: () -> Unit,
+    onCreateSection: (String, String) -> Unit,
+    onRenameSection: (Section, String) -> Unit,
+    onDeleteSection: (Section) -> Unit,
+) {
+    when (dialog) {
+        null -> Unit
+
+        is SectionDialogState.Create -> SectionEditorDialog(
+            section = null,
+            onDismiss = onDismiss,
+            onConfirm = { name ->
+                onCreateSection(dialog.projectId, name)
+                onDismiss()
+            },
+        )
+
+        is SectionDialogState.Rename -> SectionEditorDialog(
+            section = dialog.section,
+            onDismiss = onDismiss,
+            onConfirm = { name ->
+                onRenameSection(dialog.section, name)
+                onDismiss()
+            },
+        )
+
+        is SectionDialogState.Delete -> DeleteSectionDialog(
+            section = dialog.section,
+            taskCount = state
+                .tasksInSection(dialog.section.projectId, dialog.section.id)
+                .size,
+            onDismiss = onDismiss,
+            onConfirm = {
+                onDeleteSection(dialog.section)
+                onDismiss()
+            },
+        )
+    }
+}
+
+/** Create or rename — the same dialog either way, because a section is only ever a name. */
+@Composable
+fun SectionEditorDialog(
+    section: Section?,
+    onDismiss: () -> Unit,
+    onConfirm: (name: String) -> Unit,
+) {
+    var name by remember { mutableStateOf(section?.name.orEmpty()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(
+                    if (section == null) {
+                        Res.string.sections_dialog_new
+                    } else {
+                        Res.string.sections_dialog_edit
+                    },
+                ),
+            )
+        },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text(stringResource(Res.string.sections_dialog_name)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(name) }, enabled = name.isNotBlank()) {
+                Text(
+                    stringResource(
+                        if (section == null) Res.string.action_create else Res.string.action_save,
+                    ),
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(Res.string.action_cancel)) }
+        },
+    )
+}
+
+/**
+ * Asks before a heading goes away, and says plainly what happens to the work under it.
+ *
+ * There is deliberately no "delete the tasks too" here, unlike [DeleteProjectDialog]: a section is
+ * a band in a list, and nobody means "and everything in it" by dragging a heading away. The
+ * sentence exists so the user does not have to guess that.
+ */
+@Composable
+fun DeleteSectionDialog(
+    section: Section,
+    taskCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(Res.string.sections_delete_confirm_title, section.name)) },
+        text = {
+            if (taskCount == 0) {
+                Text(stringResource(Res.string.sections_delete_no_tasks))
+            } else {
+                Text(
+                    pluralStringResource(
+                        Res.plurals.sections_delete_tasks_kept,
+                        taskCount,
+                        taskCount,
+                    ),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    text = stringResource(Res.string.action_delete),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(Res.string.action_cancel)) }
+        },
+    )
+}
+
+/** Rename and delete — the per-section actions, on the band's heading. */
+@Composable
+fun SectionMenu(
+    section: Section,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var open by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        IconButton(onClick = { open = true }) {
+            Icon(
+                imageVector = AppIcons.MoreVert,
+                contentDescription = stringResource(Res.string.sections_actions, section.name),
+            )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.sections_rename)) },
+                onClick = {
+                    open = false
+                    onRename()
+                },
+                leadingIcon = { Icon(AppIcons.Edit, contentDescription = null) },
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = stringResource(Res.string.sections_delete),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                },
+                onClick = {
+                    open = false
+                    onDelete()
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = AppIcons.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                },
+            )
+        }
+    }
+}
+
 /** Rename, nest, delete — the per-project actions, on every row and on the detail screen. */
 @Composable
 fun ProjectMenu(
@@ -117,6 +312,7 @@ fun ProjectMenu(
     onEdit: () -> Unit,
     onAddSubproject: () -> Unit,
     onDelete: () -> Unit,
+    onAddSection: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var open by remember { mutableStateOf(false) }
@@ -145,6 +341,18 @@ fun ProjectMenu(
                         onAddSubproject()
                     },
                     leadingIcon = { Icon(AppIcons.CreateNewFolder, contentDescription = null) },
+                )
+            }
+            // Only where the project's own list is on screen: adding a band to a list you are not
+            // looking at would put the heading somewhere the user cannot see it land.
+            if (onAddSection != null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(Res.string.sections_new)) },
+                    onClick = {
+                        open = false
+                        onAddSection()
+                    },
+                    leadingIcon = { Icon(AppIcons.Section, contentDescription = null) },
                 )
             }
             DropdownMenuItem(

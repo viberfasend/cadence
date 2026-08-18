@@ -288,6 +288,7 @@ fun CadenceApp(
                         onOpenTask = { navController.navigate(Routes.task(it.id)) },
                         onAddSubtask = viewModel::addSubtask,
                         onMoveToProject = viewModel::setProject,
+                        onMoveToSection = viewModel::setSection,
                     )
                 }
                 composable(Routes.PROJECT) { entry ->
@@ -307,6 +308,9 @@ fun CadenceApp(
                         onCreateProject = viewModel::addProject,
                         onEditProject = viewModel::editProject,
                         onDeleteProject = viewModel::deleteProject,
+                        onCreateSection = viewModel::addSection,
+                        onRenameSection = viewModel::renameSection,
+                        onDeleteSection = viewModel::deleteSection,
                     )
                 }
             }

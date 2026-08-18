@@ -144,7 +144,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "Home", updatedAt = now)),
             sections = emptyList(),
-            tasks = listOf(Task(id = "t1", title = "Fresh task", projectId = "p1", createdAt = now, updatedAt = now)),
+            tasks =listOf(Task(id = "t1", title = "Fresh task", projectId = "p1", createdAt = now, updatedAt = now)),
             revivedAt = now,
         )
 
@@ -169,7 +169,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
-            tasks = listOf(Task(id = "t1", title = "Stale", createdAt = now, updatedAt = now)),
+            tasks =listOf(Task(id = "t1", title = "Stale", createdAt = now, updatedAt = now)),
             revivedAt = now,
         )
         assertEquals("Local wins", taskStore.byId("t1")?.title)
@@ -177,7 +177,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
-            tasks = listOf(Task(id = "t1", title = "Newer", createdAt = now, updatedAt = later.plusSeconds(1))),
+            tasks =listOf(Task(id = "t1", title = "Newer", createdAt = now, updatedAt = later.plusSeconds(1))),
             revivedAt = now,
         )
         assertEquals("Newer", taskStore.byId("t1")?.title)
@@ -196,7 +196,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
-            tasks = listOf(Task(id = "t1", title = "Deleted there", createdAt = now, updatedAt = now, deletedAt = now)),
+            tasks =listOf(Task(id = "t1", title = "Deleted there", createdAt = now, updatedAt = now, deletedAt = now)),
             revivedAt = now,
         )
         assertEquals("Edited here", taskStore.byId("t1")?.title)
@@ -206,7 +206,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
-            tasks = listOf(
+            tasks =listOf(
                 Task(id = "t1", title = "Deleted there", createdAt = now, updatedAt = deletedAt, deletedAt = deletedAt),
             ),
             revivedAt = now,
@@ -223,7 +223,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
-            tasks = listOf(Task(id = "t1", title = "Gone", createdAt = now, updatedAt = now, deletedAt = now)),
+            tasks =listOf(Task(id = "t1", title = "Gone", createdAt = now, updatedAt = now, deletedAt = now)),
             revivedAt = now,
         )
         assertNull(taskStore.byId("t1"))
@@ -259,7 +259,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "Import", updatedAt = now)),
             sections = emptyList(),
-            tasks = listOf(Task(id = "t1", title = "Back", projectId = "p1", createdAt = now, updatedAt = now)),
+            tasks =listOf(Task(id = "t1", title = "Back", projectId = "p1", createdAt = now, updatedAt = now)),
             revivedAt = importedAt,
         )
 
@@ -282,7 +282,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
-            tasks = listOf(Task(id = "t1", title = "Also gone", createdAt = now, updatedAt = now, deletedAt = now)),
+            tasks =listOf(Task(id = "t1", title = "Also gone", createdAt = now, updatedAt = now, deletedAt = now)),
             revivedAt = deletedAt.plusSeconds(60),
         )
 

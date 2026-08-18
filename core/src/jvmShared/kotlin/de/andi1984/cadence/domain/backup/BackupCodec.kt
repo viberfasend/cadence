@@ -100,6 +100,14 @@ object BackupCodec {
         // Tombstones (deletedAt != null) are filtered out during import.
         val projects = document.projects.filter { it.id.isNotBlank() && it.deletedAt == null }.map { it.toDomain() }
         val knownProjects = projects.map { it.id }.toSet()
+        // A section belongs to exactly one project, and unlike a task it has nowhere else to go:
+        // there is no Inbox for headings. One naming a project the file lacks is dropped, and its
+        // tasks fall back to the project's ungrouped band below.
+        val sections = document.sections
+            .filter { it.id.isNotBlank() && it.name.isNotBlank() && it.deletedAt == null }
+            .map { it.toDomain() }
+            .filter { it.projectId in knownProjects }
+        val sectionProjects = sections.associate { it.id to it.projectId }
         val decoded = document.tasks.filter { it.title.isNotBlank() && it.deletedAt == null }.map { it.toDomain() }
         val knownTasks = decoded.mapTo(mutableSetOf()) { it.id }
         val tasks = decoded
@@ -113,6 +121,15 @@ object BackupCodec {
                 }
             }
             .map { task ->
+                // A heading only means anything alongside the project it belongs to, so a
+                // `sectionId` naming a section the file lacks — or one that groups a *different*
+                // project, including the case where the task just fell back to the Inbox above —
+                // is dropped and the task lands in the project's ungrouped band.
+                val section = task.sectionId
+                    ?.takeIf { sectionProjects[it] != null && sectionProjects[it] == task.projectId }
+                if (section != task.sectionId) task.copy(sectionId = section) else task
+            }
+            .map { task ->
                 // A recurrence link is only ever read as "does this row replace that one", so a
                 // link to an occurrence the file does not contain is simply dropped.
                 val replaces = task.spawnedFromId?.takeIf { it != task.id && it in knownTasks }
@@ -122,6 +139,7 @@ object BackupCodec {
         return BackupReadResult.Ok(
             snapshot = BackupSnapshot(
                 projects = projects,
+                sections = sections,
                 tasks = tasks,
                 settings = document.settings,
             ),
@@ -159,6 +177,9 @@ internal data class BackupDocument(
     val version: Int = BackupCodec.VERSION,
     val exportedAt: String? = null,
     val projects: List<BackupProject> = emptyList(),
+    /** Added without a [BackupCodec.VERSION] bump: an older reader ignores the key, and the tasks
+     *  in the same file simply land in their project's ungrouped band. */
+    val sections: List<BackupSection> = emptyList(),
     val tasks: List<BackupTask> = emptyList(),
     val settings: BackupSettings? = null,
 )
@@ -177,6 +198,19 @@ internal data class BackupProject(
 )
 
 @Serializable
+internal data class BackupSection(
+    val id: String = "",
+    /** The project this section groups. A section is never project-less and never nests. */
+    val projectId: String = "",
+    val name: String = "",
+    val sortOrder: Int = 0,
+    /** ISO instant, e.g. `2026-08-05T07:12:00Z`. */
+    val updatedAt: String? = null,
+    /** ISO instant, e.g. `2026-08-05T07:12:00Z`, or null for active records. */
+    val deletedAt: String? = null,
+)
+
+@Serializable
 internal data class BackupTask(
     val id: String = "",
     val title: String = "",
@@ -184,6 +218,9 @@ internal data class BackupTask(
     /** 1…4, matching [Priority.level]. */
     val priority: Int = Priority.DEFAULT.level,
     val projectId: String? = null,
+    /** Id of the section of [projectId] this task is grouped under, or null for the ungrouped
+     *  band. Optional and additive — see [BackupDocument.sections]. */
+    val sectionId: String? = null,
     /** Id of the task this one is a subtask of, or null for a top-level task. */
     val parentId: String? = null,
     /** Id of the recurring occurrence this row replaces, or null. */
@@ -238,12 +275,31 @@ private fun BackupProject.toDomain() = Project(
     deletedAt = deletedAt.parseOrNull { Instant.parse(it) },
 )
 
+private fun Section.toBackup() = BackupSection(
+    id = id,
+    projectId = projectId,
+    name = name,
+    sortOrder = sortOrder,
+    updatedAt = updatedAt.toString(),
+    deletedAt = deletedAt?.toString(),
+)
+
+private fun BackupSection.toDomain() = Section(
+    id = id,
+    projectId = projectId,
+    name = name,
+    sortOrder = sortOrder,
+    updatedAt = updatedAt.parseOrNull { Instant.parse(it) } ?: Instant.EPOCH,
+    deletedAt = deletedAt.parseOrNull { Instant.parse(it) },
+)
+
 private fun Task.toBackup() = BackupTask(
     id = id,
     title = title,
     notes = notes,
     priority = priority.level,
     projectId = projectId,
+    sectionId = sectionId,
     parentId = parentId,
     spawnedFromId = spawnedFromId,
     dueDate = dueDate?.toString(),
@@ -265,6 +321,7 @@ private fun BackupTask.toDomain() = Task(
     notes = notes?.takeIf { it.isNotBlank() },
     priority = Priority.fromLevel(priority),
     projectId = projectId?.takeIf { it.isNotBlank() },
+    sectionId = sectionId?.takeIf { it.isNotBlank() },
     parentId = parentId?.takeIf { it.isNotBlank() },
     spawnedFromId = spawnedFromId?.takeIf { it.isNotBlank() },
     dueDate = dueDate.parseOrNull { LocalDate.parse(it) },

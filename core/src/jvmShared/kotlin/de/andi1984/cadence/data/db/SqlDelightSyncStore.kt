@@ -3,14 +3,16 @@ package de.andi1984.cadence.data.db
 import de.andi1984.cadence.data.sync.SyncState
 import de.andi1984.cadence.data.sync.SyncStore
 import de.andi1984.cadence.domain.model.Project
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Instant
 
-/** [SyncStore] over the single `syncStateRow` and the two tombstone-aware views in `Task.sq` and
- *  `Project.sq` — the only queries in the schema that deliberately do not filter tombstones. */
+/** [SyncStore] over the single `syncStateRow` and the tombstone-aware views in `Task.sq`,
+ *  `Project.sq` and `Section.sq` — the only queries in the schema that deliberately do not filter
+ *  tombstones. */
 class SqlDelightSyncStore(
     private val database: CadenceDatabase,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -24,6 +26,7 @@ class SqlDelightSyncStore(
             session = row.session,
             taskCursor = row.taskCursor,
             projectCursor = row.projectCursor,
+            sectionCursor = row.sectionCursor,
             pushWatermark = Instant.ofEpochMilli(row.pushWatermark),
             lastSyncedAt = row.lastSyncedAt?.let { Instant.ofEpochMilli(it) },
             lastSweepAt = row.lastSweepAt?.let { Instant.ofEpochMilli(it) },
@@ -58,19 +61,32 @@ class SqlDelightSyncStore(
             }
         }
 
+    override suspend fun sectionsChangedSince(since: Instant): List<Section> =
+        withContext(ioDispatcher) {
+            if (since == Instant.EPOCH) {
+                database.sectionQueries
+                    .selectAllIncludingDeleted(mapper = ::toSection)
+                    .executeAsList()
+            } else {
+                database.sectionQueries
+                    .selectChangedSince(since.toEpochMilli(), mapper = ::toSection)
+                    .executeAsList()
+            }
+        }
+
     override suspend fun mergeAndAdvance(
         projects: List<Project>,
+        sections: List<Section>,
         tasks: List<Task>,
         taskCursor: String?,
         projectCursor: String?,
+        sectionCursor: String?,
     ): Unit = withContext(ioDispatcher) {
         database.transaction {
-            // Sections have a record and a table but no wire half yet, so a pulled page never
-            // carries one — see `RemoteRecords.kt`. This is not a merge that drops sections; it
-            // is a merge that was handed none.
-            database.mergeRecords(projects, emptyList(), tasks)
+            database.mergeRecords(projects, sections, tasks)
             if (taskCursor != null) queries.setTaskCursor(taskCursor)
             if (projectCursor != null) queries.setProjectCursor(projectCursor)
+            if (sectionCursor != null) queries.setSectionCursor(sectionCursor)
         }
     }
 
@@ -87,6 +103,7 @@ class SqlDelightSyncStore(
             database.transaction {
                 database.taskQueries.collectTombstones(before.toEpochMilli())
                 database.projectQueries.collectTombstones(before.toEpochMilli())
+                database.sectionQueries.collectTombstones(before.toEpochMilli())
                 queries.setLastSweepAt(at.toEpochMilli())
             }
         }
