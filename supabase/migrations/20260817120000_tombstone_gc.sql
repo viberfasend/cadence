@@ -155,7 +155,16 @@ select cron.schedule(
 
 -- `cron.job_run_details` is itself data nobody uses after a week, and pg_cron never trims it — a
 -- nightly job writes a row a night forever. A second job collects the log of the first.
+--
+-- Scoped to this migration's own jobs, and not because the rest is precious: `cron.job_run_details`
+-- is one table for every job in the database, so an unfiltered delete here would quietly truncate
+-- the history of whatever else the project schedules — including jobs added long after anyone
+-- remembers pasting this file in. A migration may collect its own logs; it may not collect
+-- somebody else's. `end_time` is null while a run is in flight, so `<` also leaves the running job
+-- alone, this one included.
 select cron.schedule(
     'cadence-collect-cron-history',
     '42 3 * * *',
-    $$delete from cron.job_run_details where end_time < now() - interval '7 days'$$);
+    $$delete from cron.job_run_details
+       where end_time < now() - interval '7 days'
+         and jobid in (select jobid from cron.job where jobname like 'cadence-%')$$);
