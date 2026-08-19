@@ -213,6 +213,20 @@ data class CadenceUiState(
         return rootTasks().filter { it.projectId == projectId || it.projectId in childIds }
     }
 
+    /**
+     * Every task filed under [projectId] or one of its subprojects — subtasks and superseded
+     * occurrences included.
+     *
+     * [tasksIn] answers what a *screen* draws, so it goes through [rootTasks] and a parent speaks
+     * for its steps. This answers what a *delete* acts on, which is a different question: a step
+     * under a task in the project is a row that goes with it, and an alarm outlives the row it
+     * belongs to unless someone cancels it.
+     */
+    fun allTasksIn(projectId: String): List<Task> {
+        val childIds = subprojects(projectId).map { it.id }.toSet()
+        return tasks.filter { it.projectId == projectId || it.projectId in childIds }
+    }
+
     fun section(id: String?): Section? = id?.let { sectionId ->
         sections.firstOrNull { it.id == sectionId }
     }
@@ -579,7 +593,10 @@ class CadenceViewModel(
      * undo window elapses.
      */
     fun deleteProject(project: Project, deleteTasks: Boolean = false) = scope.launch {
-        val tasksInProject = if (deleteTasks) state.value.tasksIn(project.id) else emptyList()
+        // The complete set, not the drawn one: `tasksIn` filters subtasks out because a parent
+        // speaks for its steps on screen, and a step left visible through the undo window would
+        // stand in Today or Search until the commit landed and then blink away.
+        val tasksInProject = if (deleteTasks) state.value.allTasksIn(project.id) else emptyList()
         offerUndo(
             UndoAction.DeleteProject(project, tasksInProject, deleteTasks),
             count = if (deleteTasks) 1 + tasksInProject.size else 1,
@@ -799,10 +816,11 @@ class CadenceViewModel(
                 reminderScheduler.cancel(action.task.id)
                 repository.deleteTask(action.task.id)
             }
-            is UndoAction.DeleteProject -> {
-                action.tasks.forEach { reminderScheduler.cancel(it.id) }
+            // The ids the repository reports, exactly like the wipe below: it is the one that
+            // knows the whole set, and a task list the UI filtered is not it.
+            is UndoAction.DeleteProject ->
                 repository.deleteProject(action.project.id, action.deleteTasks)
-            }
+                    .forEach { reminderScheduler.cancel(it) }
             is UndoAction.DeleteEverything -> {
                 // The repository reports what it actually tombstoned, which is a superset of the
                 // ids captured when the dialog was confirmed: anything a pull merged in during
@@ -847,7 +865,7 @@ class CadenceViewModel(
         scope.cancel()
     }
 
-    private companion object {
+    internal companion object {
         /** Long enough that a burst of edits is one round, short enough that the other device
          *  has the change while the user is still looking at this one (ADR 0002, decision 11). */
         val WRITE_DEBOUNCE: Duration = Duration.ofSeconds(2)
