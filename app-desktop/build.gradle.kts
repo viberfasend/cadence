@@ -36,6 +36,14 @@ dependencies {
 
     // Settings persist as a JSON file under PlatformDirs (there is no SharedPreferences here).
     implementation(libs.kotlinx.serialization.json)
+
+    // The two classes worth testing here — the settings file and the reminder poll — are plain
+    // JVM with no Compose in them, so this is an ordinary `test` source set rather than anything
+    // the Compose test infrastructure has to be involved in. Same three dependencies as :core
+    // and :ui: JUnit 4, the coroutine test dispatcher, and kotlin.test.
+    testImplementation(libs.test.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(kotlin("test"))
 }
 
 /**

@@ -64,8 +64,9 @@ jobs:
 
       - name: Compile and test the shared modules
         # :app-desktop pulls in :core and :ui; a break in either fails here before jpackage ever
-        # runs, with a clearer message than a packaging log would give.
-        run: ./gradlew :core:jvmTest :ui:compileKotlinJvm --stacktrace
+        # runs, with a clearer message than a packaging log would give. All three JVM test tasks,
+        # since this leg never runs the Android compilation that `testDebugUnitTest` would.
+        run: ./gradlew :core:jvmTest :ui:jvmTest :app-desktop:test :ui:compileKotlinJvm --stacktrace
 
   package:
     name: Package (${{ matrix.os }})

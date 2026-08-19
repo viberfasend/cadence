@@ -26,8 +26,8 @@ The product rule the whole app is built on: **importance first, due date breaks 
 ## Commands
 
 ```bash
-./gradlew testDebugUnitTest :core:jvmTest   # what CI runs — see below for why both
-./gradlew :ui:compileKotlinJvm     # also CI: nothing else compiles :ui for the desktop
+./gradlew testDebugUnitTest :core:jvmTest :ui:jvmTest :app-desktop:test   # what CI runs
+./gradlew :ui:compileKotlinJvm     # also CI: nothing else compiles :ui's screens for the desktop
 ./gradlew assembleDebug            # app-android/build/outputs/apk/debug/app-android-debug.apk
 ./gradlew assembleRelease          # falls back to the debug key when no CADENCE_KEYSTORE is set
 
@@ -56,15 +56,39 @@ per target, stages the APKs under the fixed names the download URLs point at, an
 `check-signing.sh`. A format whose packaging tool is missing — no `rpmbuild`, no WiX — is skipped
 with a warning when `all`/`desktop` implied it and is a hard error when it was named outright.
 
-`:core`'s tests are one source set compiled twice: `:core:jvmTest` is the desktop compilation and
-`:core:testDebugUnitTest` the Android one. `testDebugUnitTest` alone therefore misses nothing in
-`:core` today, but it also never exercises the JVM target the desktop app will be built on, so CI
-names both. Storage lives entirely in `:core` now (ADR 0001, phase 2), so `:app-android` has no unit
-tests of its own left — `RecurrenceCodecTest` and the SQLDelight store tests moved with it.
+`:core`'s and `:ui`'s tests are each one source set compiled twice: `jvmTest` is the desktop
+compilation and `testDebugUnitTest` the Android one. `testDebugUnitTest` alone therefore misses
+nothing in either module today, but it also never exercises the JVM target the desktop app is
+built on, so CI names both. Storage lives entirely in `:core` now (ADR 0001, phase 2), so
+`:app-android` has no unit tests of its own left — `RecurrenceCodecTest` and the SQLDelight store
+tests moved with it.
 
-`:ui` has no tests at all, and `assembleDebug` only ever compiles its *Android* target. CI
-therefore also runs `:ui:compileKotlinJvm` on its own: without it the Android build could stay
-green while the module the desktop app is mostly made of stopped compiling for the JVM.
+`:ui`'s tests live in a `jvmSharedTest` source set mirroring `jvmShared`, and cover the part of
+the module that is plain JVM Kotlin: the `CadenceUiState` derivations, `sortedFor`, and
+`CadenceViewModel`'s undo state machine (a `StandardTestDispatcher` sharing `runTest`'s scheduler,
+so the five-second undo window costs no wall clock). The ViewModel runs on a scope of its own
+there rather than the test's — its `init` starts collectors that never finish — and the test
+subscribes to `state`, because `stateIn(WhileSubscribed)` keeps the upstream cold until something
+reads it. The ViewModel test sits in `jvmTest` rather than `jvmSharedTest`, alone among them,
+because it constructs a real `CadenceSyncEngine` — signed out that makes no request, but the
+Android unit-test JVM has no Android runtime behind supabase-kt. No screen is tested: composables
+would need the Compose test runtime, and none of the rules worth pinning live in one.
+
+`:app-desktop` is a plain JVM module, so its task is `:app-desktop:test`. It covers
+`DesktopSettingsStore` (the file round-trip and what a truncated one falls back to) and
+`DesktopReminderScheduler` (fires once per due task, and forgets what the reconcile stops
+listing) — the two classes there with no Compose in them.
+
+`assembleDebug` only ever compiles `:ui`'s *Android* target, and its tests reach only the
+plain-Kotlin half. CI therefore also runs `:ui:compileKotlinJvm` on its own: without it the
+Android build could stay green while the screens the desktop app is mostly made of stopped
+compiling for the JVM.
+
+**No mocking library, and no second test framework.** JUnit 4 + `org.junit.Assert` +
+`kotlin.test` + `kotlinx-coroutines-test`, with hand-written fakes for every port —
+`CadenceRepositoryTest`'s style, and `:ui`'s `Fakes.kt` in the same shape. The fakes back a
+*real* `CadenceRepository`, because the rules under test are the repository's; faking it would
+assert only that the ViewModel called what the test told it to expect.
 
 JDK 17, compileSdk/targetSdk 35, minSdk 26. No lint or format task is wired up.
 
@@ -498,7 +522,8 @@ The generated accessors are one top-level property per string, so files import t
 `desktop.yml` used to run on every push to **any** branch and on every pull request, which is
 where this repository's Actions minutes went; a single push started four runners, two of them
 billed at macOS's 10x and Windows's 2x multipliers. **Verification is local now**: run
-`./gradlew testDebugUnitTest :core:jvmTest` and `./gradlew :ui:compileKotlinJvm` before pushing,
+`./gradlew testDebugUnitTest :core:jvmTest :ui:jvmTest :app-desktop:test` and
+`./gradlew :ui:compileKotlinJvm` before pushing,
 because no runner will do it for you and a red branch will look green. Don't restore an
 automatic trigger to any workflow in this repo without being asked for it outright.
 

@@ -24,9 +24,15 @@ kotlin {
          * `jvmShared` can read because it depends on it.
          */
         val jvmShared by creating { dependsOn(commonMain.get()) }
+        // The test half of the same split. Everything worth testing in this module — the
+        // `CadenceUiState` derivations, `sortedFor`, the ViewModel's undo machine — is plain JVM
+        // Kotlin with no Compose runtime in it, so one source set serves both compilations.
+        val jvmSharedTest by creating { dependsOn(commonTest.get()) }
 
         androidMain.get().dependsOn(jvmShared)
         jvmMain.get().dependsOn(jvmShared)
+        androidUnitTest.get().dependsOn(jvmSharedTest)
+        jvmTest.get().dependsOn(jvmSharedTest)
 
         jvmShared.dependencies {
             // api, not implementation: every screen signature speaks Task, Project and the
@@ -39,6 +45,11 @@ kotlin {
             // Res.string / Res.plurals appear in public signatures (SortMode.label).
             api(compose.components.resources)
             implementation(compose.ui)
+        }
+        jvmSharedTest.dependencies {
+            implementation(libs.test.junit)
+            implementation(libs.kotlinx.coroutines.test)
+            implementation(kotlin("test"))
         }
     }
 }

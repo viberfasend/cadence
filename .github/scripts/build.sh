@@ -245,12 +245,14 @@ info "version $version ($version_code) — $version_source"
 # One invocation for everything, not one per artefact: configuration is the expensive part of a
 # Gradle run and repeating it per target is most of the wall clock in a naive script.
 gradle_tasks=()
-# :core's tests are one source set compiled twice — jvmTest for the desktop, testDebugUnitTest for
-# Android — and :ui compiles for the JVM nowhere else, so both run whenever an APK is in play. A
-# desktop-only build skips the Android half rather than dragging the SDK onto a machine packaging
-# a .dmg, which is also what keeps this runnable on a Mac with no Android tooling at all.
+# :core's and :ui's tests are one source set compiled twice — jvmTest for the desktop,
+# testDebugUnitTest for Android — so both halves are named whenever an APK is in play, and
+# :ui:compileKotlinJvm still runs because compiling is not testing: the module has screens no
+# test touches. :app-desktop is a plain JVM module, so its task is `test`. A desktop-only build
+# skips the Android half rather than dragging the SDK onto a machine packaging a .dmg, which is
+# also what keeps this runnable on a Mac with no Android tooling at all.
 if $run_tests; then
-    gradle_tasks+=(:core:jvmTest :ui:compileKotlinJvm)
+    gradle_tasks+=(:core:jvmTest :ui:jvmTest :app-desktop:test :ui:compileKotlinJvm)
     if wants apk; then gradle_tasks+=(testDebugUnitTest); fi
 fi
 if wants apk; then gradle_tasks+=(assembleDebug assembleRelease); fi

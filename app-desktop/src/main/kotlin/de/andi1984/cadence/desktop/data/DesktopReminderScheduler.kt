@@ -20,7 +20,17 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class DesktopReminderScheduler(
     private val scope: CoroutineScope,
-    private val trayIcon: TrayIcon?,
+    trayIcon: TrayIcon?,
+    /**
+     * Where a due reminder goes. The tray balloon by default.
+     *
+     * A parameter rather than a hard-wired call because a headless JVM — every CI runner, and
+     * every test run — has no system tray to read a balloon back off, and "fires once and only
+     * once" is the one thing about this class worth pinning down.
+     */
+    private val notify: (String) -> Unit = { title ->
+        trayIcon?.displayMessage("Cadence", title, TrayIcon.MessageType.NONE)
+    },
 ) : ReminderScheduler {
 
     /** The due instant currently known for each task with a reminder, so a poll can tell "just
@@ -50,12 +60,14 @@ class DesktopReminderScheduler(
         }
         dueAt.keys.retainAll(next.keys)
         fired.retainAll(next.keys)
+        // All three maps are keyed by the same set of tasks, so all three are pruned to it.
+        // Leaving titles behind kept one entry per task ever seen for the life of the process.
+        pendingTitles.keys.retainAll(next.keys)
         dueAt.putAll(next)
-        val titles = tasks.associate { it.id to it.title }
         // A task whose reminder time changed to one already in the past must be able to fire
         // again rather than staying silently suppressed by an old entry in `fired`.
         next.forEach { (id, at) -> if (at.isAfter(Instant.now())) fired.remove(id) }
-        pendingTitles.putAll(titles)
+        pendingTitles.putAll(tasks.filter { it.id in next }.associate { it.id to it.title })
     }
 
     override fun cancel(taskId: String) {
@@ -67,14 +79,13 @@ class DesktopReminderScheduler(
     private fun poll() {
         val now = Instant.now()
         dueAt.forEach { (taskId, at) ->
-            if (!at.isAfter(now) && fired.add(taskId)) {
-                notify(pendingTitles[taskId] ?: return@forEach)
-            }
+            if (at.isAfter(now)) return@forEach
+            // The title is looked up *before* the `fired` slot is claimed. The other order marks
+            // the task as fired and then skips the balloon when the lookup misses, so no later
+            // poll ever retries it — the reminder is lost rather than delayed.
+            val title = pendingTitles[taskId] ?: return@forEach
+            if (fired.add(taskId)) notify(title)
         }
-    }
-
-    private fun notify(title: String) {
-        trayIcon?.displayMessage("Cadence", title, TrayIcon.MessageType.NONE)
     }
 
     private companion object {

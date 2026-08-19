@@ -2,7 +2,8 @@ name: Android
 
 # Manual only. This workflow used to run on every push to every branch and on every pull
 # request, which is where nearly all of this repository's Actions minutes went. Everything it
-# does — `./gradlew testDebugUnitTest :core:jvmTest`, `:ui:compileKotlinJvm` and
+# does — `./gradlew testDebugUnitTest :core:jvmTest :ui:jvmTest :app-desktop:test`,
+# `:ui:compileKotlinJvm` and
 # `.github/scripts/build.sh apk` — runs identically on a laptop, so the hosted runner buys
 # nothing an Android build cannot do locally. Run it from the Actions tab when you actually
 # want APKs built off-machine.
@@ -51,15 +52,16 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Unit tests
-        # :core is a Kotlin Multiplatform module: testDebugUnitTest is its Android variant,
-        # jvmTest the one the desktop app will rely on. Both run the same source set, and
-        # running only one would let the other rot.
-        run: ./gradlew testDebugUnitTest :core:jvmTest --stacktrace
+        # :core and :ui are Kotlin Multiplatform modules: testDebugUnitTest is their Android
+        # variant, jvmTest the one the desktop app relies on. Both run the same source set, and
+        # running only one would let the other rot. :app-desktop is a plain JVM module, so its
+        # task is `test`.
+        run: ./gradlew testDebugUnitTest :core:jvmTest :ui:jvmTest :app-desktop:test --stacktrace
 
       - name: Compile the desktop target
-        # :ui has no tests of its own, but it is the module the desktop app is mostly made of.
-        # Nothing else in this workflow compiles its JVM target, so without this the Android
-        # build could stay green while the desktop one stopped building.
+        # :ui's tests cover its plain-Kotlin half; the screens themselves are compiled by nothing
+        # else in this workflow, so without this the Android build could stay green while the
+        # module the desktop app is mostly made of stopped compiling for the JVM.
         run: ./gradlew :ui:compileKotlinJvm --stacktrace
 
       - name: Upload test report
