@@ -151,6 +151,8 @@ class CadenceRepository(
             )
             taskStore.insert(newTask)
             RepositoryResult.Success(newTask.id)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             RepositoryResult.Error("Failed to add subtask", e)
         }
@@ -328,6 +330,8 @@ class CadenceRepository(
                 stamped.id
             }
             RepositoryResult.Success(id)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             RepositoryResult.Error("Failed to save project", e)
         }
@@ -397,6 +401,8 @@ class CadenceRepository(
                 stamped.id
             }
             RepositoryResult.Success(id)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             RepositoryResult.Error("Failed to save section", e)
         }

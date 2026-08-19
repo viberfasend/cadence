@@ -429,6 +429,8 @@ class CadenceSyncEngine(
             sweepIfDue(now)
             _status.value = SyncStatus.Idle(email, now)
             SyncOutcome.Ok(pulled = pulled, pushed = pushed)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Throwable) {
             val reason = e.toFailure()
             _status.value = SyncStatus.Failed(reason, email, store.state().lastSyncedAt)
