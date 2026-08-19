@@ -297,6 +297,14 @@ than reaching for `!!`.
   Room-style "return the row count" on an `UPDATE`. The store runs the update and
   `TaskQueries.changes()` (SQLite's `SELECT changes()`) inside one `database.transactionWithResult
   { }`, so the two run on the same connection and `changes()` reads back *this* statement's count.
+- **An `IN :list` query is bounded, and the bound is 999.** SQLDelight expands `IN :taskIds` into
+  one bind parameter per element, and `SQLITE_MAX_VARIABLE_NUMBER` is 999 on the SQLite that
+  Android API 26-29 ship — inside the minSdk 26 range. The danger zone hands over *every* task
+  id and a big project hands over its whole list, so `SqlDelightAttachmentStore` chunks at
+  `SQL_VARIABLE_LIMIT` (900) rather than trusting the driver. The desktop's xerial driver allows
+  32766 and a recent phone allows the same, so nothing in the test suite reproduces the crash —
+  a new query taking a list has to chunk on the way in, and dedupe across chunks on the way out,
+  since `DISTINCT` only ever sees one chunk.
 
 ### Behaviour worth knowing before editing
 

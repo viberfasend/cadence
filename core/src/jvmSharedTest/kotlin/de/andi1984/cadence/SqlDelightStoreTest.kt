@@ -2,9 +2,12 @@ package de.andi1984.cadence
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import de.andi1984.cadence.data.db.CadenceDatabase
+import de.andi1984.cadence.data.db.SqlDelightAttachmentStore
 import de.andi1984.cadence.data.db.SqlDelightBackupStore
 import de.andi1984.cadence.data.db.SqlDelightProjectStore
 import de.andi1984.cadence.data.db.SqlDelightTaskStore
+import de.andi1984.cadence.domain.model.Attachment
+import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.Dispatchers
@@ -310,5 +313,56 @@ class SqlDelightStoreTest {
         assertEquals(0, taskStore.completeIfOpen("parent", now))
         // The successor is a separate row and is untouched.
         assertEquals(listOf("next"), taskStore.openSuccessorsOf("parent"))
+    }
+
+    /**
+     * The attachment queries take id lists straight from a delete, and the danger zone hands
+     * over *every* task id. `IN :taskIds` becomes one bind parameter per element, and
+     * `SQLITE_MAX_VARIABLE_NUMBER` is 999 on the SQLite that Android API 26-29 ship — so an
+     * unchunked list is a crash on a real phone with a thousand tasks on it.
+     *
+     * This driver cannot reproduce that: xerial's limit is 32766, which is why the bug reached
+     * a release in the first place. What the test pins is the chunking's *behaviour* over a list
+     * that spans several chunks — every row deleted, not just the first chunk's, and hashes
+     * deduplicated across chunk boundaries rather than only within one, which is all `DISTINCT`
+     * can do once the query runs more than once.
+     */
+    @Test
+    fun `the attachment id lists survive being longer than one chunk`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        val attachmentStore = SqlDelightAttachmentStore(database, Dispatchers.Unconfined)
+
+        // Comfortably past 999, and past whatever chunk size the store picks below it.
+        val taskIds = (1..1500).map { "t$it" }
+        taskIds.forEachIndexed { index, id ->
+            taskStore.insert(Task(id = id, title = "Task $index", createdAt = now, updatedAt = now))
+            attachmentStore.insert(
+                Attachment(
+                    id = "a$index",
+                    taskId = id,
+                    kind = AttachmentKind.FILE,
+                    name = "photo.png",
+                    mimeType = "image/png",
+                    // Three blobs shared by 500 rows each: the same hash lands in every chunk,
+                    // so a per-chunk DISTINCT alone would report it more than once.
+                    sha256 = "sha${index % 3}",
+                    createdAt = now,
+                ),
+            )
+        }
+
+        val hashes = attachmentStore.hashesForTasks(taskIds)
+        assertEquals(listOf("sha0", "sha1", "sha2"), hashes.sorted())
+
+        // Every one of them is still named by a row, and asking about 1500 hashes at once is
+        // itself a list that has to be chunked.
+        val probed = List(1500) { "sha${it % 3}" }
+        assertEquals(listOf("sha0", "sha1", "sha2"), attachmentStore.stillReferenced(probed).sorted())
+
+        attachmentStore.deleteForTasks(taskIds)
+
+        assertTrue(taskIds.all { attachmentStore.forTask(it).isEmpty() })
+        assertTrue(attachmentStore.referencedHashes().isEmpty())
     }
 }
