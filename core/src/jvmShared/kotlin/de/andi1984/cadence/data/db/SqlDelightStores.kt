@@ -185,6 +185,19 @@ class SqlDelightSectionStore(
     }
 }
 
+/**
+ * How many ids may go into one `IN :list` query.
+ *
+ * SQLDelight expands `IN :taskIds` into one bind parameter per element, and
+ * `SQLITE_MAX_VARIABLE_NUMBER` is **999** on SQLite before 3.32 — which is what Android API
+ * 26-29 ship, inside the minSdk 26 range this app supports. Deleting a project with a thousand
+ * tasks in it, or wiping the database from the danger zone, hands exactly such a list over.
+ * Neither the desktop's xerial driver (32766) nor a recent phone reproduces it, so the limit is
+ * pinned here rather than read from the connection: the smallest driver the app runs on is what
+ * every driver has to survive.
+ */
+private const val SQL_VARIABLE_LIMIT = 900
+
 class SqlDelightAttachmentStore(
     private val database: CadenceDatabase,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -212,12 +225,18 @@ class SqlDelightAttachmentStore(
     }
 
     override suspend fun deleteForTasks(taskIds: List<String>): Unit = withContext(ioDispatcher) {
-        queries.deleteForTasks(taskIds)
+        // One transaction around the chunks, so a delete of 1500 tasks is still all-or-nothing.
+        database.transaction {
+            taskIds.chunked(SQL_VARIABLE_LIMIT).forEach { queries.deleteForTasks(it) }
+        }
     }
 
     override suspend fun hashesForTasks(taskIds: List<String>): List<String> =
         withContext(ioDispatcher) {
-            queries.selectHashesForTasks(taskIds).executeAsList()
+            // `DISTINCT` only dedupes within a chunk, so the fold does it across them.
+            taskIds.chunked(SQL_VARIABLE_LIMIT)
+                .flatMap { queries.selectHashesForTasks(it).executeAsList() }
+                .distinct()
         }
 
     override suspend fun stillReferenced(hashes: List<String>): List<String> =
@@ -225,7 +244,11 @@ class SqlDelightAttachmentStore(
             // The generated single-column mapper overload requires a non-null T, so this reads
             // the wrapper row type instead and unwraps — sha256 is nullable only because
             // `IN :hashes` does not narrow it the way `IS NOT NULL` does on the other queries.
-            queries.selectStillReferenced(hashes).executeAsList().mapNotNull { it.sha256 }
+            hashes.chunked(SQL_VARIABLE_LIMIT)
+                .flatMap { chunk ->
+                    queries.selectStillReferenced(chunk).executeAsList().mapNotNull { it.sha256 }
+                }
+                .distinct()
         }
 
     override suspend fun referencedHashes(): List<String> = withContext(ioDispatcher) {
