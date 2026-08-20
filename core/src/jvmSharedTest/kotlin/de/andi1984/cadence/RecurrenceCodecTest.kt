@@ -6,6 +6,7 @@ import de.andi1984.cadence.domain.model.RecurrenceMode
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.DayOfWeek
@@ -30,5 +31,63 @@ class RecurrenceCodecTest {
         assertNull(RecurrenceCodec.encode(null))
         assertNull(RecurrenceCodec.decode(null))
         assertNull(RecurrenceCodec.decode("garbage"))
+    }
+
+    @Test
+    fun `a completion-anchored rule with no days of week round-trips without a dows segment`() {
+        val rule = RecurrenceRule(
+            mode = RecurrenceMode.AFTER_COMPLETION,
+            interval = 3,
+            unit = RecurrenceUnit.DAY,
+            keepMissed = true,
+        )
+        val encoded = RecurrenceCodec.encode(rule)
+
+        assertFalse(encoded!!.contains("dows="))
+        assertEquals(rule, RecurrenceCodec.decode(encoded))
+    }
+
+    @Test
+    fun `an unrecognised unit falls back to weekly rather than failing the whole rule`() {
+        val decoded = RecurrenceCodec.decode("v1;mode=SCHEDULE;interval=1;unit=FORTNIGHT;monthly=DAY_OF_MONTH")
+
+        assertEquals(RecurrenceUnit.WEEK, decoded?.unit)
+    }
+
+    @Test
+    fun `an unrecognised mode decodes the whole rule to null`() {
+        assertNull(RecurrenceCodec.decode("v1;mode=YEARLY_ISH;interval=1;unit=WEEK"))
+    }
+
+    @Test
+    fun `a missing mode decodes the whole rule to null`() {
+        assertNull(RecurrenceCodec.decode("v1;interval=1;unit=WEEK"))
+    }
+
+    @Test
+    fun `a malformed keepMissed value falls back to true, the codec's default`() {
+        val decoded = RecurrenceCodec.decode("v1;mode=SCHEDULE;interval=1;unit=WEEK;keepMissed=maybe")
+
+        assertEquals(true, decoded?.keepMissed)
+    }
+
+    @Test
+    fun `a version other than v1 decodes to null`() {
+        assertNull(RecurrenceCodec.decode("v2;mode=SCHEDULE;interval=1;unit=WEEK"))
+    }
+
+    @Test
+    fun `a segment with no equals sign is skipped rather than corrupting the rest`() {
+        val decoded = RecurrenceCodec.decode("v1;mode=SCHEDULE;garbage-segment;interval=2;unit=DAY")
+
+        assertEquals(2, decoded?.interval)
+        assertEquals(RecurrenceUnit.DAY, decoded?.unit)
+    }
+
+    @Test
+    fun `interval below 1 is coerced up to 1`() {
+        val decoded = RecurrenceCodec.decode("v1;mode=SCHEDULE;interval=0;unit=WEEK")
+
+        assertEquals(1, decoded?.interval)
     }
 }
