@@ -12,7 +12,7 @@ carry the detail and the up-to-date checked/unchecked state.
 
 ## Now
 
-- [ ] **Sync that runs itself** — [#76](../../issues/76), tracking
+- [x] **Sync that runs itself** — [#76](../../issues/76), tracking
       [ADR 0002](docs/adr/0002-supabase-sync.md) phases 3 and 3b. Sync works today and has to be
       asked: a **Sync now** button in Settings and nothing else. This makes it automatic, gives it
       a place in the header on every list screen, and puts the manual gesture where people reach
@@ -20,7 +20,7 @@ carry the detail and the up-to-date checked/unchecked state.
       - [ ] 3 — automatic triggers, sync in the header, failure snackbar —
             [#77](../../issues/77)
       - [ ] 3b — Realtime, as an accelerant only — [#78](../../issues/78)
-- [ ] **Desktop app (Ubuntu/macOS/Windows)** — [#28](../../issues/28),
+- [x] **Desktop app (Ubuntu/macOS/Windows)** — [#28](../../issues/28),
       tracking [ADR 0001](docs/adr/0001-desktop-app-and-multi-device-sync.md). Moves the app to
       Kotlin Multiplatform over a shared `:core`, swaps Room for SQLDelight and replaces `Long`
       ids with UUIDv7. Phases 1–4 land invisibly, phase 5 is the first desktop build. Sync left
@@ -33,8 +33,8 @@ carry the detail and the up-to-date checked/unchecked state.
       - [x] 5 — `:app-desktop` with jpackage installers and a CI matrix — [#26](../../issues/26)
       - [x] ~~6 — backup format v2, merge engine, `SyncTransport`, per-device sync folder~~ —
             [#27](../../issues/27), superseded by ADR 0002
-- [ ] A reminder opens Today, not the task it reminded you about — [#29](../../issues/29)
-- [ ] `android:allowBackup="true"` with no rules file is a silent data-loss trap —
+- [x] A reminder opens Today, not the task it reminded you about — [#29](../../issues/29)
+- [x] `android:allowBackup="true"` with no rules file is a silent data-loss trap —
       [#30](../../issues/30)
 
 ## Next
