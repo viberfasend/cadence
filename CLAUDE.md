@@ -335,6 +335,16 @@ than reaching for `!!`.
     `TaskStore.completeIfOpen` closes the row in SQL and reports whether this call is the one that
     closed it, so only that call schedules the successor and the rest of the work reads the row
     back instead of trusting the snapshot. Don't replace it with a plain `update`.
+  - **A completed occurrence lands strictly in the future, and the flag that says otherwise
+    has three decoders.** `RecurrenceEngine.dueDateAfterCompletion` walks the rule forward past
+    every occurrence at or before the completion day, so a daily task ticked off a month late is
+    due tomorrow rather than a month ago — or, worse, today, which is what stopping the walk at
+    `isBefore(completedOn)` used to hand back. `RecurrenceRule.keepMissed` turns the walk off for
+    a rule whose missed instances should keep nagging, and it defaults to *false*; so must every
+    place a rule is decoded from a shape that predates the flag — `RecurrenceCodec`'s missing
+    segment, `BackupCodec`'s absent key, `RemoteRecords`' absent column. All three defaulted to
+    `true`, which is why every rule created before the flag existed only ever stepped one
+    interval on.
   - **Reopening undoes both halves**: the row opens again and the occurrence that completion
     inserted is deleted (`TaskStore.openSuccessorsOf`), or the task would stand in the list twice.
     One that has itself been ticked off is left alone — the chain has moved on. `setCompleted`

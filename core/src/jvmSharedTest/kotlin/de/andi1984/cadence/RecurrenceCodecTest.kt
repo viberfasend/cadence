@@ -55,6 +55,16 @@ class RecurrenceCodecTest {
     }
 
     @Test
+    fun `a column written before keepMissed existed catches its series up`() {
+        // Rules stored before the flag was added carry no `keepMissed=` segment. They used to
+        // decode to true, which is why every one of them only ever stepped a single interval on
+        // however far overdue it was; the missing segment now means the model's own default.
+        val decoded = RecurrenceCodec.decode("v1;mode=SCHEDULE;interval=1;unit=DAY;monthly=DAY_OF_MONTH")
+
+        assertFalse(decoded!!.keepMissed)
+    }
+
+    @Test
     fun `an unrecognised mode decodes the whole rule to null`() {
         assertNull(RecurrenceCodec.decode("v1;mode=YEARLY_ISH;interval=1;unit=WEEK"))
     }
@@ -65,10 +75,10 @@ class RecurrenceCodecTest {
     }
 
     @Test
-    fun `a malformed keepMissed value falls back to true, the codec's default`() {
+    fun `a malformed keepMissed value falls back to false, the model's default`() {
         val decoded = RecurrenceCodec.decode("v1;mode=SCHEDULE;interval=1;unit=WEEK;keepMissed=maybe")
 
-        assertEquals(true, decoded?.keepMissed)
+        assertEquals(false, decoded?.keepMissed)
     }
 
     @Test

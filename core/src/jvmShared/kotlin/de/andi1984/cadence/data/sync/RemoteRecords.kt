@@ -119,7 +119,8 @@ data class RemoteRecurrence(
     @SerialName("day_of_month") val dayOfMonth: Int? = null,
     @SerialName("nth_week") val nthWeek: Int? = null,
     @SerialName("nth_day_of_week") val nthDayOfWeek: String? = null,
-    @SerialName("keep_missed") val keepMissed: Boolean = true,
+    /** Absent from a payload an older client wrote — the model's default, not `true`. */
+    @SerialName("keep_missed") val keepMissed: Boolean = false,
 )
 
 fun Task.toRemote() = RemoteTask(
