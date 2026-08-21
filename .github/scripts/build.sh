@@ -251,9 +251,16 @@ gradle_tasks=()
 # test touches. :app-desktop is a plain JVM module, so its task is `test`. A desktop-only build
 # skips the Android half rather than dragging the SDK onto a machine packaging a .dmg, which is
 # also what keeps this runnable on a Mac with no Android tooling at all.
+#
+# The Android half is named per module rather than as a bare `testDebugUnitTest`. Unqualified it
+# also matches `:app-android:testDebugUnitTest`, and that module has had no unit tests since
+# storage moved into :core — but asking for the task still builds the entire debug variant
+# (31 tasks: resource merge, manifest processing, the Compose compilation of every screen) to
+# then run nothing. `assembleDebug` below compiles all of it anyway when an APK is wanted, so
+# nothing goes unchecked. Give :app-android tests again and this line has to name it.
 if $run_tests; then
     gradle_tasks+=(:core:jvmTest :ui:jvmTest :app-desktop:test :ui:compileKotlinJvm)
-    if wants apk; then gradle_tasks+=(testDebugUnitTest); fi
+    if wants apk; then gradle_tasks+=(:core:testDebugUnitTest :ui:testDebugUnitTest); fi
 fi
 if wants apk; then gradle_tasks+=(assembleDebug assembleRelease); fi
 if wants deb; then gradle_tasks+=(:app-desktop:packageDeb); fi
@@ -264,10 +271,10 @@ if wants msi; then gradle_tasks+=(:app-desktop:packageMsi); fi
 # image has to be asked for by name. packageDeb/packageRpm build their own and leave none behind.
 if wants tar; then gradle_tasks+=(:app-desktop:createDistributable); fi
 
+# The build cache is on in gradle.properties now, everywhere — a CI run that recompiles four
+# Compose modules from scratch costs minutes, which is worth more than the Actions cache entry it
+# saves — so there is no --build-cache to add here any more.
 gradle_args=(--console=plain --stacktrace)
-# The build cache is off in gradle.properties to keep the Actions cache small; locally there is no
-# such budget and a second build is several times faster with it on.
-if [[ -z "${CI:-}" ]]; then gradle_args+=(--build-cache); fi
 
 if $dry_run; then
     step 'Plan'

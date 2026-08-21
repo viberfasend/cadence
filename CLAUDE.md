@@ -26,8 +26,12 @@ The product rule the whole app is built on: **importance first, due date breaks 
 ## Commands
 
 ```bash
-./gradlew testDebugUnitTest :core:jvmTest :ui:jvmTest :app-desktop:test   # what CI runs
-./gradlew :ui:compileKotlinJvm     # also CI: nothing else compiles :ui's screens for the desktop
+# What CI runs, in one invocation — configuring this build costs more than running it, so a
+# second ./gradlew pays for all of it again. :app-android is not in the list: it has had no
+# unit tests since storage moved to :core, and a bare `testDebugUnitTest` would still build its
+# whole debug variant (31 tasks) to run none of them.
+./gradlew :core:testDebugUnitTest :ui:testDebugUnitTest \
+          :core:jvmTest :ui:jvmTest :app-desktop:test :ui:compileKotlinJvm
 ./gradlew assembleDebug            # app-android/build/outputs/apk/debug/app-android-debug.apk
 ./gradlew assembleRelease          # falls back to the debug key when no CADENCE_KEYSTORE is set
 
@@ -66,10 +70,11 @@ tests moved with it.
 `:ui`'s tests live in a `jvmSharedTest` source set mirroring `jvmShared`, and cover the part of
 the module that is plain JVM Kotlin: the `CadenceUiState` derivations, `sortedFor`, and
 `CadenceViewModel`'s undo state machine (a `StandardTestDispatcher` sharing `runTest`'s scheduler,
-so the five-second undo window costs no wall clock). The ViewModel runs on a scope of its own
-there rather than the test's — its `init` starts collectors that never finish — and the test
-subscribes to `state`, because `stateIn(WhileSubscribed)` keeps the upstream cold until something
-reads it. The ViewModel test sits in `jvmTest` rather than `jvmSharedTest`, alone among them,
+so the five-second undo window costs no wall clock). The ViewModel runs on `runTest`'s
+`backgroundScope` rather than on the test coroutine — its `init` starts collectors that never
+finish, and `runTest` waits for its own children — and the test subscribes to `state`, because
+`stateIn(WhileSubscribed)` keeps the upstream cold until something reads it. The ViewModel test
+sits in `jvmTest` rather than `jvmSharedTest`, alone among them,
 because it constructs a real `CadenceSyncEngine` — signed out that makes no request, but the
 Android unit-test JVM has no Android runtime behind supabase-kt. No screen is tested: composables
 would need the Compose test runtime, and none of the rules worth pinning live in one.
@@ -83,6 +88,17 @@ listing) — the two classes there with no Compose in them.
 plain-Kotlin half. CI therefore also runs `:ui:compileKotlinJvm` on its own: without it the
 Android build could stay green while the screens the desktop app is mostly made of stopped
 compiling for the JVM.
+
+**A test that hands a class its own `CoroutineScope` must use `runTest`'s `backgroundScope`.**
+This is the one rule here that has actually cost real time. `runTest` drains the shared
+`TestScheduler` once the test body returns, and a `while (true) { … delay(n) }` loop running on
+that scheduler — `DesktopReminderScheduler`'s poll, and anything like it — always has one more
+`delay` queued, so the drain never reaches idle. Nothing fails: the test JVM spins at 100% CPU
+forever, which on a runner means the job burns its time limit and reports nothing. A scope of
+our own plus an `@After { scope.cancel() }` does not help, because `@After` runs *after* the
+drain. `backgroundScope` already runs on the test's scheduler and is cancelled *before* it, so
+it is both the shorter code and the only correct one. `CadenceViewModelUndoTest`,
+`CadenceViewModelCrudTest` and `DesktopReminderSchedulerTest` all take their scope from it.
 
 **No mocking library, and no second test framework.** JUnit 4 + `org.junit.Assert` +
 `kotlin.test` + `kotlinx-coroutines-test`, with hand-written fakes for every port —
@@ -529,15 +545,27 @@ The generated accessors are one top-level property per string, so files import t
 `workflow_dispatch` only — no `push`, no `pull_request`, no `schedule`. `android.yml` and
 `desktop.yml` used to run on every push to **any** branch and on every pull request, which is
 where this repository's Actions minutes went; a single push started four runners, two of them
-billed at macOS's 10x and Windows's 2x multipliers. **Verification is local now**: run
-`./gradlew testDebugUnitTest :core:jvmTest :ui:jvmTest :app-desktop:test` and
-`./gradlew :ui:compileKotlinJvm` before pushing,
-because no runner will do it for you and a red branch will look green. Don't restore an
+billed at macOS's 10x and Windows's 2x multipliers. **Verification is local now**: run the one command at the top of Commands before pushing,
+because no runner will do it for you and a red branch will look green. The whole suite is
+roughly five seconds of test time; if it takes minutes, something hangs — see the note below. Don't restore an
 automatic trigger to any workflow in this repo without being asked for it outright.
 
 What each one still does, when dispatched:
 
 - `android.yml` — tests, then `build.sh apk`, uploading both APKs as artifacts.
+
+Two backstops sit under all three, because the failure that prompted them cost hours rather
+than minutes: **every `Test` task has a five-minute `timeout`** (the `subprojects` block in the
+root `build.gradle.kts`) and **every job has a `timeout-minutes`**. GitHub's default job limit
+is six hours, so a test that hangs instead of failing runs out the afternoon and reports
+nothing. Five minutes is two orders of magnitude above what the suite needs, so it can only
+ever catch a hang.
+
+Caching is `gradle/actions/setup-gradle@v4` and nothing else. It caches `~/.gradle` — the
+dependency cache, the wrapper and the **build cache**, which `gradle.properties` now switches
+on — so the hand-rolled `actions/cache` step that used to sit beside it restored the same
+directory a second time, with a `transforms-` glob that matched nothing, and has been removed
+along with the `find ~/.gradle/caches -delete` step that pruned what the action manages.
 - `desktop.yml` — tests, then `build.sh desktop`, over a matrix built from an `os` **input**
   that defaults to `ubuntu-latest` alone rather than fanning out to three runners; pass `all`
   for all three. jpackage runs on the target OS, so there is no cross-compiling a `.dmg` from

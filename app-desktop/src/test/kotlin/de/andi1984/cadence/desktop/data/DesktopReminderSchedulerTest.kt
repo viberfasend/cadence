@@ -1,15 +1,10 @@
 package de.andi1984.cadence.desktop.data
 
 import de.andi1984.cadence.domain.model.Task
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.Instant
@@ -31,26 +26,24 @@ import java.time.LocalTime
  *
  * `advanceTimeBy` rather than `advanceUntilIdle`: the poll loop is a `while (true)`, so there is
  * always another task scheduled and "until idle" never arrives.
+ *
+ * The scheduler runs on **`runTest`'s `backgroundScope`**, and that is load-bearing rather than
+ * tidy. `runTest` drains the shared `TestScheduler` once the test body returns, and a `while
+ * (true) { poll(); delay(30s) }` loop on a scope of our own always has one more `delay` queued —
+ * so the drain never finishes and the test process spins at 100% CPU forever. It was the whole
+ * of `:app-desktop:test`, and on a runner it burned the job's time limit rather than failing.
+ * `backgroundScope` is cancelled *before* that drain, which is exactly what it exists for.
  */
 class DesktopReminderSchedulerTest {
 
     private val fired = mutableListOf<String>()
-    private var scope: CoroutineScope? = null
 
-    @After
-    fun tearDown() {
-        scope?.cancel()
-    }
-
-    private fun TestScope.scheduler(): DesktopReminderScheduler {
-        val pollScope = CoroutineScope(StandardTestDispatcher(testScheduler) + Job())
-        scope = pollScope
-        return DesktopReminderScheduler(
-            scope = pollScope,
+    private fun TestScope.scheduler(): DesktopReminderScheduler =
+        DesktopReminderScheduler(
+            scope = backgroundScope,
             trayIcon = null,
             notify = { title -> fired += title },
         )
-    }
 
     /** One poll, without letting the loop's `delay` run. */
     private fun TestScope.poll() = runCurrent()

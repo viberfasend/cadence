@@ -47,6 +47,9 @@ jobs:
   preflight:
     name: Preflight
     runs-on: ubuntu-latest
+    # GitHub's default job limit is six hours. A build that is going to work here takes
+    # minutes, so anything past this is a hang, and a hang should cost a job — not an afternoon.
+    timeout-minutes: 10
 
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -101,6 +104,9 @@ jobs:
     needs: preflight
     if: inputs.targets != 'deb'
     runs-on: ubuntu-latest
+    # GitHub's default job limit is six hours. A build that is going to work here takes
+    # minutes, so anything past this is a hang, and a hang should cost a job — not an afternoon.
+    timeout-minutes: 45
 
     env:
       KEYSTORE_BASE64: ${{ secrets.CADENCE_KEYSTORE_BASE64 }}
@@ -119,17 +125,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches/modules-*
-            ~/.gradle/caches/jars-*
-            ~/.gradle/caches/transforms-
-          key: ${{ runner.os }}-gradle-deps-${{ hashFiles('**/*.gradle*', '**/gradle.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-deps-
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
@@ -176,6 +171,9 @@ jobs:
         # matrix buys that a Linux laptop cannot produce itself.
         os: ${{ fromJSON(inputs.targets == 'all' && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
+    # GitHub's default job limit is six hours. A build that is going to work here takes
+    # minutes, so anything past this is a hang, and a hang should cost a job — not an afternoon.
+    timeout-minutes: 60
 
     defaults:
       run:
@@ -197,17 +195,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches/modules-*
-            ~/.gradle/caches/jars-*
-            ~/.gradle/caches/transforms-
-          key: ${{ runner.os }}-gradle-deps-${{ hashFiles('**/*.gradle*', '**/gradle.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-deps-
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
@@ -254,6 +241,9 @@ jobs:
     name: Publish release
     needs: [preflight, build-android, build-desktop]
     runs-on: ubuntu-latest
+    # GitHub's default job limit is six hours. A build that is going to work here takes
+    # minutes, so anything past this is a hang, and a hang should cost a job — not an afternoon.
+    timeout-minutes: 15
 
     # A skipped build job (`android` or `deb` alone) must not skip the publish with it, which is
     # what a bare `needs` would do — hence !failure() rather than success(). `!inputs.dry-run`

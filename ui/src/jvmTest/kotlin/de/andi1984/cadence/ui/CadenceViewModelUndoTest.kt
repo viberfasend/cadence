@@ -3,16 +3,11 @@ package de.andi1984.cadence.ui
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -29,9 +24,10 @@ import java.time.LocalTime
  * Time is virtual — `StandardTestDispatcher` sharing `runTest`'s scheduler — so the five-second
  * window costs nothing and "before" and "after" are exact rather than racy.
  *
- * The ViewModel runs on a scope of its own rather than on the test's, for two reasons: its
- * `init` starts collectors that never finish (`runTest` would report the test as never
- * completing), and the scope is what the shell cancels on the way out.
+ * The ViewModel runs on `runTest`'s `backgroundScope` rather than on the test coroutine itself:
+ * its `init` starts collectors that never finish, and `runTest` waits for its own children
+ * before it returns. `backgroundScope` is the scheduler-sharing scope that is exempt from that
+ * wait and is cancelled for us — which also stands in for the `close()` the shell would call.
  *
  * **`jvmTest`, not `jvmSharedTest`**, unlike the two state tests beside it. The ViewModel takes a
  * concrete `CadenceSyncEngine`, and constructing one builds a real supabase-kt client — harmless
@@ -48,30 +44,27 @@ class CadenceViewModelUndoTest {
     private val reminders = RecordingReminderScheduler()
     private val settings = FakeSettingsStore()
 
-    private var scope: CoroutineScope? = null
-
-    @After
-    fun tearDown() {
-        scope?.cancel()
-    }
-
     /**
-     * Builds the ViewModel on a scope driven by [TestScope]'s scheduler and subscribes to
-     * `state`, because `stateIn(WhileSubscribed)` keeps the upstream cold until something reads
-     * it — and every deferred delete reads `state.value` for the rows it is about to hide.
+     * Builds the ViewModel on `runTest`'s [TestScope.backgroundScope] and subscribes to `state`,
+     * because `stateIn(WhileSubscribed)` keeps the upstream cold until something reads it — and
+     * every deferred delete reads `state.value` for the rows it is about to hide.
+     *
+     * `backgroundScope` rather than a scope of our own: it already runs on the test's scheduler,
+     * it is cancelled before `runTest` drains that scheduler, and work in it therefore cannot
+     * hold the drain open. That last part is what a scope of our own gets wrong — see the note
+     * on `:app-desktop`'s `DesktopReminderSchedulerTest`, where one `delay` loop outside the
+     * test's own scope hung the whole task at 100% CPU with nothing to show for it.
      */
     private fun TestScope.viewModel(): CadenceViewModel {
-        val vmScope = CoroutineScope(StandardTestDispatcher(testScheduler) + Job())
-        scope = vmScope
         val viewModel = CadenceViewModel(
             repository = repository,
             settingsStore = settings,
             reminderScheduler = reminders,
             backupGateway = FakeBackupGateway(),
-            syncEngine = CadenceSyncEngine(FakeSyncStore(), vmScope),
-            scope = vmScope,
+            syncEngine = CadenceSyncEngine(FakeSyncStore(), backgroundScope),
+            scope = backgroundScope,
         )
-        vmScope.launch { viewModel.state.collect { } }
+        backgroundScope.launch { viewModel.state.collect { } }
         runCurrent()
         return viewModel
     }
