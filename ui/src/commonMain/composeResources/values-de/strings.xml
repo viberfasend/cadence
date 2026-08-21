@@ -427,6 +427,33 @@
         <item quantity="one">1 Eintrag gelöscht</item>
         <item quantity="other">%1$d Einträge gelöscht</item>
     </plurals>
+    <!-- ── Desktop-Hülle ────────────────────────────────────────────────────────────
+         Seitenleiste, Befehlspalette und Tastenkürzel-Übersicht. Nur `:app-desktop` zeichnet
+         das, die Texte stehen aber bei allen anderen — es gibt keinen zweiten Katalog. -->
+    <string name="nav_views">Ansichten</string>
+    <string name="sidebar_toggle">Seitenleiste ein- oder ausblenden</string>
+    <string name="sidebar_resize">Breite der Seitenleiste ändern</string>
+    <string name="palette_title">Befehlspalette</string>
+    <string name="palette_placeholder">Aufgaben, Projekte und Befehle suchen…</string>
+    <string name="palette_hint">&gt; für Befehle, # für Projekte</string>
+    <string name="palette_group_commands">Befehle</string>
+    <string name="palette_group_projects">Projekte</string>
+    <string name="palette_group_tasks">Aufgaben</string>
+    <string name="palette_empty">Nichts gefunden</string>
+    <string name="shortcuts_title">Tastenkürzel</string>
+    <string name="shortcuts_group_global">Überall</string>
+    <string name="shortcuts_group_navigation">Navigation</string>
+    <string name="shortcuts_group_selection">Ausgewählte Aufgabe</string>
+    <string name="command_new_task">Neue Aufgabe</string>
+    <string name="command_new_project">Neues Projekt</string>
+    <string name="command_sync_now">Jetzt synchronisieren</string>
+    <string name="command_toggle_theme">Hell und dunkel wechseln</string>
+    <string name="command_toggle_density">Komfortabel und kompakt wechseln</string>
+    <string name="command_show_shortcuts">Tastenkürzel</string>
+    <string name="command_toggle_sidebar">Seitenleiste ein- oder ausblenden</string>
+    <string name="command_go_to">Zu %1$s</string>
+    <string name="selection_none">Keine Aufgabe ausgewählt</string>
+
     <!-- ── Kontextmenüs ─────────────────────────────────────────────────────────────
          Das Rechtsklick-Menü einer Zeile. In der Praxis nur am Desktop — ein Touchscreen hat
          keine Sekundärtaste —, aber der Code ist geteilt, also die Texte auch. -->

@@ -38,6 +38,9 @@ import de.andi1984.cadence.ui.resources.Res
 import de.andi1984.cadence.ui.resources.*
 import de.andi1984.cadence.domain.model.SubtaskProgress
 import de.andi1984.cadence.domain.model.Task
+import de.andi1984.cadence.ui.dnd.DragPayload
+import de.andi1984.cadence.ui.dnd.cadenceDragSource
+import de.andi1984.cadence.ui.dnd.dragSourceAlpha
 import de.andi1984.cadence.ui.format.compactDate
 import de.andi1984.cadence.ui.format.describeRecurrence
 import de.andi1984.cadence.ui.format.describeRecurrenceInline
@@ -53,9 +56,105 @@ import java.time.LocalDate
  * Comfortable (1a): 64dp minimum, title plus a wrapping meta line.
  * Compact (1b): 52dp, single-line title with the spine and a short date on the right.
  */
-@OptIn(ExperimentalLayoutApi::class)
+
+/**
+ * A task row in either density, plus the interactions the shell has provided.
+ *
+ * The wrapper is here rather than in the seven screens that draw rows: right-click and drag are
+ * per-*row* behaviour, identical everywhere, and wanted by one shell. See [RowInteractions].
+ */
 @Composable
 fun TaskRow(
+    task: Task,
+    projectLabel: String?,
+    today: LocalDate,
+    onToggle: () -> Unit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    overdueStyle: Boolean = false,
+    showProject: Boolean = true,
+    parentTitle: String? = null,
+    subtaskProgress: SubtaskProgress? = null,
+    expanded: Boolean = false,
+    onExpandToggle: (() -> Unit)? = null,
+) {
+    val interactions = LocalRowInteractions.current
+
+    if (!interactions.enabled) {
+        TaskRowContent(
+            task = task,
+            projectLabel = projectLabel,
+            today = today,
+            onToggle = onToggle,
+            onClick = onClick,
+            modifier = modifier,
+            overdueStyle = overdueStyle,
+            showProject = showProject,
+            parentTitle = parentTitle,
+            subtaskProgress = subtaskProgress,
+            expanded = expanded,
+            onExpandToggle = onExpandToggle,
+        )
+        return
+    }
+
+    CadenceContextMenu(
+        menu = { dismiss ->
+            TaskContextMenuItems(
+                task = task,
+                state = interactions.state,
+                today = interactions.today,
+                dismiss = dismiss,
+                onOpen = interactions.onOpenTask,
+                onToggle = interactions.onToggleTask,
+                onSetPriority = interactions.onSetPriority,
+                onSetDueDate = interactions.onSetDueDate,
+                onMoveToProject = interactions.onMoveTaskToProject,
+                onMoveToSection = interactions.onMoveTaskToSection,
+                onDuplicate = interactions.onDuplicateTask,
+                onDelete = interactions.onDeleteTask,
+            )
+        },
+    ) {
+        TaskRowContent(
+            task = task,
+            projectLabel = projectLabel,
+            today = today,
+            onToggle = onToggle,
+            onClick = onClick,
+            modifier = modifier
+                .cadenceDragSource(DragPayload.TaskDrag(task)) { TaskDragGhost(task) }
+                .dragSourceAlpha(task.id),
+            overdueStyle = overdueStyle,
+            showProject = showProject,
+            parentTitle = parentTitle,
+            subtaskProgress = subtaskProgress,
+            expanded = expanded,
+            onExpandToggle = onExpandToggle,
+        )
+    }
+}
+
+/** What follows the cursor: the row's title, and nothing else worth carrying. */
+@Composable
+fun TaskDragGhost(task: Task) {
+    Text(
+        text = task.title,
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurface,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+    )
+}
+
+/**
+ * The row itself. [TaskRow] wraps this with whatever the shell's [RowInteractions] add — a
+ * right-click menu and a drag gesture on the desktop, nothing at all on Android.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TaskRowContent(
     task: Task,
     projectLabel: String?,
     today: LocalDate,

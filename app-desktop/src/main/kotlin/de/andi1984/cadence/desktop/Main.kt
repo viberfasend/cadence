@@ -7,38 +7,36 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isCtrlPressed
-import androidx.compose.ui.input.key.isMetaPressed
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import de.andi1984.cadence.data.db.CADENCE_DATABASE_FILE_NAME
 import de.andi1984.cadence.data.sync.SyncStatus
+import de.andi1984.cadence.desktop.data.DesktopWorkspaceStore
 import de.andi1984.cadence.desktop.platform.PlatformDirs
 import de.andi1984.cadence.desktop.ui.CadenceDesktopApp
+import de.andi1984.cadence.desktop.ui.DesktopNavigator
+import de.andi1984.cadence.desktop.ui.Route
+import de.andi1984.cadence.desktop.ui.ShortcutAction
+import de.andi1984.cadence.desktop.ui.shortcutFor
 import de.andi1984.cadence.ui.CadenceViewModel
 import de.andi1984.cadence.ui.platform.AppInfo
 import de.andi1984.cadence.ui.theme.CadenceTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.time.Duration
+import java.time.LocalDate
 import java.util.Locale
-
-/** Ctrl+N on Linux/Windows, Cmd+N on macOS — the FAB's keyboard equivalent (ADR 0001 §8). AWT
- *  reports both as [isMetaPressed] false and a platform-specific modifier otherwise, so this
- *  reads the OS rather than trusting one modifier key. */
-private val isMac = System.getProperty("os.name").lowercase().contains("mac")
 
 /**
  * The desktop's safety net, and the one poll in the app (ADR 0002, decision 11).
@@ -52,6 +50,7 @@ private val DESKTOP_POLL_INTERVAL: Duration = Duration.ofMinutes(15)
 
 fun main() = application {
     val container = remember { AppContainer() }
+    val workspaceStore = remember { DesktopWorkspaceStore() }
     val viewModelScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     val viewModel = remember {
         CadenceViewModel(
@@ -65,6 +64,8 @@ fun main() = application {
         )
     }
     val state by viewModel.state.collectAsState()
+    val workspace by workspaceStore.state.collectAsState()
+    val navigator = remember { DesktopNavigator() }
 
     // App start. Signed out this makes no request at all, so a fresh install still talks to
     // nobody until somebody signs in.
@@ -78,39 +79,92 @@ fun main() = application {
         container.syncEngine.startRealtime()
     }
 
-    var quickAddRequested by remember { mutableStateOf(false) }
+    /**
+     * Today, recomputed at midnight.
+     *
+     * This was `remember { LocalDate.now() }` and never changed again, so a machine left open
+     * overnight kept drawing yesterday: Today listed yesterday's tasks, and nothing that became
+     * overdue at 00:00 looked overdue. A phone is killed and restarted often enough to hide the
+     * bug; a desktop window is not.
+     */
+    var today by remember { mutableStateOf(LocalDate.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = java.time.LocalDateTime.now()
+            val nextMidnight = now.toLocalDate().plusDays(1).atStartOfDay()
+            // A second past midnight, not exactly on it: `LocalDate.now()` a hair early would
+            // return the day that is ending and the loop would spin until the clock caught up.
+            delay(Duration.between(now, nextMidnight).toMillis().coerceAtLeast(1_000L) + 1_000L)
+            today = LocalDate.now()
+        }
+    }
 
-    val windowState = rememberWindowState(width = 1100.dp, height = 780.dp)
+    var quickAddRequested by remember { mutableStateOf(false) }
+    var shortcutsRequested by remember { mutableStateOf(false) }
+    var paletteRequested by remember { mutableStateOf(false) }
+
+    // Restored from the workspace file, which clamps anything unusable — a window that opens
+    // off-screen because a second monitor is gone is a window nobody can find.
+    val windowState = rememberWindowState(
+        size = DpSize(workspace.windowWidth.dp, workspace.windowHeight.dp),
+        position = workspace.windowX?.let { x ->
+            workspace.windowY?.let { y -> WindowPosition(x.dp, y.dp) }
+        } ?: WindowPosition.PlatformDefault,
+        placement = if (workspace.maximized) WindowPlacement.Maximized else WindowPlacement.Floating,
+    )
+
+    fun rememberWindowBounds() {
+        val position = windowState.position
+        workspaceStore.setWindowBounds(
+            width = windowState.size.width.value,
+            height = windowState.size.height.value,
+            x = if (position is WindowPosition.Absolute) position.x.value else null,
+            y = if (position is WindowPosition.Absolute) position.y.value else null,
+            maximized = windowState.placement == WindowPlacement.Maximized,
+        )
+    }
 
     Window(
         onCloseRequest = {
             // Fire-and-forget on the container's application scope, which [CadenceViewModel.close]
             // does not touch: the window must not hesitate on the way out, and a push that misses
             // this window ships on the next start (ADR 0002, decision 11).
+            rememberWindowBounds()
             container.syncEngine.syncInBackground()
             viewModel.close()
             exitApplication()
         },
         state = windowState,
         title = "Cadence",
+        // One table decides every shortcut, and the cheat sheet is generated from the same one
+        // (`ui/Shortcuts.kt`), so the two cannot drift apart.
         onKeyEvent = { event ->
-            val modifierHeld = if (isMac) event.isMetaPressed else event.isCtrlPressed
-            when {
-                event.type != KeyEventType.KeyDown || !modifierHeld -> false
-
-                event.key == Key.N -> {
-                    quickAddRequested = true
+            when (shortcutFor(event)) {
+                ShortcutAction.QuickAdd -> { quickAddRequested = true; true }
+                ShortcutAction.CommandPalette -> { paletteRequested = true; true }
+                ShortcutAction.ShowShortcuts -> { shortcutsRequested = true; true }
+                ShortcutAction.Search -> { navigator.go(Route.Search); true }
+                ShortcutAction.Settings -> { navigator.go(Route.Settings); true }
+                ShortcutAction.ToggleSidebar -> {
+                    workspaceStore.setSidebarCollapsed(!workspace.sidebarCollapsed)
                     true
                 }
 
-                // The desktop's answer to the pull gesture. Signed out there is nothing to
-                // refresh, and the shortcut does not exist rather than quietly doing nothing.
-                event.key == Key.R && state.sync.status !is SyncStatus.SignedOut -> {
-                    viewModel.syncNow()
+                // Signed out there is nothing to refresh, and the shortcut does nothing rather
+                // than pretending: the same rule the header's button follows.
+                ShortcutAction.SyncNow -> {
+                    if (state.sync.status !is SyncStatus.SignedOut) viewModel.syncNow()
                     true
                 }
 
-                else -> false
+                ShortcutAction.Undo -> { viewModel.undo(); true }
+                ShortcutAction.Back, ShortcutAction.Close -> { navigator.back(); true }
+                ShortcutAction.Forward -> { navigator.forward(); true }
+                ShortcutAction.GoToday -> { navigator.switchTo(Route.Today); true }
+                ShortcutAction.GoUpcoming -> { navigator.switchTo(Route.Upcoming); true }
+                ShortcutAction.GoInbox -> { navigator.switchTo(Route.Inbox); true }
+                ShortcutAction.GoProjects -> { navigator.switchTo(Route.Projects); true }
+                null -> false
             }
         },
     ) {
@@ -123,6 +177,16 @@ fun main() = application {
                 .drop(1)
                 .filter { it }
                 .collect { container.syncEngine.syncInBackground() }
+        }
+
+        // Resizing and moving are continuous, so the file is written a second after the last of
+        // them rather than on every frame of a drag.
+        LaunchedEffect(windowState) {
+            snapshotFlow { Triple(windowState.size, windowState.position, windowState.placement) }
+                .collect {
+                    delay(1_000)
+                    rememberWindowBounds()
+                }
         }
 
         val databaseFile = remember { File(PlatformDirs.dataDir(), CADENCE_DATABASE_FILE_NAME) }
@@ -144,8 +208,15 @@ fun main() = application {
                 viewModel = viewModel,
                 state = state,
                 appInfo = appInfo,
+                today = today,
+                workspaceStore = workspaceStore,
+                navigator = navigator,
                 quickAddRequested = quickAddRequested,
                 onQuickAddHandled = { quickAddRequested = false },
+                shortcutsRequested = shortcutsRequested,
+                onShortcutsHandled = { shortcutsRequested = false },
+                paletteRequested = paletteRequested,
+                onPaletteHandled = { paletteRequested = false },
             )
         }
     }
