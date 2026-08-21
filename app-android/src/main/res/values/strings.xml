@@ -4,4 +4,12 @@
     <string name="reminder_channel_name">Task reminders</string>
     <string name="reminder_channel_description">Reminders for tasks that are due</string>
     <string name="reminder_content_text">Due today</string>
+
+    <string name="widget_task_list_title">Today</string>
+    <string name="widget_task_list_empty">Nothing due today</string>
+    <string name="widget_task_list_description">Today\'s and overdue tasks, importance first</string>
+    <string name="widget_overdue">Overdue</string>
+    <string name="widget_due_today">Today</string>
+    <string name="widget_next_task_empty">All caught up</string>
+    <string name="widget_next_task_description">The single most important open task</string>
 </resources>
