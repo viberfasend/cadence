@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The open half of the widget's completion circle — the 2dp accent ring
+    `ui/components/TaskRow.kt`'s CompletionCircle draws. Filled white and left untinted here so
+    Glance's ColorFilter can paint it in the theme's accent at render time.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M2,12 A10,10 0 1,1 22,12 A10,10 0 1,1 2,12 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2" />
+</vector>

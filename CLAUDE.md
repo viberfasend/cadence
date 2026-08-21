@@ -200,6 +200,7 @@ palette, are left for later — phase 5's bar is a *working* shell, not a *finis
               data/backup/BackupIo (SAF read/write)
               data/settings/SharedPrefsSettingsStore
               reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
+              widget/     Glance home-screen widgets — Android-only, so never in :ui
 :app-desktop  Main.kt     application {}/Window, wires CadenceViewModel, Ctrl/Cmd+N
               AppContainer.kt hand-rolled DI, same shape as :app-android's
               ui/         CadenceDesktopApp (hand-rolled back stack, NavigationRail sidebar)
@@ -360,6 +361,30 @@ than reaching for `!!`.
   the synced task list every 30 seconds and fires a system-tray balloon for whatever just came
   due — which only works while the app is running, same accepted trade-off ADR 0001 §8 names for
   a killed Android process.
+- **Home-screen widgets are Glance, live in `:app-android/widget/`, and are Android-only.** Glance
+  is the only widget toolkit still under development — `RemoteViews` is the legacy API it hides —
+  and it has no desktop counterpart, so nothing about widgets belongs in `:ui`. `AppContainer`
+  reconciles them on every `repository.tasks` emission exactly as reminders are reconciled, and
+  `WidgetUpdater` is the single list of what exists; `updatePeriodMillis` in each provider-info
+  XML is only the fallback for when no process is alive to run that collector. A widget never
+  re-derives what to show: `TaskListScope` selects with the app's own filters and
+  `sortedFor(settings.sortMode)` orders with the app's own rule, so a widget cannot disagree with
+  the screen it mirrors. Three rules cost real time to find, and two of them a compiler cannot
+  catch:
+  - **Two intents that differ only in their extras are the same intent.** `Intent.filterEquals` —
+    what `PendingIntent` matches on — ignores extras, and Glance builds `actionStartActivity` with
+    `FLAG_UPDATE_CURRENT`. A list of rows carrying nothing but a different `taskId` extra
+    therefore collapses onto *one* `PendingIntent` whose extras the last row composed overwrote:
+    every row opens the same task, and the widget reads as decorative. `WidgetIntents` gives each
+    destination a distinct `data` URI, which is the only thing keeping them apart.
+  - **A `LazyColumn` is a `ListView`, so its rows are RemoteViews collection items.** A collection
+    item cannot own a `PendingIntent` — the platform offers a template plus a per-item fill-in
+    intent, which is what Glance's `clickable` compiles to. A compound button (`CheckBox`,
+    `Switch`) instead wants `setOnCheckedChangeResponse`, which is not part of that contract, so
+    the completion circle is a clickable `Box` with two vector drawables rather than a `CheckBox`.
+  - **A widget must visibly answer a tap.** Ticking a row honours the user's `showCompleted`
+    setting like every screen does, so the row strikes through and stays instead of vanishing —
+    a row that disappears reads as deleted, not completed.
 - **A fresh install starts empty.** There is no seeding: the first screen a new user sees is the
   empty state, not sample content. Anything that needs a populated app (screenshots, a demo) is
   built by importing a backup file, not by putting fixtures back into the app.
