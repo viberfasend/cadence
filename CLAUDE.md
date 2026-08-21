@@ -23,6 +23,11 @@ are built out of `:core` and `:ui` in the steps laid out in
 The product rule the whole app is built on: **importance first, due date breaks ties**
 (`:ui`'s `ui/TaskSorting.kt`). Recurrence supports both calendar rules and "n days after completion".
 
+The desktop is pointer- and keyboard-first, not a phone app in a window: drag and drop, right-click
+menus, a command palette, a project-tree sidebar and a two-pane layout
+([ADR 0003](docs/adr/0003-desktop-interaction-model.md)). Almost all of it is shared code in `:ui`
+that Android leaves switched off.
+
 ## Commands
 
 ```bash
@@ -80,9 +85,12 @@ Android unit-test JVM has no Android runtime behind supabase-kt. No screen is te
 would need the Compose test runtime, and none of the rules worth pinning live in one.
 
 `:app-desktop` is a plain JVM module, so its task is `:app-desktop:test`. It covers
-`DesktopSettingsStore` (the file round-trip and what a truncated one falls back to) and
-`DesktopReminderScheduler` (fires once per due task, and forgets what the reconcile stops
-listing) — the two classes there with no Compose in them.
+`DesktopSettingsStore` (the file round-trip and what a truncated one falls back to),
+`DesktopWorkspaceStore` (the same, plus the clamps: a sidebar width outside its range, a window
+position from a monitor that is gone), `DesktopReminderScheduler` (fires once per due task, and
+forgets what the reconcile stops listing) and `DesktopNavigator` (the back/forward stacks, and
+what happens to an open detail pane when the window is resized across the two-pane threshold) —
+the classes there with no Compose in them.
 
 `assembleDebug` only ever compiles `:ui`'s *Android* target, and its tests reach only the
 plain-Kotlin half. CI therefore also runs `:ui:compileKotlinJvm` on its own: without it the
@@ -174,14 +182,19 @@ factory to hang it from. No DI framework either way — new singletons go in the
 **Navigation** lives entirely in each shell — the part of the UI that does *not* move.
 `:app-android`'s `ui/CadenceApp.kt` uses `androidx.navigation.compose`: route constants in
 `Routes`, one `NavHost`, bottom bar + FAB shown only on the four top-level destinations.
-`:app-desktop`'s `ui/CadenceDesktopApp.kt` does not depend on that Android-only artifact and
-instead holds a plain `List<Route>` back stack in `remember { mutableStateOf(...) }`, rendering
-only its last entry — a `NavigationRail` sidebar stands in for the bottom bar, a rail item for
-the FAB, `Ctrl`/`Cmd`+`N` for its keyboard equivalent. Both shells call the same screen
-composables with the same callbacks; only the chrome around them and how a route is stored
-differ. Quick-add is a sheet driven by composable state on both, not a route. The sidebar's
-detail-pane refinement ADR 0001 §8 describes, and swapping the quick-add sheet for a command
-palette, are left for later — phase 5's bar is a *working* shell, not a *finished* one.
+`:app-desktop`'s `ui/Navigation.kt` does not depend on that Android-only artifact: a
+`DesktopNavigator` holds a back stack, a **forward** stack (`Alt`+`←`/`→`, which `NavHost` never
+gave us) and the detail pane's occupant. Both shells call the same screen composables with the
+same callbacks; only the chrome around them and how a route is stored differ. Quick-add is a sheet
+driven by composable state on both, not a route.
+
+The desktop chrome is a **sidebar** (`ui/Sidebar.kt`) rather than a rail: the views plus the whole
+project tree, resizable, foldable, and a drop target on every row. At 1000dp and up the window
+draws **two panes** and a detail route fills the second one instead of pushing; below that it
+pushes as before, and resizing across the threshold moves an open detail between the two rather
+than dropping it (ADR 0003, decision 7). Everything ADR 0001 §8 left for later — the detail pane,
+the command palette (`Ctrl`/`Cmd`+`K`) — landed with ADR 0003; only the desktop *language* setting
+of ADR 0001 decision 9 is still outstanding.
 
 ### Layers
 
@@ -195,16 +208,24 @@ palette, are left for later — phase 5's bar is a *working* shell, not a *finis
 :ui           ui/         theme, shared components, ui/format/, one package per screen, CadenceViewModel
               ui/platform/ the ports the ViewModel needs from the machine — ReminderScheduler,
                           BackupGateway, BackupFilePicker
+              ui/dnd/     the drag kernel (ADR 0003): DragModel.kt is pure — payloads, targets,
+                          resolveDrop, hitTest — and DragAndDrop.kt is the gesture, ghost and caret
+              ui/palette/ CommandPaletteModel — the fuzzy ranking behind Ctrl/Cmd+K, pure Kotlin
               composeResources/ strings.xml and values-de/, reached as Res.string.x
 :app-android  ui/         CadenceApp (NavHost, bottom bar, FAB), CadenceViewModelHost, the SAF picker
               data/backup/BackupIo (SAF read/write)
               data/settings/SharedPrefsSettingsStore
               reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
-:app-desktop  Main.kt     application {}/Window, wires CadenceViewModel, Ctrl/Cmd+N
+:app-desktop  Main.kt     application {}/Window, wires CadenceViewModel, dispatches Shortcuts.kt,
+                          restores the window, recomputes `today` at midnight
               AppContainer.kt hand-rolled DI, same shape as :app-android's
-              ui/         CadenceDesktopApp (hand-rolled back stack, NavigationRail sidebar)
+              ui/         CadenceDesktopApp (sidebar + list pane + detail pane), Navigation.kt
+                          (DesktopNavigator: back stack, forward stack, detail pane), Sidebar.kt,
+                          Shortcuts.kt (the one table the window and the ? sheet both read),
+                          CommandPaletteDialog, ShortcutSheet, TrayMenu
               data/       DesktopBackupIo (java.nio), DesktopSettingsStore
-                          (JSON file), DesktopBackupFilePicker (JFileChooser), DesktopReminderScheduler
+                          (JSON file), DesktopWorkspaceStore (window + sidebar, desktop-only),
+                          DesktopBackupFilePicker (JFileChooser), DesktopReminderScheduler
                           (coroutine poll + system tray, no AlarmManager here)
               platform/   PlatformDirs — the per-OS data directory (ADR 0001 §8)
 ```
@@ -221,7 +242,17 @@ port**: HTTPS and JSON are identical on both platforms, so `CadenceSyncEngine` i
 in `:core` that each `AppContainer` constructs on its application scope (ADR 0002, decision 7). `SettingsStore` is a port
 for the same reason, declared next to the settings types in `ui/settings/SettingsStore.kt` —
 `SharedPrefsSettingsStore` on Android, `DesktopSettingsStore` (a JSON file under `PlatformDirs`)
-on the desktop.
+on the desktop. The desktop's *window* state — sidebar width, folded projects, window bounds — is
+deliberately **not** in `CadenceSettings` and lives in a second file, `workspace.json`
+(`DesktopWorkspaceStore`): none of it means anything on a phone, and putting it in the shared
+object would give `SharedPrefsSettingsStore` fields it can never set (ADR 0003, decision 8).
+
+**Two composition locals carry desktop-only row behaviour, and Android leaves them at their
+defaults** (ADR 0003, decision 3). `RowInteractions` is the right-click menu's callbacks plus the
+drag gesture; `RowSelectionState` is which row the keyboard is on. `:app-desktop` provides both
+around its content and `TaskRow` reads them, which is how seven screens gained both without a
+single signature changing. `assembleDebug` compiling is therefore *not* proof Android is
+unaffected by a change to either — the defaults are what it runs.
 
 **Storage is a port, not a layer, and it lives in `:core` entirely (ADR 0001, phase 2).**
 `CadenceRepository` reaches storage through three interfaces in `data/Stores.kt` that speak `Task`
@@ -260,6 +291,14 @@ than reaching for `!!`.
 
 ### Persistence gotchas
 
+- **`sortOrder` is a value the app writes now** (ADR 0003, decision 1). It was in every table from
+  the first schema and nothing ever set it, so "manual" order was id order.
+  `CadenceRepository.reorderTasks`/`reorderProjects`/`reorderSections` renumber a list **densely
+  from 0**, and a new row lands at `max + 1` in its bucket rather than sharing 0 with everything
+  else. Dense integers rather than gaps or midpoints: sync merges rows, not lists, so two devices
+  reordering concurrently interleave under last-writer-wins whatever the numbering. The
+  `sortOrder != :sortOrder` guard in `updateSortOrder` is load-bearing — it keeps a drag from
+  restamping `updatedAt` on the rows that did not move, and so from pushing a whole list.
 - Every id — task, project — is a **UUIDv7 string**, minted by `CadenceRepository` (not by
   storage) via `domain/id/UuidV7.kt` the moment a new row is created; `Task.id`/`Project.id`
   default to `""`, and `upsertTask`/`upsertProject` mint a real id exactly when that default is
@@ -444,7 +483,8 @@ than reaching for `!!`.
     is called from each task and project mutation; a row merged *in* from a pull lands in
     `repository.tasks` exactly like a local edit does, and a debounce watching that flow would
     have two devices pushing each other awake forever. Settings never arm it — they are
-    per-device. A new mutation method therefore has to call `armSync()` itself.
+    per-device. A new mutation method therefore has to call `armSync()` itself — which the ones
+    ADR 0003 added (`duplicateTask`, the three `reorder*` passes, `applyDropIntent`) all do.
   - **The lifecycle triggers hang off the shell, not the ViewModel**, and go through
     `CadenceSyncEngine.syncInBackground()`, which runs on the *application* scope:
     `:app-android`'s `CadenceApplication` observes `ProcessLifecycleOwner` (the Activity's
