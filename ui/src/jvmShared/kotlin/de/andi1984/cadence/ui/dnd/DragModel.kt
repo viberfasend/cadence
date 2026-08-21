@@ -45,6 +45,16 @@ sealed interface OrderedList {
     /** A project's band, or the Inbox (`projectId == null`), or a day in Today. */
     data class Tasks(val projectId: String?, val sectionId: String? = null) : OrderedList
 
+    /**
+     * A hand-ordered list of tasks that is *not* a container: Today, a search result.
+     *
+     * The difference from [Tasks] is what a drop means. Dropping a row into a container's list
+     * files it there — that is what "the Inbox" or "this band" is. Today is a question about
+     * dates, not a place, so dropping a row inside it may only change the order; a task filed
+     * under Home must not quietly leave Home because it was dragged up one line in Today.
+     */
+    data object LooseTasks : OrderedList
+
     /** The projects directly under [parentId] — null for the root list. */
     data class Projects(val parentId: String?) : OrderedList
 
@@ -144,11 +154,8 @@ private fun resolveTaskDrop(task: Task, target: DropTarget): DropIntent =
             if (task.dueDate == target.date) DropIntent.Rejected
             else DropIntent.RescheduleTask(task.id, target.date)
 
-        is DropTarget.Between -> {
-            val list = target.list
-            if (list !is OrderedList.Tasks) {
-                DropIntent.Rejected
-            } else {
+        is DropTarget.Between -> when (val list = target.list) {
+            is OrderedList.Tasks -> {
                 val move = if (task.projectId != list.projectId || task.sectionId != list.sectionId) {
                     DropIntent.MoveTask(task.id, list.projectId, list.sectionId)
                 } else {
@@ -157,6 +164,14 @@ private fun resolveTaskDrop(task: Task, target: DropTarget): DropIntent =
                 val ordered = insertAt(target.orderedIds, task.id, target.index)
                 if (ordered == null) DropIntent.Rejected else DropIntent.ReorderTasks(ordered, move)
             }
+
+            // Order only — see [OrderedList.LooseTasks].
+            OrderedList.LooseTasks -> {
+                val ordered = insertAt(target.orderedIds, task.id, target.index)
+                if (ordered == null) DropIntent.Rejected else DropIntent.ReorderTasks(ordered)
+            }
+
+            is OrderedList.Projects, is OrderedList.Sections -> DropIntent.Rejected
         }
     }
 

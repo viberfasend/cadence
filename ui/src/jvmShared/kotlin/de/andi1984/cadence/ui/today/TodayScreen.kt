@@ -45,6 +45,9 @@ import de.andi1984.cadence.ui.components.SyncControls
 import de.andi1984.cadence.ui.components.SyncRefreshBox
 import de.andi1984.cadence.ui.components.SectionHeader
 import de.andi1984.cadence.ui.components.TaskRow
+import de.andi1984.cadence.ui.dnd.DropCaret
+import de.andi1984.cadence.ui.dnd.DropTarget
+import de.andi1984.cadence.ui.dnd.OrderedList
 import de.andi1984.cadence.ui.format.formatDate
 import de.andi1984.cadence.ui.format.pluralTasks
 import de.andi1984.cadence.ui.settings.SortMode
@@ -159,15 +162,37 @@ fun TodayScreen(
                     item(key = "due-today-header") {
                         SectionHeader(stringResource(Res.string.today_section_due))
                     }
-                    items(dueToday, key = { it.id }) { task ->
-                        TaskRow(
-                            task = task,
-                            projectLabel = state.projectLabel(task),
-                            today = today,
-                            onToggle = { onToggle(task) },
-                            onClick = { onTaskClick(task) },
-                            parentTitle = state.parentOf(task)?.title,
-                            subtaskProgress = state.subtaskProgress(task.id),
+                    // Today spans every project, so a drop between two rows changes the order and
+                    // nothing else — `LooseTasks`. A task filed under Home must not leave Home
+                    // because it was dragged up one line here.
+                    val dueTodayIds = dueToday.map { it.id }
+                    dueToday.forEachIndexed { index, task ->
+                        item(key = "caret-$index") {
+                            DropCaret(
+                                key = "today:caret:$index",
+                                target = DropTarget.Between(OrderedList.LooseTasks, index, dueTodayIds),
+                            )
+                        }
+                        item(key = task.id) {
+                            TaskRow(
+                                task = task,
+                                projectLabel = state.projectLabel(task),
+                                today = today,
+                                onToggle = { onToggle(task) },
+                                onClick = { onTaskClick(task) },
+                                parentTitle = state.parentOf(task)?.title,
+                                subtaskProgress = state.subtaskProgress(task.id),
+                            )
+                        }
+                    }
+                    item(key = "caret-end") {
+                        DropCaret(
+                            key = "today:caret:end",
+                            target = DropTarget.Between(
+                                OrderedList.LooseTasks,
+                                dueTodayIds.size,
+                                dueTodayIds,
+                            ),
                         )
                     }
                 }

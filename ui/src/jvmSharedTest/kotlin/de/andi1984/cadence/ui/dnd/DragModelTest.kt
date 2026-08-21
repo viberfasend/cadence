@@ -157,6 +157,18 @@ class DragModelTest {
     }
 
     @Test
+    fun `reordering Today changes the order and nothing else`() {
+        val intent = drop(
+            DragPayload.TaskDrag(task("c", projectId = "home")),
+            DropTarget.Between(OrderedList.LooseTasks, index = 0, orderedIds = listOf("a", "b", "c")),
+        )
+
+        // No move: Today is a question about dates, not a place. A task filed under Home must not
+        // leave Home because it was dragged up a line in a list that spans every project.
+        assertEquals(DropIntent.ReorderTasks(listOf("c", "a", "b"), move = null), intent)
+    }
+
+    @Test
     fun `a task cannot be dropped into a list of projects`() {
         val intent = drop(
             DragPayload.TaskDrag(task("t")),
