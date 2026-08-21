@@ -57,8 +57,12 @@ class AppContainer(context: Context) {
     /**
      * Outlives every screen: the backup written as the user leaves the app starts while the
      * Activity is already being torn down, so it cannot hang off a ViewModel's scope.
+     *
+     * Public because a widget needs it for the same reason. `WidgetToggleActivity` finishes
+     * inside its own `onCreate` — it never shows a frame — so work started there would be
+     * cancelled before it reached the database if it hung off anything the Activity owns.
      */
-    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** On the application scope, not a ViewModel's: a round that starts as the user leaves the
      *  screen has to be allowed to finish, and the session it refreshes outlives every screen. */
