@@ -8,6 +8,7 @@ import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import java.io.InputStream
 import java.time.Instant
