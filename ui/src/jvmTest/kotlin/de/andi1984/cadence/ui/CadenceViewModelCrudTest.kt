@@ -10,6 +10,7 @@ import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
+import de.andi1984.cadence.ui.dnd.DropIntent
 import de.andi1984.cadence.ui.platform.BackupTarget
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -447,5 +448,106 @@ class CadenceViewModelCrudTest {
         runCurrent()
 
         assertNull(viewModel.state.value.backupOutcome)
+    }
+
+    // ── Duplicating ──────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `duplicating a task copies its checklist, unticked, as new work`() = runTest {
+        taskStore.seed(
+            listOf(
+                task("t1", title = "Ship it").copy(
+                    priority = Priority.P1,
+                    completedAt = Instant.EPOCH,
+                    spawnedFromId = "older-occurrence",
+                ),
+                task("s1", title = "Write the notes").copy(
+                    parentId = "t1",
+                    completedAt = Instant.EPOCH,
+                ),
+            ),
+        )
+        val viewModel = viewModel()
+
+        viewModel.duplicateTask(stored("t1"), "Ship it (copy)")
+        runCurrent()
+
+        val copy = taskStore.allRows().single { it.title == "Ship it (copy)" }
+        assertEquals(Priority.P1, copy.priority)
+        // New work: not finished, and not part of anyone's recurrence chain — a copy that claimed
+        // to replace an occurrence would take the original's place in every undated list.
+        assertNull(copy.completedAt)
+        assertNull(copy.spawnedFromId)
+        val copiedStep = taskStore.allRows().single { it.parentId == copy.id }
+        assertEquals("Write the notes", copiedStep.title)
+        assertNull(copiedStep.completedAt)
+    }
+
+    // ── Drops ────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `a drop that moves a task into another project's band does both writes`() = runTest {
+        taskStore.seed(listOf(task("t1", projectId = "home")))
+        projectStore.seed(listOf(Project(id = "home", name = "Home"), Project(id = "work", name = "Work")))
+        sectionStore.seed(listOf(Section(id = "band", projectId = "work", name = "Band")))
+        val viewModel = viewModel()
+
+        viewModel.applyDropIntent(DropIntent.MoveTask("t1", "work", "band"))
+        runCurrent()
+
+        // The section is written against the row `moveToProject` left behind, not against the
+        // snapshot the drag started from — which still named `home` and would have been refused.
+        assertEquals("work", stored("t1").projectId)
+        assertEquals("band", stored("t1").sectionId)
+    }
+
+    @Test
+    fun `a drop that reorders writes the order it was handed`() = runTest {
+        taskStore.seed(
+            listOf(
+                task("a").copy(sortOrder = 0),
+                task("b").copy(sortOrder = 1),
+                task("c").copy(sortOrder = 2),
+            ),
+        )
+        val viewModel = viewModel()
+
+        viewModel.applyDropIntent(DropIntent.ReorderTasks(listOf("c", "a", "b")))
+        runCurrent()
+
+        assertEquals(0, stored("c").sortOrder)
+        assertEquals(1, stored("a").sortOrder)
+        assertEquals(2, stored("b").sortOrder)
+    }
+
+    @Test
+    fun `a rejected drop writes nothing`() = runTest {
+        taskStore.seed(listOf(task("t1", projectId = "home")))
+        val viewModel = viewModel()
+        val before = stored("t1")
+
+        viewModel.applyDropIntent(DropIntent.Rejected)
+        runCurrent()
+
+        assertEquals(before, stored("t1"))
+    }
+
+    @Test
+    fun `a drop that nests a project keeps its name and colour`() = runTest {
+        projectStore.seed(
+            listOf(
+                Project(id = "home", name = "Home", colorHex = "#123456"),
+                Project(id = "work", name = "Work"),
+            ),
+        )
+        val viewModel = viewModel()
+
+        viewModel.applyDropIntent(DropIntent.NestProject("home", "work"))
+        runCurrent()
+
+        val nested = viewModel.state.value.project("home")!!
+        assertEquals("work", nested.parentId)
+        assertEquals("Home", nested.name)
+        assertEquals("#123456", nested.colorHex)
     }
 }

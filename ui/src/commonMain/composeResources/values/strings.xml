@@ -442,6 +442,21 @@
         <item quantity="one">1 item deleted</item>
         <item quantity="other">%1$d items deleted</item>
     </plurals>
+    <!-- ── Context menus ────────────────────────────────────────────────────────────
+         The right-click menu on a row. Desktop only in practice — a touchscreen has no
+         secondary button — but the code is shared, so the strings are too. -->
+    <string name="menu_open">Open</string>
+    <string name="menu_due_date">Due date</string>
+    <string name="menu_next_week">Next week</string>
+    <string name="menu_duplicate">Duplicate</string>
+    <string name="menu_copy_title">Copy title</string>
+    <string name="menu_task_actions">Actions for %1$s</string>
+    <string name="menu_add_task_here">Add task here</string>
+    <string name="menu_nest_under">Nest under</string>
+    <string name="menu_top_level">Top level</string>
+    <!-- Appended to a duplicated task's title. %1$s is the original title. -->
+    <string name="menu_duplicate_title">%1$s (copy)</string>
+
     <!-- ── Snackbar ── -->
     <!-- Informational messages; no undo action attached. -->
     <string name="snackbar_error">Something went wrong: %1$s</string>

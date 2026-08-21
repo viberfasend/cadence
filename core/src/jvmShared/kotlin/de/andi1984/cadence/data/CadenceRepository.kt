@@ -54,6 +54,16 @@ class CadenceRepository(
 
     fun task(id: String): Flow<Task?> = taskStore.observeById(id)
 
+    /**
+     * The row as it is stored right now — for a caller that has just written it and needs the
+     * result of that write, not the snapshot it started from.
+     *
+     * Every other read in the app is a flow, deliberately. This one exists because a gesture can
+     * be two writes (file a task, then group it), and the second must act on what the first left
+     * behind rather than on a `Task` that still names the old project.
+     */
+    suspend fun taskById(id: String): Task? = taskStore.byId(id)
+
     /** Mints a UUIDv7 for a new task, or stamps an edit — either way `updatedAt` moves to now,
      *  which is what the phase-6 merge engine will resolve conflicts by. */
     suspend fun upsertTask(task: Task): String {

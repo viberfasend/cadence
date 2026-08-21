@@ -115,9 +115,15 @@ class DragAndDropState internal constructor() {
     internal fun zones(): Collection<DropZone> = zones.values
 }
 
-val LocalDragAndDrop = staticCompositionLocalOf<DragAndDropState> {
-    error("No DragAndDropHost in this composition — wrap the app's content in one.")
-}
+/**
+ * The drag state of the composition.
+ *
+ * The default is a real but *detached* state: no host means no zones are ever registered, so a
+ * drag can start and simply never resolve to anything. That is deliberate — `:app-android` draws
+ * the same screens without a [DragAndDropHost], and a `CompositionLocal` that threw would make a
+ * shared screen refuse to compose on the platform that does not use the feature.
+ */
+val LocalDragAndDrop = staticCompositionLocalOf { DragAndDropState() }
 
 /**
  * Wraps the app once: owns the drag state, resolves every drop against [state], hands the result
@@ -162,8 +168,9 @@ internal class DropDispatcher(
     val run: (DropIntent) -> Unit,
 )
 
-internal val LocalDropDispatcher = staticCompositionLocalOf<DropDispatcher> {
-    error("No DragAndDropHost in this composition — wrap the app's content in one.")
+/** No host, nothing to hit and nothing to run — see [LocalDragAndDrop]. */
+internal val LocalDropDispatcher = staticCompositionLocalOf {
+    DropDispatcher(hitTest = { _, _ -> null }, run = {})
 }
 
 /**

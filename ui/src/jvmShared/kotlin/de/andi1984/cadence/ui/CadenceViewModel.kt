@@ -16,6 +16,7 @@ import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.model.projectPath
 import de.andi1984.cadence.domain.model.withoutSupersededOccurrences
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
+import de.andi1984.cadence.ui.dnd.DropIntent
 import de.andi1984.cadence.ui.platform.BackupGateway
 import de.andi1984.cadence.ui.platform.BackupTarget
 import de.andi1984.cadence.ui.platform.ReminderScheduler
@@ -45,6 +46,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.StringResource
 import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -554,6 +556,118 @@ class CadenceViewModel(
 
     fun snooze(task: Task, days: Long = 1L) = scope.launch {
         repository.shiftDueDate(task, days)
+        armSync()
+    }
+
+    /**
+     * Copies a task, checklist and all, as a new open task beside it.
+     *
+     * Deliberately not a copy of every field: the duplicate is *new work*, so it carries no
+     * completion, and it is not part of anyone's recurrence chain, so it carries no
+     * `spawnedFromId` — a copy that claimed to replace an occurrence would take the original's
+     * place in every undated list. Its steps come along unticked, the same way a recurring task
+     * hands its checklist to the next occurrence.
+     */
+    fun duplicateTask(task: Task, title: String) = scope.launch {
+        val copyId = repository.upsertTask(
+            task.copy(
+                id = "",
+                title = title,
+                completedAt = null,
+                spawnedFromId = null,
+                createdAt = Instant.EPOCH,
+                updatedAt = Instant.EPOCH,
+                sortOrder = 0,
+            ),
+        )
+        state.value.subtasks(task.id).forEach { step ->
+            repository.upsertTask(
+                step.copy(
+                    id = "",
+                    parentId = copyId,
+                    completedAt = null,
+                    spawnedFromId = null,
+                    createdAt = Instant.EPOCH,
+                    updatedAt = Instant.EPOCH,
+                ),
+            )
+        }
+        armSync()
+    }
+
+    // ── Manual order ─────────────────────────────────────────────────────────────────
+    //
+    // One method per list kind, each a thin pass to the repository — the drag kernel has already
+    // decided what the new order is (`dnd/DragModel.kt`), and `applyDropIntent` below is the only
+    // caller in the app. They arm sync like every other mutation: a reorder that stayed local
+    // would be undone by the other device's next push.
+
+    fun reorderTasks(orderedIds: List<String>) = scope.launch {
+        repository.reorderTasks(orderedIds)
+        armSync()
+    }
+
+    fun reorderProjects(parentId: String?, orderedIds: List<String>) = scope.launch {
+        repository.reorderProjects(parentId, orderedIds)
+        armSync()
+    }
+
+    fun reorderSections(projectId: String, orderedIds: List<String>) = scope.launch {
+        repository.reorderSections(projectId, orderedIds)
+        armSync()
+    }
+
+    /**
+     * Runs what a drag resolved to — the single place a [DropIntent] becomes writes.
+     *
+     * A move that comes with a reorder is one gesture, so it is one coroutine: filing the row and
+     * then ordering it from a second launch would race, and the order would be written against
+     * the list the row had not joined yet.
+     */
+    fun applyDropIntent(intent: DropIntent) {
+        when (intent) {
+            is DropIntent.MoveTask -> moveTask(intent)
+
+            is DropIntent.RescheduleTask -> {
+                val task = state.value.tasks.firstOrNull { it.id == intent.taskId } ?: return
+                setDueDate(task, intent.date)
+            }
+
+            is DropIntent.NestProject -> {
+                val project = state.value.project(intent.projectId) ?: return
+                editProject(project, project.name, project.colorHex, intent.parentId)
+            }
+
+            is DropIntent.ReorderTasks -> scope.launch {
+                intent.move?.let { move ->
+                    val task = state.value.tasks.firstOrNull { it.id == move.taskId }
+                    if (task != null) {
+                        repository.moveToProject(task, move.projectId)
+                        val moved = repository.taskById(move.taskId) ?: task
+                        repository.moveToSection(moved, move.sectionId)
+                    }
+                }
+                repository.reorderTasks(intent.orderedIds)
+                armSync()
+            }
+
+            is DropIntent.ReorderProjects -> reorderProjects(intent.parentId, intent.orderedIds)
+
+            is DropIntent.ReorderSections -> reorderSections(intent.projectId, intent.orderedIds)
+
+            DropIntent.Rejected -> Unit
+        }
+    }
+
+    private fun moveTask(move: DropIntent.MoveTask) = scope.launch {
+        val task = state.value.tasks.firstOrNull { it.id == move.taskId } ?: return@launch
+        repository.moveToProject(task, move.projectId)
+        if (move.sectionId != null) {
+            // Read the row back: `moveToProject` cleared its section, and moving the snapshot
+            // would write the section onto a task that still names its old project.
+            val moved = repository.taskById(move.taskId) ?: return@launch
+            repository.moveToSection(moved, move.sectionId)
+        }
         armSync()
     }
 
