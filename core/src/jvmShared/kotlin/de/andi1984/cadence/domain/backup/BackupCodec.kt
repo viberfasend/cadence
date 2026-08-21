@@ -251,7 +251,8 @@ internal data class BackupRecurrence(
     val dayOfMonth: Int? = null,
     val nthWeek: Int? = null,
     val nthDayOfWeek: String? = null,
-    val keepMissed: Boolean = true,
+    /** Absent from a file an older version wrote — the model's default, not `true`. */
+    val keepMissed: Boolean = false,
 )
 
 private fun Project.toBackup() = BackupProject(

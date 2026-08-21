@@ -69,7 +69,10 @@ object RecurrenceCodec {
             nthDayOfWeek = values["nthDow"]?.let { name ->
                 DayOfWeek.entries.firstOrNull { it.name == name }
             },
-            keepMissed = values["keepMissed"]?.toBooleanStrictOrNull() ?: true,
+            // A row written before this segment existed means "the default", not "keep them":
+            // defaulting it to true here is what left every legacy rule stepping a single
+            // interval on however far overdue it had fallen.
+            keepMissed = values["keepMissed"]?.toBooleanStrictOrNull() ?: false,
         )
     }
 }
