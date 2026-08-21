@@ -90,6 +90,22 @@ class SqlDelightTaskStore(
     override suspend fun openSuccessorsOf(id: String): List<String> = withContext(ioDispatcher) {
         queries.selectOpenSuccessorsOf(id).executeAsList()
     }
+
+    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant): Unit =
+        withContext(ioDispatcher) {
+            val stamp = at.toEpochMilli()
+            database.transaction {
+                orders.forEach { (id, position) ->
+                    queries.updateSortOrder(sortOrder = position.toLong(), updatedAt = stamp, id = id)
+                }
+            }
+        }
+
+    override suspend fun maxSortOrder(projectId: String?): Int? = withContext(ioDispatcher) {
+        // The query COALESCEs an empty bucket to -1 so SQLDelight can type the column NOT NULL;
+        // the port speaks null, which is the shape the caller branches on.
+        queries.maxSortOrderIn(projectId).executeAsOne().toInt().takeIf { it >= 0 }
+    }
 }
 
 class SqlDelightProjectStore(
@@ -145,6 +161,20 @@ class SqlDelightProjectStore(
         withContext(ioDispatcher) {
             queries.tombstoneAllRows(at = at.toEpochMilli())
         }
+
+    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant): Unit =
+        withContext(ioDispatcher) {
+            val stamp = at.toEpochMilli()
+            database.transaction {
+                orders.forEach { (id, position) ->
+                    queries.updateSortOrder(sortOrder = position.toLong(), updatedAt = stamp, id = id)
+                }
+            }
+        }
+
+    override suspend fun maxSortOrder(parentId: String?): Int? = withContext(ioDispatcher) {
+        queries.maxSortOrderUnder(parentId).executeAsOne().toInt().takeIf { it >= 0 }
+    }
 }
 
 class SqlDelightSectionStore(
@@ -182,6 +212,20 @@ class SqlDelightSectionStore(
 
     override suspend fun tombstoneAll(at: Instant): Unit = withContext(ioDispatcher) {
         queries.tombstoneAllRows(at = at.toEpochMilli())
+    }
+
+    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant): Unit =
+        withContext(ioDispatcher) {
+            val stamp = at.toEpochMilli()
+            database.transaction {
+                orders.forEach { (id, position) ->
+                    queries.updateSortOrder(sortOrder = position.toLong(), updatedAt = stamp, id = id)
+                }
+            }
+        }
+
+    override suspend fun maxSortOrder(projectId: String): Int? = withContext(ioDispatcher) {
+        queries.maxSortOrderIn(projectId).executeAsOne().toInt().takeIf { it >= 0 }
     }
 }
 

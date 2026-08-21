@@ -167,3 +167,27 @@ SELECT * FROM taskRow ORDER BY updatedAt;
 -- succeeded: collecting a tombstone this device has not yet handed over loses the deletion.
 collectTombstones:
 DELETE FROM taskRow WHERE deletedAt IS NOT NULL AND deletedAt < :before;
+
+-- ── Manual order ───────────────────────────────────────────────────────────────────
+--
+-- `sortOrder` has been in this table since the first schema and nothing ever wrote it: every row
+-- was inserted with 0, so `SortMode.MANUAL` ordered by id. Dragging a row is what writes it.
+--
+-- `sortOrder != :sortOrder` is not an optimisation, it is what keeps a reorder from waking the
+-- other device for nothing: renumbering a ten-row list after moving one row rewrites the rows
+-- that actually moved, and the push carries only those. It also keeps `updatedAt` honest — a row
+-- whose position did not change was not written.
+updateSortOrder:
+UPDATE taskRow SET sortOrder = :sortOrder, updatedAt = :updatedAt
+WHERE id = :id AND deletedAt IS NULL AND sortOrder != :sortOrder;
+
+-- Where a new task goes: last in its list, not first. `IS` rather than `=` so the Inbox
+-- (`projectId IS NULL`) is a bucket like any other — `= NULL` matches nothing in SQLite.
+-- Subtasks are excluded: a checklist is its own list, numbered by the repository's `addSubtask`.
+--
+-- `COALESCE(…, -1)` rather than a bare MAX so the result is NOT NULL and SQLDelight generates a
+-- plain `Long` instead of wrapping a nullable column in a one-field row class. -1 is the empty
+-- bucket, and the caller's `+ 1` lands the first row at 0 without a branch.
+maxSortOrderIn:
+SELECT COALESCE(MAX(sortOrder), -1) FROM taskRow
+WHERE deletedAt IS NULL AND parentId IS NULL AND projectId IS :projectId;

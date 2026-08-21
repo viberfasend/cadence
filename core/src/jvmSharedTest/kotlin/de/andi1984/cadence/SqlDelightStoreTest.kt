@@ -5,10 +5,12 @@ import de.andi1984.cadence.data.db.CadenceDatabase
 import de.andi1984.cadence.data.db.SqlDelightAttachmentStore
 import de.andi1984.cadence.data.db.SqlDelightBackupStore
 import de.andi1984.cadence.data.db.SqlDelightProjectStore
+import de.andi1984.cadence.data.db.SqlDelightSectionStore
 import de.andi1984.cadence.data.db.SqlDelightTaskStore
 import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Project
+import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -364,5 +366,80 @@ class SqlDelightStoreTest {
 
         assertTrue(taskIds.all { attachmentStore.forTask(it).isEmpty() })
         assertTrue(attachmentStore.referencedHashes().isEmpty())
+    }
+
+    // ── Manual order ───────────────────────────────────────────────────────────────
+    //
+    // Two things here are SQL, not Kotlin, and only a real database can say whether they hold:
+    // the `sortOrder != :sortOrder` guard, and `projectId IS :projectId` treating the Inbox as a
+    // bucket (`= NULL` matches nothing in SQLite, so `=` would report every list as empty).
+
+    @Test
+    fun `reorder writes the rows that moved and leaves the rest alone`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        taskStore.insert(Task(id = "a", title = "A", sortOrder = 0, createdAt = now, updatedAt = now))
+        taskStore.insert(Task(id = "b", title = "B", sortOrder = 1, createdAt = now, updatedAt = now))
+        taskStore.insert(Task(id = "c", title = "C", sortOrder = 2, createdAt = now, updatedAt = now))
+
+        val later = now.plusSeconds(60)
+        taskStore.reorder(listOf("a" to 0, "c" to 1, "b" to 2), later)
+
+        assertEquals(0, taskStore.byId("a")?.sortOrder)
+        assertEquals(2, taskStore.byId("b")?.sortOrder)
+        assertEquals(1, taskStore.byId("c")?.sortOrder)
+        // `a` never moved, so the push must not see it.
+        assertEquals(now, taskStore.byId("a")?.updatedAt)
+        assertEquals(later, taskStore.byId("b")?.updatedAt)
+    }
+
+    @Test
+    fun `maxSortOrder reads the Inbox as a bucket of its own`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        taskStore.insert(
+            Task(id = "p", title = "Filed", projectId = "p1", sortOrder = 7, createdAt = now, updatedAt = now),
+        )
+        taskStore.insert(Task(id = "i", title = "Inbox", sortOrder = 2, createdAt = now, updatedAt = now))
+        // A step is numbered inside its parent's checklist and must not raise the project's max.
+        taskStore.insert(
+            Task(id = "s", title = "Step", projectId = "p1", parentId = "p", sortOrder = 40, createdAt = now, updatedAt = now),
+        )
+
+        assertEquals(7, taskStore.maxSortOrder("p1"))
+        assertEquals(2, taskStore.maxSortOrder(null))
+        assertNull(taskStore.maxSortOrder("unknown-project"))
+    }
+
+    @Test
+    fun `a tombstoned row is neither reordered nor counted as the last position`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        taskStore.insert(Task(id = "live", title = "Live", sortOrder = 0, createdAt = now, updatedAt = now))
+        taskStore.insert(Task(id = "gone", title = "Gone", sortOrder = 9, createdAt = now, updatedAt = now))
+        taskStore.tombstoneWithSubtasks("gone", now)
+
+        taskStore.reorder(listOf("gone" to 0, "live" to 1), now.plusSeconds(60))
+
+        // The live row took the position it was given; the tombstone answered to neither
+        // statement, so it is not the list's last position either.
+        assertEquals(1, taskStore.byId("live")?.sortOrder)
+        assertEquals(1, taskStore.maxSortOrder(null))
+    }
+
+    @Test
+    fun `projects and sections number their own buckets`() = runTest {
+        val database = newDatabase()
+        val projectStore = SqlDelightProjectStore(database, Dispatchers.Unconfined)
+        val sectionStore = SqlDelightSectionStore(database, Dispatchers.Unconfined)
+        projectStore.insert(Project(id = "root", name = "Root", sortOrder = 3, updatedAt = now))
+        projectStore.insert(Project(id = "child", name = "Child", parentId = "root", sortOrder = 1, updatedAt = now))
+        sectionStore.insert(Section(id = "s1", projectId = "root", name = "Band", sortOrder = 5, updatedAt = now))
+
+        assertEquals(3, projectStore.maxSortOrder(null))
+        assertEquals(1, projectStore.maxSortOrder("root"))
+        assertNull(projectStore.maxSortOrder("child"))
+        assertEquals(5, sectionStore.maxSortOrder("root"))
+        assertNull(sectionStore.maxSortOrder("child"))
     }
 }

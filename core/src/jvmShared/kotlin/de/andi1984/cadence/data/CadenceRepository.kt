@@ -63,7 +63,14 @@ class CadenceRepository(
             updatedAt = now,
         )
         return if (stamped.id.isBlank()) {
-            val minted = stamped.copy(id = UuidV7.random())
+            val minted = stamped.copy(
+                id = UuidV7.random(),
+                // A new task goes to the *bottom* of its list, which is only true if someone
+                // gives it a position: every row used to be inserted with 0 and manual order was
+                // therefore id order. A caller that already picked a position keeps it — that is
+                // what `addSubtask` does, and what an import does with the file's own numbers.
+                sortOrder = if (stamped.sortOrder == 0) nextTaskOrder(stamped) else stamped.sortOrder,
+            )
             taskStore.insert(minted)
             minted.id
         } else {
@@ -71,6 +78,15 @@ class CadenceRepository(
             stamped.id
         }
     }
+
+    /** One past the last position in the list this task will be drawn in. */
+    private suspend fun nextTaskOrder(task: Task): Int =
+        if (task.parentId != null) {
+            // A step is numbered inside its parent's checklist, not inside the project.
+            taskStore.subtasksOf(task.parentId).size
+        } else {
+            (taskStore.maxSortOrder(task.projectId) ?: -1) + 1
+        }
 
     /**
      * Deletes a task and its subtasks, and reclaims any blob none of their attachments named
@@ -296,6 +312,58 @@ class CadenceRepository(
             .forEach { taskStore.update(it.copy(dueDate = today, updatedAt = now)) }
     }
 
+    // ── Manual order ───────────────────────────────────────────────────────────────
+    //
+    // Every row has carried a `sortOrder` since the first schema, `SortMode.MANUAL` has always
+    // sorted by it, and until these three methods nothing ever wrote one. Dragging a row is what
+    // writes it.
+    //
+    // **Dense integers, renumbered from 0.** Not a gap scheme, not midpoints. Sync merges rows,
+    // not lists: two devices reordering the same list while offline interleave under
+    // last-writer-wins whatever the numbering is, so the fancier schemes buy no conflict
+    // resistance here — they buy fewer rows written per drag, at the price of a renormalisation
+    // pass nobody can trigger deterministically. Dense integers never run out of room between two
+    // neighbours, and the store skips the rows whose position did not actually change, so the
+    // push still carries only what moved.
+
+    /**
+     * Writes [orderedIds] as the order of the list they came from, first at 0.
+     *
+     * The list *is* the bucket: whatever the caller hands over is renumbered together, which is
+     * what lets one call cover a project's band, the Inbox, or a day in Today. Ids no row answers
+     * to are skipped by the store rather than being an error — a list can be dragged while a pull
+     * is deleting one of its rows.
+     */
+    suspend fun reorderTasks(orderedIds: List<String>) {
+        if (orderedIds.size < 2) return
+        taskStore.reorder(orderedIds.mapIndexed { index, id -> id to index }, now())
+    }
+
+    /**
+     * Writes the order of the projects directly under [parentId] — null for the root list.
+     *
+     * Unlike [reorderTasks] this one filters: a subproject dropped into the root list is a *move*
+     * and goes through [upsertProject], and renumbering it here would leave it nested but ordered
+     * among rows it is not beside.
+     */
+    suspend fun reorderProjects(parentId: String?, orderedIds: List<String>) {
+        val here = projectStore.getAll().filterTo(mutableSetOf()) { it.parentId == parentId }
+            .mapTo(mutableSetOf()) { it.id }
+        val kept = orderedIds.filter { it in here }
+        if (kept.size < 2) return
+        projectStore.reorder(kept.mapIndexed { index, id -> id to index }, now())
+    }
+
+    /** Writes the order of [projectId]'s bands. Ids from another project are ignored, as in
+     *  [reorderProjects]. */
+    suspend fun reorderSections(projectId: String, orderedIds: List<String>) {
+        val here = sectionStore.getAll().filterTo(mutableSetOf()) { it.projectId == projectId }
+            .mapTo(mutableSetOf()) { it.id }
+        val kept = orderedIds.filter { it in here }
+        if (kept.size < 2) return
+        sectionStore.reorder(kept.mapIndexed { index, id -> id to index }, now())
+    }
+
     /**
      * Validates and upserts a project, checking for circular references and maximum nesting depth.
      */
@@ -323,7 +391,15 @@ class CadenceRepository(
         return try {
             val stamped = project.copy(updatedAt = now())
             val id = if (stamped.id.isBlank()) {
-                val minted = stamped.copy(id = UuidV7.random())
+                val minted = stamped.copy(
+                    id = UuidV7.random(),
+                    // Last in its list — see the same line in [upsertTask].
+                    sortOrder = if (stamped.sortOrder == 0) {
+                        (projectStore.maxSortOrder(stamped.parentId) ?: -1) + 1
+                    } else {
+                        stamped.sortOrder
+                    },
+                )
                 projectStore.insert(minted)
                 minted.id
             } else {
@@ -394,7 +470,15 @@ class CadenceRepository(
         return try {
             val stamped = section.copy(name = section.name.trim(), updatedAt = now())
             val id = if (stamped.id.isBlank()) {
-                val minted = stamped.copy(id = UuidV7.random())
+                val minted = stamped.copy(
+                    id = UuidV7.random(),
+                    // A new band goes below the existing ones — see [upsertTask].
+                    sortOrder = if (stamped.sortOrder == 0) {
+                        (sectionStore.maxSortOrder(stamped.projectId) ?: -1) + 1
+                    } else {
+                        stamped.sortOrder
+                    },
+                )
                 sectionStore.insert(minted)
                 minted.id
             } else {
