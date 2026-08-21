@@ -545,12 +545,27 @@ What each one still does, when dispatched:
   WiX Toolset on Windows; macOS's `hdiutil` needs nothing extra). A `.dmg` or an `.msi` is the
   only artefact a Linux laptop genuinely cannot produce — that is the whole remaining case for
   the runner.
-- `release.yml` — was already manual, and is unchanged.
+- `release.yml` — the only workflow that publishes anything, and **the only one that refuses to
+  run off `main`**: it creates the tag from the commit it was dispatched on, so a run started on
+  a branch would publish a release pointing at unmerged work. Its `targets` **input** decides
+  what gets built, and defaults to `android+deb` — the APKs and the Linux `.deb`, one Linux
+  runner each, which is what a Cadence release actually ships today. `android` and `deb` narrow
+  that to one half; `all` adds the rpm, the tarball, the `.dmg` and the `.msi`, and with them the
+  macOS and Windows runners at 10x and 2x. The download list in the release body is generated
+  from the files that actually landed in `dist/`, so a run that packaged no `.msi` publishes no
+  link to one. `dry-run` builds and tests everything and publishes nothing.
 
-Since `build.sh` is what all three call, a release can be cut entirely on a laptop: `bash
-.github/scripts/build.sh` stages `dist/`, then `gh release create … dist/*`. Wiring the desktop
-installers into the release the way ADR 0001 §"Phases" describes is still a follow-up, and is
-now a question about `build.sh` rather than about two workflows.
+  Four jobs: `preflight` derives the version **once** (both build jobs read it from
+  `needs.preflight.outputs`, so the two can never name one build two versions) and is where the
+  branch guard and the "no commits since the last tag" guard live; `build-android` and
+  `build-desktop` run in parallel; `publish` collects every `release-assets-*` artifact with one
+  `pattern` download, because which artifacts exist depends on the input. The desktop job names
+  `deb` outright rather than `desktop` — `build.sh` demotes a format to a warning only when an
+  alias implied it, and a release that quietly ships without the `.deb` is exactly the failure
+  the job exists to catch.
+
+Since `build.sh` is what all three call, a release can equally be cut entirely on a laptop: `bash
+.github/scripts/build.sh apk deb` stages `dist/`, then `gh release create … dist/*`.
 
 The version is **derived, never edited**. `.github/scripts/next-version.sh` reads the
 Conventional Commit subjects since the last `v*` tag: a `!` or a `BREAKING CHANGE:` footer bumps

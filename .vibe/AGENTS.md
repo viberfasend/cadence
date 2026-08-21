@@ -134,7 +134,9 @@ ui/         → Theme, shared components, one package per screen
 - `bash .github/scripts/build.sh` produces the whole release into `dist/` on a laptop; the
   workflows call the same script
 - Version derived from Conventional Commits since last tag
-- Releases are published by hand (`gh release create`) or by dispatching `release.yml`
+- Releases are published by hand (`gh release create`) or by dispatching `release.yml`, which
+  only runs from `main` and builds the Android APKs plus the Linux `.deb` unless its `targets`
+  input asks for more
 - Debug and release builds have different application IDs
 
 ## Mistral Vibe Specific Instructions
