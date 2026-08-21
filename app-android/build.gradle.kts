@@ -142,6 +142,12 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)
 
+    // Home-screen widgets (widget/). Glance renders through its own composition, not Compose
+    // UI's, so it needs no extra Compose Multiplatform artefact beyond the compiler plugin
+    // already applied above.
+    implementation(libs.androidx.glance.appwidget)
+    implementation(libs.androidx.glance.material3)
+
     // Backup format lives in domain/, so the codec must stay pure Kotlin (no org.json).
     implementation(libs.kotlinx.serialization.json)
 

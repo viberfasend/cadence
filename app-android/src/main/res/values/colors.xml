@@ -3,4 +3,8 @@
     <color name="cadence_background">#F4FBF8</color>
     <color name="cadence_background_dark">#0E1513</color>
     <color name="ic_launcher_background">#006A60</color>
+    <!-- The widget's own `initialLayout` never reads night-mode qualifiers — a widget's Context
+         is the launcher's, whose night mode does not have to match the app's own theme setting —
+         so light/dark are switched by `values-night` instead, same as `Theme.Cadence` itself. -->
+    <color name="widget_placeholder_background">@color/cadence_background</color>
 </resources>
