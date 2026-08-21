@@ -142,9 +142,80 @@ data class CadenceUiState(
      */
     val pendingDeleteIds: Set<String> = emptySet(),
 ) {
-    fun project(id: String?): Project? = id?.let { projectId ->
-        projects.firstOrNull { it.id == projectId }
+    // ── Derived indexes ────────────────────────────────────────────────────────────
+    //
+    // Everything below this line used to be a scan of `tasks` or `projects` per call, and the
+    // calls are per *row*: `ProjectsScreen` asked `tasksIn(id)` four times for every project it
+    // drew, inside a `LazyColumn`, on every recomposition, and `rootTasks()` rebuilt a set of
+    // superseded ids each time. With twenty projects and two thousand tasks that is six figures
+    // of comparisons a frame, and it gets worse exactly as someone's list grows.
+    //
+    // These are `by lazy`, so a state that nobody asks about costs nothing and a state that is
+    // asked about builds each index once. A new emission is a new `CadenceUiState`, which is what
+    // invalidates them — there is no cache to expire.
+
+    private val taskById: Map<String, Task> by lazy { tasks.associateBy { it.id } }
+
+    private val projectById: Map<String, Project> by lazy { projects.associateBy { it.id } }
+
+    private val sectionById: Map<String, Section> by lazy { sections.associateBy { it.id } }
+
+    /** [rootTasks]'s answer, computed once — the superseded-occurrence set is the expensive half. */
+    private val rootTaskList: List<Task> by lazy {
+        tasks.withoutSupersededOccurrences().filter { !it.isSubtask }
     }
+
+    private val rootTasksByProject: Map<String?, List<Task>> by lazy {
+        rootTaskList.groupBy { it.projectId }
+    }
+
+    private val subtasksByParent: Map<String, List<Task>> by lazy {
+        tasks.filter { it.isSubtask }
+            .groupBy { checkNotNull(it.parentId) }
+            .mapValues { (_, steps) -> steps.sortedWith(compareBy({ it.sortOrder }, { it.id })) }
+    }
+
+    private val subprojectsByParent: Map<String, List<Project>> by lazy {
+        projects.filter { it.parentId != null }
+            .groupBy { checkNotNull(it.parentId) }
+            .mapValues { (_, children) -> children.sortedWith(compareBy({ it.sortOrder }, { it.id })) }
+    }
+
+    private val sectionsByProject: Map<String, List<Section>> by lazy {
+        sections.groupBy { it.projectId }
+            .mapValues { (_, bands) -> bands.sortedWith(compareBy({ it.sortOrder }, { it.id })) }
+    }
+
+    /**
+     * What [tasksIn] answers, for every project at once: a project's own tasks *and* those of its
+     * subprojects, in the order they stand in [tasks].
+     *
+     * Built in one pass over the roots — appending each task to its own project and to that
+     * project's parent — which is exactly the order the per-project filter produced, so no screen
+     * sees a different list than before.
+     */
+    private val rootTasksInProjectTree: Map<String, List<Task>> by lazy {
+        buildTaskTreeIndex(rootTaskList)
+    }
+
+    /** The same index over *every* row — see [allTasksIn] for why a delete asks a different
+     *  question than a screen does. */
+    private val allTasksInProjectTree: Map<String, List<Task>> by lazy {
+        buildTaskTreeIndex(tasks)
+    }
+
+    private fun buildTaskTreeIndex(source: List<Task>): Map<String, List<Task>> {
+        val parentOfProject = projects.associate { it.id to it.parentId }
+        val index = mutableMapOf<String, MutableList<Task>>()
+        source.forEach { task ->
+            val projectId = task.projectId ?: return@forEach
+            index.getOrPut(projectId) { mutableListOf() }.add(task)
+            parentOfProject[projectId]?.let { index.getOrPut(it) { mutableListOf() }.add(task) }
+        }
+        return index
+    }
+
+    fun project(id: String?): Project? = id?.let { projectById[it] }
 
     /** "Home / Finance" for a task's project, or null for Inbox items. */
     fun projectLabel(task: Task): String? = projectPath(project(task.projectId), projects)
@@ -165,16 +236,12 @@ data class CadenceUiState(
      * successor speaks for it here. Only these undated lists need that — Today and Upcoming are
      * scoped to a day, and Search is meant to reach history.
      */
-    fun rootTasks(): List<Task> = tasks
-        .withoutSupersededOccurrences()
-        .filter { !it.isSubtask }
+    fun rootTasks(): List<Task> = rootTaskList
 
-    fun inboxTasks(): List<Task> = rootTasks().filter { it.isInbox }
+    fun inboxTasks(): List<Task> = rootTasksByProject[null].orEmpty()
 
     /** The steps under a task, in the order they were added. */
-    fun subtasks(parentId: String): List<Task> = tasks
-        .filter { it.parentId == parentId }
-        .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+    fun subtasks(parentId: String): List<Task> = subtasksByParent[parentId].orEmpty()
 
     /** Null when a task has no checklist at all, so rows can leave the chip out entirely. */
     fun subtaskProgress(parentId: String): SubtaskProgress? {
@@ -186,8 +253,7 @@ data class CadenceUiState(
         }
     }
 
-    fun parentOf(task: Task): Task? =
-        task.parentId?.let { id -> tasks.firstOrNull { it.id == id } }
+    fun parentOf(task: Task): Task? = task.parentId?.let { taskById[it] }
 
     /**
      * [roots] with the subtasks of any parent in [expandedIds] spliced in directly below it —
@@ -203,15 +269,10 @@ data class CadenceUiState(
         }
 
     /** Subprojects of a project, in the order they were added. */
-    fun subprojects(parentId: String): List<Project> = projects
-        .filter { it.parentId == parentId }
-        .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+    fun subprojects(parentId: String): List<Project> = subprojectsByParent[parentId].orEmpty()
 
     /** Tasks in a project, including everything filed under its subprojects. */
-    fun tasksIn(projectId: String): List<Task> {
-        val childIds = subprojects(projectId).map { it.id }.toSet()
-        return rootTasks().filter { it.projectId == projectId || it.projectId in childIds }
-    }
+    fun tasksIn(projectId: String): List<Task> = rootTasksInProjectTree[projectId].orEmpty()
 
     /**
      * Every task filed under [projectId] or one of its subprojects — subtasks and superseded
@@ -222,19 +283,12 @@ data class CadenceUiState(
      * under a task in the project is a row that goes with it, and an alarm outlives the row it
      * belongs to unless someone cancels it.
      */
-    fun allTasksIn(projectId: String): List<Task> {
-        val childIds = subprojects(projectId).map { it.id }.toSet()
-        return tasks.filter { it.projectId == projectId || it.projectId in childIds }
-    }
+    fun allTasksIn(projectId: String): List<Task> = allTasksInProjectTree[projectId].orEmpty()
 
-    fun section(id: String?): Section? = id?.let { sectionId ->
-        sections.firstOrNull { it.id == sectionId }
-    }
+    fun section(id: String?): Section? = id?.let { sectionById[it] }
 
     /** The bands of a project's list, in the order they are drawn. */
-    fun sectionsIn(projectId: String): List<Section> = sections
-        .filter { it.projectId == projectId }
-        .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+    fun sectionsIn(projectId: String): List<Section> = sectionsByProject[projectId].orEmpty()
 
     /**
      * One band of a project's list: [sectionId]'s tasks, or the ungrouped band for null.
