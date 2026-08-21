@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    updatePeriodMillis="0": this widget draws a button and reads no task, so there is nothing for
+    a periodic refresh to discover. Every other Cadence widget sets a fallback period because it
+    shows data that ages; this one would only ever burn a wakeup redrawing the same "+".
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_quick_add_description"
+    android:initialLayout="@layout/widget_loading"
+    android:minWidth="56dp"
+    android:minHeight="56dp"
+    android:minResizeWidth="56dp"
+    android:minResizeHeight="56dp"
+    android:targetCellWidth="1"
+    android:targetCellHeight="1"
+    android:resizeMode="horizontal"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="0" />

@@ -25,6 +25,7 @@ import de.andi1984.cadence.ui.CadenceViewModelHost
 import de.andi1984.cadence.ui.Routes
 import de.andi1984.cadence.ui.platform.AppInfo
 import de.andi1984.cadence.ui.theme.CadenceTheme
+import de.andi1984.cadence.widget.WidgetIntents
 import androidx.activity.compose.rememberLauncherForActivityResult
 
 class MainActivity : ComponentActivity() {
@@ -45,6 +46,16 @@ class MainActivity : ComponentActivity() {
             }
             val startDestination = remember(intentTaskId) {
                 if (intentTaskId != null) Routes.task(intentTaskId) else Routes.TODAY
+            }
+            // The quick-add widget asks for the composer rather than for a screen, so it is a
+            // flag rather than a route: the sheet is composable state on top of whatever
+            // destination the app came up on, exactly as the in-app FAB leaves it.
+            //
+            // Read once, like the task id above, and that is enough because every widget intent
+            // carries CLEAR_TOP against a `standard` launch mode — the Activity is recreated and
+            // `onCreate` runs again. See WidgetIntents.base.
+            val openQuickAdd = remember {
+                intent.getBooleanExtra(WidgetIntents.EXTRA_QUICK_ADD, false)
             }
 
             // Automatic backup sync, when the user has switched it on, reads the file as the
@@ -71,6 +82,7 @@ class MainActivity : ComponentActivity() {
                     state = state,
                     appInfo = appInfo,
                     startDestination = startDestination,
+                    openQuickAdd = openQuickAdd,
                 )
             }
         }

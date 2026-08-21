@@ -84,6 +84,10 @@ fun CadenceApp(
     // A reminder notification launches straight into its task rather than navigating there once
     // the NavHost is up — see the crash that fix was for (#29 follow-up).
     startDestination: String = Routes.TODAY,
+    // The quick-add widget opens the composer, not a screen. It rides on top of
+    // [startDestination] rather than replacing it, so "add a task" leaves the user where they
+    // would otherwise have landed once the sheet is dismissed.
+    openQuickAdd: Boolean = false,
 ) {
     val navController = rememberNavController()
     val backupFilePicker = rememberSafBackupFilePicker()
@@ -92,7 +96,7 @@ fun CadenceApp(
     val currentRoute = backStackEntry?.destination?.route
     val today = remember { LocalDate.now() }
 
-    var quickAddOpen by remember { mutableStateOf(false) }
+    var quickAddOpen by remember { mutableStateOf(openQuickAdd) }
     var quickAddProjectId by remember { mutableStateOf<String?>(null) }
 
     val destinations = listOf(
