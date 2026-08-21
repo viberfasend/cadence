@@ -26,6 +26,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import de.andi1984.cadence.ui.BandHeading
+import de.andi1984.cadence.ui.TaskView
+import de.andi1984.cadence.ui.taskList
 import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -44,7 +47,6 @@ import de.andi1984.cadence.ui.format.currentLocale
 import de.andi1984.cadence.ui.format.dayHeader
 import de.andi1984.cadence.ui.format.formatDate
 import de.andi1984.cadence.ui.format.pluralTasks
-import de.andi1984.cadence.ui.sortedFor
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.TextStyle
@@ -63,15 +65,14 @@ fun UpcomingScreen(
     onToggle: (Task) -> Unit,
     syncControls: SyncControls = SyncControls(),
 ) {
-    val upcoming = state.tasks
-        .filter { task -> !task.isDone && task.dueDate?.isAfter(today) == true }
-        .sortedFor(state.settings.sortMode)
-    val byDay = upcoming.groupBy { it.dueDate!! }.toSortedMap()
+    val list = state.taskList(TaskView.Upcoming, today)
+    val days = list.bands.mapNotNull { (it.heading as? BandHeading.Day)?.date }.toSet()
 
     val agenda = buildList {
-        byDay.forEach { (date, tasks) ->
-            add(AgendaItem.Header(date, tasks.size))
-            tasks.forEach { add(AgendaItem.Entry(it)) }
+        list.bands.forEach { band ->
+            val date = (band.heading as? BandHeading.Day)?.date ?: return@forEach
+            add(AgendaItem.Header(date, band.rows.size))
+            band.rows.forEach { add(AgendaItem.Entry(it.task)) }
         }
     }
     val headerIndex = agenda
@@ -79,7 +80,7 @@ fun UpcomingScreen(
         .toMap()
 
     val weekDays = (1L..7L).map { today.plusDays(it) }
-    val nextWeekCount = upcoming.count { !it.dueDate!!.isAfter(today.plusDays(7)) }
+    val nextWeekCount = list.tasks.count { !it.dueDate!!.isAfter(today.plusDays(7)) }
 
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -101,7 +102,7 @@ fun UpcomingScreen(
             weekDays.forEach { date ->
                 DayChip(
                     date = date,
-                    hasTasks = byDay.containsKey(date),
+                    hasTasks = date in days,
                     highlighted = date == today.plusDays(1),
                     onClick = {
                         headerIndex[date]?.let { index ->

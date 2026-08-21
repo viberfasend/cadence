@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import de.andi1984.cadence.ui.TaskView
+import de.andi1984.cadence.ui.taskList
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.unit.dp
@@ -34,7 +36,6 @@ import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.EmptyState
 import de.andi1984.cadence.ui.components.TaskRow
-import de.andi1984.cadence.ui.sortedFor
 import java.time.LocalDate
 
 @Composable
@@ -49,16 +50,7 @@ fun SearchScreen(
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
-    val results = if (query.isBlank()) {
-        emptyList()
-    } else {
-        state.tasks
-            .filter { task ->
-                task.title.contains(query, ignoreCase = true) ||
-                    task.notes?.contains(query, ignoreCase = true) == true
-            }
-            .sortedFor(state.settings.sortMode)
-    }
+    val results = state.taskList(TaskView.Search(query), today).tasks
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
