@@ -55,6 +55,19 @@ data class Modifiers(
 /** What a shortcut asks the shell to do. The shell owns the state; this names the verb. */
 enum class ShortcutAction {
     QuickAdd,
+    SelectNext,
+    SelectPrevious,
+    OpenSelected,
+    ToggleSelected,
+    DeleteSelected,
+    SelectedPriority1,
+    SelectedPriority2,
+    SelectedPriority3,
+    SelectedPriority4,
+    SelectedDueToday,
+    SelectedDueTomorrow,
+    SelectedDueNextWeek,
+    SelectedNoDueDate,
     CommandPalette,
     Search,
     Settings,
@@ -91,6 +104,73 @@ data class Shortcut(
 }
 
 private val primary = Modifiers(primary = true)
+
+/**
+ * The keys that act on the selected row.
+ *
+ * Bare letters, deliberately: this is a list, not a form, and `x` to tick something off is what a
+ * keyboard-driven task list has meant since mutt. They reach the window only when nothing focused
+ * has taken them first, so typing into the quick-add field never completes a task.
+ */
+private val SELECTION_SHORTCUTS: List<Shortcut> = listOf(
+    Shortcut(ShortcutAction.SelectNext, Key.J, Modifiers(), ShortcutGroup.Selection, Res.string.action_more, "J"),
+    Shortcut(
+        ShortcutAction.SelectPrevious, Key.K, Modifiers(), ShortcutGroup.Selection,
+        Res.string.action_back, "K",
+    ),
+    Shortcut(
+        ShortcutAction.SelectNext, Key.DirectionDown, Modifiers(), ShortcutGroup.Selection,
+        Res.string.action_more, "↓",
+    ),
+    Shortcut(
+        ShortcutAction.SelectPrevious, Key.DirectionUp, Modifiers(), ShortcutGroup.Selection,
+        Res.string.action_back, "↑",
+    ),
+    Shortcut(
+        ShortcutAction.OpenSelected, Key.Enter, Modifiers(), ShortcutGroup.Selection,
+        Res.string.menu_open, "Enter",
+    ),
+    Shortcut(
+        ShortcutAction.ToggleSelected, Key.X, Modifiers(), ShortcutGroup.Selection,
+        Res.string.task_mark_done, "X",
+    ),
+    Shortcut(
+        ShortcutAction.DeleteSelected, Key.Delete, Modifiers(), ShortcutGroup.Selection,
+        Res.string.task_delete, "Del",
+    ),
+    Shortcut(
+        ShortcutAction.SelectedPriority1, Key.One, Modifiers(), ShortcutGroup.Selection,
+        Res.string.priority_p1_title, "1",
+    ),
+    Shortcut(
+        ShortcutAction.SelectedPriority2, Key.Two, Modifiers(), ShortcutGroup.Selection,
+        Res.string.priority_p2_title, "2",
+    ),
+    Shortcut(
+        ShortcutAction.SelectedPriority3, Key.Three, Modifiers(), ShortcutGroup.Selection,
+        Res.string.priority_p3_title, "3",
+    ),
+    Shortcut(
+        ShortcutAction.SelectedPriority4, Key.Four, Modifiers(), ShortcutGroup.Selection,
+        Res.string.priority_p4_title, "4",
+    ),
+    Shortcut(
+        ShortcutAction.SelectedDueToday, Key.T, Modifiers(), ShortcutGroup.Selection,
+        Res.string.date_today, "T",
+    ),
+    Shortcut(
+        ShortcutAction.SelectedDueTomorrow, Key.M, Modifiers(), ShortcutGroup.Selection,
+        Res.string.date_tomorrow, "M",
+    ),
+    Shortcut(
+        ShortcutAction.SelectedDueNextWeek, Key.W, Modifiers(), ShortcutGroup.Selection,
+        Res.string.menu_next_week, "W",
+    ),
+    Shortcut(
+        ShortcutAction.SelectedNoDueDate, Key.Zero, Modifiers(), ShortcutGroup.Selection,
+        Res.string.task_no_due_date, "0",
+    ),
+)
 
 val CADENCE_SHORTCUTS: List<Shortcut> = listOf(
     Shortcut(ShortcutAction.QuickAdd, Key.N, primary, ShortcutGroup.Global, Res.string.command_new_task, "N"),
@@ -144,7 +224,7 @@ val CADENCE_SHORTCUTS: List<Shortcut> = listOf(
         ShortcutAction.GoProjects, Key.Four, primary, ShortcutGroup.Navigation,
         Res.string.nav_projects, "4",
     ),
-)
+) + SELECTION_SHORTCUTS
 
 /** The action [event] asks for, or null if the table has nothing for it. */
 fun shortcutFor(event: KeyEvent): ShortcutAction? =

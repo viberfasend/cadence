@@ -24,7 +24,11 @@ import de.andi1984.cadence.desktop.ui.DesktopNavigator
 import de.andi1984.cadence.desktop.ui.Route
 import de.andi1984.cadence.desktop.ui.ShortcutAction
 import de.andi1984.cadence.desktop.ui.shortcutFor
+import de.andi1984.cadence.domain.model.Priority
+import de.andi1984.cadence.domain.model.Task
+import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.CadenceViewModel
+import de.andi1984.cadence.ui.components.RowSelectionState
 import de.andi1984.cadence.ui.platform.AppInfo
 import de.andi1984.cadence.ui.theme.CadenceTheme
 import kotlinx.coroutines.CoroutineScope
@@ -66,6 +70,9 @@ fun main() = application {
     val state by viewModel.state.collectAsState()
     val workspace by workspaceStore.state.collectAsState()
     val navigator = remember { DesktopNavigator() }
+    // Which row the keyboard is on. It lives out here rather than inside the app composable
+    // because the window is where key events arrive, and the two have to agree.
+    val selection = remember { RowSelectionState() }
 
     // App start. Signed out this makes no request at all, so a fresh install still talks to
     // nobody until somebody signs in.
@@ -164,6 +171,41 @@ fun main() = application {
                 ShortcutAction.GoUpcoming -> { navigator.switchTo(Route.Upcoming); true }
                 ShortcutAction.GoInbox -> { navigator.switchTo(Route.Inbox); true }
                 ShortcutAction.GoProjects -> { navigator.switchTo(Route.Projects); true }
+
+                // The selected row's own keys. Each resolves the id to a live task first: the
+                // selection is a row that was on screen, and a pull may have deleted it since.
+                ShortcutAction.SelectNext -> { selection.moveBy(1); true }
+                ShortcutAction.SelectPrevious -> { selection.moveBy(-1); true }
+                ShortcutAction.OpenSelected -> selection.withTask(state) {
+                    navigator.go(Route.TaskDetail(it.id))
+                }
+
+                ShortcutAction.ToggleSelected -> selection.withTask(state, viewModel::toggleTask)
+                ShortcutAction.DeleteSelected -> selection.withTask(state, viewModel::deleteTask)
+                ShortcutAction.SelectedPriority1 ->
+                    selection.withTask(state) { viewModel.setPriority(it, Priority.P1) }
+
+                ShortcutAction.SelectedPriority2 ->
+                    selection.withTask(state) { viewModel.setPriority(it, Priority.P2) }
+
+                ShortcutAction.SelectedPriority3 ->
+                    selection.withTask(state) { viewModel.setPriority(it, Priority.P3) }
+
+                ShortcutAction.SelectedPriority4 ->
+                    selection.withTask(state) { viewModel.setPriority(it, Priority.P4) }
+
+                ShortcutAction.SelectedDueToday ->
+                    selection.withTask(state) { viewModel.setDueDate(it, today) }
+
+                ShortcutAction.SelectedDueTomorrow ->
+                    selection.withTask(state) { viewModel.setDueDate(it, today.plusDays(1)) }
+
+                ShortcutAction.SelectedDueNextWeek ->
+                    selection.withTask(state) { viewModel.setDueDate(it, today.plusWeeks(1)) }
+
+                ShortcutAction.SelectedNoDueDate ->
+                    selection.withTask(state) { viewModel.setDueDate(it, null) }
+
                 null -> false
             }
         },
@@ -217,7 +259,20 @@ fun main() = application {
                 onShortcutsHandled = { shortcutsRequested = false },
                 paletteRequested = paletteRequested,
                 onPaletteHandled = { paletteRequested = false },
+                selection = selection,
             )
         }
     }
+}
+
+/**
+ * Runs [action] on the selected row, and reports whether there was one.
+ *
+ * Reporting matters: a key that acted is consumed, and a key that found nothing selected has to
+ * fall through — otherwise `1` would be swallowed on a screen with no rows on it.
+ */
+private fun RowSelectionState.withTask(state: CadenceUiState, action: (Task) -> Unit): Boolean {
+    val task = selectedId?.let { id -> state.tasks.firstOrNull { it.id == id } } ?: return false
+    action(task)
+    return true
 }

@@ -28,7 +28,10 @@ import de.andi1984.cadence.desktop.data.DesktopWorkspaceStore
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.CadenceViewModel
+import androidx.compose.runtime.CompositionLocalProvider
+import de.andi1984.cadence.ui.components.LocalRowSelection
 import de.andi1984.cadence.ui.components.ProvideRowInteractions
+import de.andi1984.cadence.ui.components.RowSelectionState
 import de.andi1984.cadence.ui.components.RowInteractions
 import de.andi1984.cadence.ui.components.SyncControls
 import de.andi1984.cadence.ui.components.SyncFailureSnackbar
@@ -78,6 +81,7 @@ fun CadenceDesktopApp(
     onShortcutsHandled: () -> Unit,
     paletteRequested: Boolean,
     onPaletteHandled: () -> Unit,
+    selection: RowSelectionState,
 ) {
     val backupFilePicker = remember { DesktopBackupFilePicker() }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -144,7 +148,8 @@ fun CadenceDesktopApp(
     )
 
     DragAndDropHost(state = state, onIntent = viewModel::applyDropIntent) {
-        ProvideRowInteractions(rowInteractions) {
+        CompositionLocalProvider(LocalRowSelection provides selection) {
+            ProvideRowInteractions(rowInteractions) {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 containerColor = MaterialTheme.colorScheme.background,
@@ -226,6 +231,7 @@ fun CadenceDesktopApp(
                         }
                     }
                 }
+            }
             }
         }
     }

@@ -123,6 +123,7 @@ fun TaskRow(
             onToggle = onToggle,
             onClick = onClick,
             modifier = modifier
+                .selectableRow(task.id)
                 .cadenceDragSource(DragPayload.TaskDrag(task)) { TaskDragGhost(task) }
                 .dragSourceAlpha(task.id),
             overdueStyle = overdueStyle,
