@@ -30,13 +30,31 @@ object WidgetIntents {
     /** Set when the app should come up with the quick-add sheet already open. */
     const val EXTRA_QUICK_ADD = "de.andi1984.cadence.widget.QUICK_ADD"
 
+    /** The task an intent is about. The reminder notification's key, reused so the two agree. */
+    const val EXTRA_TASK_ID = AlarmReminderScheduler.EXTRA_TASK_ID
+
+    /**
+     * Ticks a task off without opening the app — see [WidgetToggleActivity] for why completing a
+     * task from a list row has to be an activity at all.
+     */
+    fun toggleTask(context: Context, taskId: String): Intent =
+        Intent(context, WidgetToggleActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            // Distinct per task, for the same reason every intent below carries a URI.
+            data = Uri.parse("cadence://widget/toggle/$taskId")
+            // NEW_TASK only: paired with `taskAffinity=""` in the manifest this lands in a task
+            // of its own, so ticking a row off neither disturbs nor resumes the app's own stack.
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            putExtra(EXTRA_TASK_ID, taskId)
+        }
+
     /** Opens the app where it last was. */
     fun openApp(context: Context): Intent = base(context, "cadence://widget/app")
 
     /** Opens a task's detail screen — the same route a reminder notification opens. */
     fun openTask(context: Context, taskId: String): Intent =
         base(context, "cadence://task/$taskId")
-            .putExtra(AlarmReminderScheduler.EXTRA_TASK_ID, taskId)
+            .putExtra(EXTRA_TASK_ID, taskId)
 
     /** Opens the app with the quick-add sheet up, ready for a title. */
     fun openQuickAdd(context: Context): Intent =

@@ -388,11 +388,17 @@ than reaching for `!!`.
     therefore collapses onto *one* `PendingIntent` whose extras the last row composed overwrote:
     every row opens the same task, and the widget reads as decorative. `WidgetIntents` gives each
     destination a distinct `data` URI, which is the only thing keeping them apart.
-  - **A `LazyColumn` is a `ListView`, so its rows are RemoteViews collection items.** A collection
-    item cannot own a `PendingIntent` — the platform offers a template plus a per-item fill-in
-    intent, which is what Glance's `clickable` compiles to. A compound button (`CheckBox`,
-    `Switch`) instead wants `setOnCheckedChangeResponse`, which is not part of that contract, so
-    the completion circle is a clickable `Box` with two vector drawables rather than a `CheckBox`.
+  - **A `LazyColumn` is a `ListView`, so its rows are RemoteViews collection items, and only
+    `actionStartActivity` reliably escapes one.** A collection item owns no `PendingIntent` — the
+    platform offers a single template on the list plus a per-item fill-in intent. A compound
+    button (`CheckBox`, `Switch`) wants `setOnCheckedChangeResponse`, which is not part of that
+    contract at all, so the completion circle is a clickable `Box` over two vector drawables.
+    `actionRunCallback` *is* supposed to work there, by way of Glance's own trampoline activity,
+    and on a real device it silently never arrived while `actionStartActivity` on the very same
+    rows opened the right task every time — a widget that renders perfectly and answers no tap.
+    Completing from a row therefore goes through `WidgetToggleActivity`, an invisible
+    `Theme.NoDisplay` activity that writes and finishes in `onCreate`. Reach for an activity
+    first for anything a widget row has to *do*.
   - **A widget must visibly answer a tap.** Ticking a row honours the user's `showCompleted`
     setting like every screen does, so the row strikes through and stays instead of vanishing —
     a row that disappears reads as deleted, not completed.

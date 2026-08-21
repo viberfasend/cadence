@@ -8,9 +8,7 @@ import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.Image
 import androidx.glance.ImageProvider
-import androidx.glance.action.actionParametersOf
 import androidx.glance.action.clickable
-import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
@@ -32,14 +30,15 @@ import java.time.LocalDate
  * One task row, shared by every list widget so they read as one family rather than as unrelated
  * designs.
  *
- * **The completion circle is a clickable [Box], not Glance's `CheckBox`, and that is the point.**
- * Glance translates a `LazyColumn` into a `ListView`, so everything inside a row is a RemoteViews
- * *collection item*, and a collection item cannot own a `PendingIntent` of its own — the platform
- * only offers a template on the list plus a fill-in intent per item. Glance implements `clickable`
- * that way and it works inside a list; a compound button instead wants
- * `RemoteViews.setOnCheckedChangeResponse`, which is not part of the collection contract. Using
- * the one primitive the collection actually supports is what makes these rows tickable rather
- * than decorative.
+ * **The completion circle is a clickable [Box] that starts an activity, and both halves of that
+ * are deliberate.** Glance translates a `LazyColumn` into a `ListView`, so everything in a row is
+ * a RemoteViews *collection item*, and a collection item owns no `PendingIntent` of its own — the
+ * platform offers one template on the list plus a fill-in intent per item. A compound button
+ * (`CheckBox`) wants `setOnCheckedChangeResponse`, which is not part of that contract at all; and
+ * `actionRunCallback`, though it is supposed to reach its callback through Glance's own
+ * trampoline, did not arrive on a real device, while `actionStartActivity` from the very same
+ * rows opened the right task every time. So the circle uses the route the collection is known to
+ * deliver, and [WidgetToggleActivity] is the invisible activity on the other end of it.
  *
  * Priority is never colour alone here either (`CLAUDE.md`, UI conventions): the meta line always
  * spells out [de.andi1984.cadence.domain.model.Priority.shortLabel], and the circle's accent
@@ -61,11 +60,7 @@ fun TaskWidgetRow(
             // `ui/components/TaskRow.kt`'s CompletionCircle keeps, and the same reason.
             modifier = GlanceModifier
                 .size(44.dp)
-                .clickable(
-                    actionRunCallback<ToggleTaskAction>(
-                        actionParametersOf(TaskIdKey to task.id),
-                    ),
-                ),
+                .clickable(actionStartActivity(WidgetIntents.toggleTask(context, task.id))),
             contentAlignment = Alignment.Center,
         ) {
             Image(
