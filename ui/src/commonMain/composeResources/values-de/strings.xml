@@ -453,6 +453,8 @@
     <string name="command_toggle_sidebar">Seitenleiste ein- oder ausblenden</string>
     <string name="command_go_to">Zu %1$s</string>
     <string name="selection_none">Keine Aufgabe ausgewählt</string>
+    <string name="tray_show">Cadence anzeigen</string>
+    <string name="tray_quit">Beenden</string>
 
     <!-- ── Kontextmenüs ─────────────────────────────────────────────────────────────
          Das Rechtsklick-Menü einer Zeile. In der Praxis nur am Desktop — ein Touchscreen hat

@@ -182,6 +182,7 @@ fun TodayScreen(
                                 onClick = { onTaskClick(task) },
                                 parentTitle = state.parentOf(task)?.title,
                                 subtaskProgress = state.subtaskProgress(task.id),
+                                modifier = Modifier.animateItem(),
                             )
                         }
                     }

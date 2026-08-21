@@ -468,6 +468,8 @@
     <string name="command_toggle_sidebar">Show or hide the sidebar</string>
     <string name="command_go_to">Go to %1$s</string>
     <string name="selection_none">No task selected</string>
+    <string name="tray_show">Show Cadence</string>
+    <string name="tray_quit">Quit</string>
 
     <!-- ── Context menus ────────────────────────────────────────────────────────────
          The right-click menu on a row. Desktop only in practice — a touchscreen has no

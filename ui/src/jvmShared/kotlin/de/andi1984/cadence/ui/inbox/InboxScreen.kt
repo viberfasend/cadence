@@ -150,7 +150,10 @@ fun InboxScreen(
                         } else {
                             null
                         },
-                        modifier = if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier,
+                        // See the same line in `ProjectDetailScreen`: a reorder settles.
+                        modifier = Modifier
+                            .animateItem()
+                            .then(if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier),
                     )
                     }
                 }

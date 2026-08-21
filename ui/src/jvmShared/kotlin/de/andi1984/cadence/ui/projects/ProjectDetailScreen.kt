@@ -338,7 +338,11 @@ private fun LazyListScope.taskBand(
             } else {
                 null
             },
-            modifier = if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier,
+            // Rows settle into their new place rather than jumping: a manual reorder that
+            // teleports gives no feedback that the drop landed where it was aimed.
+            modifier = Modifier
+                .animateItem()
+                .then(if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier),
         )
         }
     }

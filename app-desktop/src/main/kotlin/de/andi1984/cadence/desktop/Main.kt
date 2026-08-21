@@ -23,6 +23,8 @@ import de.andi1984.cadence.desktop.ui.CadenceDesktopApp
 import de.andi1984.cadence.desktop.ui.DesktopNavigator
 import de.andi1984.cadence.desktop.ui.Route
 import de.andi1984.cadence.desktop.ui.ShortcutAction
+import de.andi1984.cadence.desktop.ui.TrayLabels
+import de.andi1984.cadence.desktop.ui.installMenu
 import de.andi1984.cadence.desktop.ui.shortcutFor
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Task
@@ -30,6 +32,8 @@ import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.CadenceViewModel
 import de.andi1984.cadence.ui.components.RowSelectionState
 import de.andi1984.cadence.ui.platform.AppInfo
+import de.andi1984.cadence.ui.resources.Res
+import de.andi1984.cadence.ui.resources.*
 import de.andi1984.cadence.ui.theme.CadenceTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +41,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
+import org.jetbrains.compose.resources.stringResource
 import java.io.File
 import java.time.Duration
 import java.time.LocalDate
@@ -229,6 +234,36 @@ fun main() = application {
                     delay(1_000)
                     rememberWindowBounds()
                 }
+        }
+
+        // The tray icon has existed since phase 5 and could only pop a balloon; right-clicking it
+        // did nothing, which reads as broken rather than deliberate. AWT cannot read a Compose
+        // resource, so the labels are resolved here and handed over as plain strings.
+        val trayLabels = TrayLabels(
+            show = stringResource(Res.string.tray_show),
+            newTask = stringResource(Res.string.command_new_task),
+            sync = stringResource(Res.string.command_sync_now),
+            quit = stringResource(Res.string.tray_quit),
+        )
+        LaunchedEffect(trayLabels) {
+            container.trayIcon?.installMenu(
+                labels = trayLabels,
+                onShow = {
+                    windowState.isMinimized = false
+                    window.toFront()
+                },
+                onNewTask = {
+                    windowState.isMinimized = false
+                    window.toFront()
+                    quickAddRequested = true
+                },
+                onSync = { container.syncEngine.syncInBackground() },
+                onQuit = {
+                    container.syncEngine.syncInBackground()
+                    viewModel.close()
+                    exitApplication()
+                },
+            )
         }
 
         val databaseFile = remember { File(PlatformDirs.dataDir(), CADENCE_DATABASE_FILE_NAME) }
