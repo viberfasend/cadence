@@ -2,7 +2,7 @@ name: Android
 
 # Manual only. This workflow used to run on every push to every branch and on every pull
 # request, which is where nearly all of this repository's Actions minutes went. Everything it
-# does — `./gradlew testDebugUnitTest :core:jvmTest :ui:jvmTest :app-desktop:test`,
+# does — one `./gradlew` over :core's, :ui's and :app-desktop's test tasks,
 # `:ui:compileKotlinJvm` and
 # `.github/scripts/build.sh apk` — runs identically on a laptop, so the hosted runner buys
 # nothing an Android build cannot do locally. Run it from the Actions tab when you actually
@@ -21,6 +21,9 @@ jobs:
   test:
     name: Run tests
     runs-on: ubuntu-latest
+    # GitHub's default job limit is six hours. A build that is going to work here takes
+    # minutes, so anything past this is a hang, and a hang should cost a job — not an afternoon.
+    timeout-minutes: 20
 
     steps:
       - name: Check out
@@ -35,45 +38,54 @@ jobs:
           java-version: '17'
 
       - name: Set up Gradle
+        # This action caches ~/.gradle itself — dependencies, the wrapper and the build cache
+        # alike — so there is no actions/cache step beside it. There used to be one, restoring
+        # ~/.gradle/caches/modules-* over the top of what this had already restored, with a
+        # `transforms-` glob that matched nothing.
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches/modules-*
-            ~/.gradle/caches/jars-*
-            ~/.gradle/caches/transforms-
-          key: ${{ runner.os }}-gradle-deps-${{ hashFiles('**/*.gradle*', '**/gradle.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-deps-
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Unit tests
+      - name: Unit tests and the desktop compilation
+        # One invocation, not two: configuring this build is the expensive part of a Gradle run
+        # and a second `./gradlew` pays for all of it again.
+        #
         # :core and :ui are Kotlin Multiplatform modules: testDebugUnitTest is their Android
         # variant, jvmTest the one the desktop app relies on. Both run the same source set, and
         # running only one would let the other rot. :app-desktop is a plain JVM module, so its
-        # task is `test`.
-        run: ./gradlew testDebugUnitTest :core:jvmTest :ui:jvmTest :app-desktop:test --stacktrace
-
-      - name: Compile the desktop target
-        # :ui's tests cover its plain-Kotlin half; the screens themselves are compiled by nothing
-        # else in this workflow, so without this the Android build could stay green while the
-        # module the desktop app is mostly made of stopped compiling for the JVM.
-        run: ./gradlew :ui:compileKotlinJvm --stacktrace
+        # task is `test`. Naming the two modules rather than a bare `testDebugUnitTest` keeps
+        # :app-android's whole debug variant — 31 tasks — out of a job that would run no test
+        # from it; the `build` job below compiles that variant anyway.
+        #
+        # :ui:compileKotlinJvm rides along because compiling is not testing: :ui's tests cover
+        # its plain-Kotlin half, and without this the Android build could stay green while the
+        # screens the desktop app is mostly made of stopped compiling for the JVM.
+        run: >
+          ./gradlew
+          :core:testDebugUnitTest :ui:testDebugUnitTest
+          :core:jvmTest :ui:jvmTest :app-desktop:test
+          :ui:compileKotlinJvm
+          --stacktrace
 
       - name: Upload test report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: test-report
-          path: app-android/build/reports/tests/
+          # The three modules that actually have tests. :app-android has had none since storage
+          # moved into :core, so the old single path uploaded an empty directory on every failure.
+          path: |
+            core/build/reports/tests/
+            ui/build/reports/tests/
+            app-desktop/build/reports/tests/
 
   build:
     name: Build APKs
     runs-on: ubuntu-latest
+    # GitHub's default job limit is six hours. A build that is going to work here takes
+    # minutes, so anything past this is a hang, and a hang should cost a job — not an afternoon.
+    timeout-minutes: 45
 
     needs: test
 
@@ -95,26 +107,8 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches/modules-*
-            ~/.gradle/caches/jars-*
-            ~/.gradle/caches/transforms-
-          key: ${{ runner.os }}-gradle-deps-${{ hashFiles('**/*.gradle*', '**/gradle.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-deps-
-
       - name: Make gradlew executable
         run: chmod +x ./gradlew
-
-      - name: Clean Gradle cache periodically
-        if: github.ref == 'refs/heads/main'
-        run: |
-          # Clean up old Gradle cache entries to prevent storage bloat
-          find ~/.gradle/caches -name "*.lock" -mtime +7 -delete
-          find ~/.gradle/caches -type d -name "fileHashes" -mtime +7 -exec rm -rf {} + 2>/dev/null || true
 
       # On a branch this is only a preview of what merging would publish.
       - name: Work out the next version

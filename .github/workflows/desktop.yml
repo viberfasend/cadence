@@ -24,6 +24,9 @@ jobs:
   test:
     name: Run tests
     runs-on: ubuntu-latest
+    # GitHub's default job limit is six hours. A build that is going to work here takes
+    # minutes, so anything past this is a hang, and a hang should cost a job — not an afternoon.
+    timeout-minutes: 20
 
     defaults:
       run:
@@ -43,17 +46,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches/modules-*
-            ~/.gradle/caches/jars-*
-            ~/.gradle/caches/transforms-
-          key: ${{ runner.os }}-gradle-deps-${{ hashFiles('**/*.gradle*', '**/gradle.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-deps-
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
@@ -79,6 +71,9 @@ jobs:
         # Linux runner instead of three.
         os: ${{ fromJSON(inputs.os == 'all' && '["ubuntu-latest","macos-latest","windows-latest"]' || format('["{0}"]', inputs.os)) }}
     runs-on: ${{ matrix.os }}
+    # GitHub's default job limit is six hours. A build that is going to work here takes
+    # minutes, so anything past this is a hang, and a hang should cost a job — not an afternoon.
+    timeout-minutes: 45
 
     needs: test
 
@@ -107,26 +102,8 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches/modules-*
-            ~/.gradle/caches/jars-*
-            ~/.gradle/caches/transforms-
-          key: ${{ runner.os }}-gradle-deps-${{ hashFiles('**/*.gradle*', '**/gradle.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-deps-
-
       - name: Make gradlew executable
         run: chmod +x ./gradlew
-
-      - name: Clean Gradle cache periodically
-        if: runner.os == 'Linux' && github.ref == 'refs/heads/main'
-        run: |
-          # Clean up old Gradle cache entries to prevent storage bloat
-          find ~/.gradle/caches -name "*.lock" -mtime +7 -delete
-          find ~/.gradle/caches -type d -name "fileHashes" -mtime +7 -exec rm -rf {} + 2>/dev/null || true
 
       # jpackage shells out to the OS's own packaging tool for each format, and none of these
       # three ship on a bare runner image.

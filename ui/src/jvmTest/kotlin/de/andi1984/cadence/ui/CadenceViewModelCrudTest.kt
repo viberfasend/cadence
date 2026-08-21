@@ -11,15 +11,10 @@ import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
 import de.andi1984.cadence.ui.platform.BackupTarget
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -45,25 +40,16 @@ class CadenceViewModelCrudTest {
     private val settings = FakeSettingsStore()
     private val backupGateway = FakeBackupGateway()
 
-    private var scope: CoroutineScope? = null
-
-    @After
-    fun tearDown() {
-        scope?.cancel()
-    }
-
     private fun TestScope.viewModel(): CadenceViewModel {
-        val vmScope = CoroutineScope(StandardTestDispatcher(testScheduler) + Job())
-        scope = vmScope
         val viewModel = CadenceViewModel(
             repository = repository,
             settingsStore = settings,
             reminderScheduler = reminders,
             backupGateway = backupGateway,
-            syncEngine = CadenceSyncEngine(FakeSyncStore(), vmScope),
-            scope = vmScope,
+            syncEngine = CadenceSyncEngine(FakeSyncStore(), backgroundScope),
+            scope = backgroundScope,
         )
-        vmScope.launch { viewModel.state.collect { } }
+        backgroundScope.launch { viewModel.state.collect { } }
         runCurrent()
         return viewModel
     }
