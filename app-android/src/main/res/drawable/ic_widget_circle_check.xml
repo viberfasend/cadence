@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The done half of the widget's completion circle: a filled disc with the checkmark punched
+    out of it rather than drawn on top, so a single tinted Image renders the whole state and the
+    widget background shows through the check. Two stacked Images would each need their own tint
+    and would disagree the moment one of the two colours changed.
+
+    One <path> with fillType="evenOdd" is what does the punching — the check sub-path sits
+    entirely inside the disc, so the winding rule turns it into a hole.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M2,12 A10,10 0 1,1 22,12 A10,10 0 1,1 2,12 Z M10.6,16.2 L6.4,12 L7.8,10.6 L10.6,13.4 L16.2,7.8 L17.6,9.2 Z" />
+</vector>

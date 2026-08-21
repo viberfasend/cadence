@@ -26,7 +26,9 @@ class ToggleTaskAction : ActionCallback {
         parameters: ActionParameters,
     ) {
         val taskId = parameters[TaskIdKey] ?: return
-        val container = (context.applicationContext as CadenceApplication).container
+        // `as?`, like BootReceiver's: a ClassCastException raised here surfaces as the launcher
+        // reporting that the widget crashed, which is a poor way to learn the manifest is wrong.
+        val container = (context.applicationContext as? CadenceApplication)?.container ?: return
         // Read the row back rather than trust anything the widget drew it from — the same
         // reason CadenceRepository.setCompleted itself re-reads before spawning a successor.
         val task = container.repository.tasks.first().firstOrNull { it.id == taskId } ?: return
