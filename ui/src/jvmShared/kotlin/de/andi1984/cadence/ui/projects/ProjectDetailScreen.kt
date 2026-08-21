@@ -25,6 +25,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import de.andi1984.cadence.ui.BandHeading
+import de.andi1984.cadence.ui.TaskView
+import de.andi1984.cadence.ui.taskList
 import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.unit.dp
 import de.andi1984.cadence.ui.resources.Res
@@ -41,7 +44,6 @@ import de.andi1984.cadence.ui.components.ProjectSwatch
 import de.andi1984.cadence.ui.components.SectionHeader
 import de.andi1984.cadence.ui.components.TaskRow
 import de.andi1984.cadence.ui.format.pluralTasks
-import de.andi1984.cadence.ui.sortedFor
 import java.time.LocalDate
 
 @Composable
@@ -73,13 +75,9 @@ fun ProjectDetailScreen(
     }
 
     val subprojects = state.subprojects(project.id)
-    val sections = state.sectionsIn(project.id)
-    val tasks = state.tasksIn(project.id)
-        .filter { state.settings.showCompleted || !it.isDone }
-        .sortedFor(state.settings.sortMode)
-    val open = tasks.count { !it.isDone }
-    val overdue = tasks.filter { it.isOverdue(today) }
     var expandedIds by remember { mutableStateOf(emptySet<String>()) }
+    val list = state.taskList(TaskView.Project(project.id), today, expandedIds)
+    val open = list.openCount
     fun toggleExpanded(id: String) {
         expandedIds = if (id in expandedIds) expandedIds - id else expandedIds + id
     }
@@ -148,7 +146,7 @@ fun ProjectDetailScreen(
                 }
             }
 
-            if (tasks.isEmpty()) {
+            if (list.isEmpty) {
                 item {
                     EmptyState(
                         title = stringResource(Res.string.project_empty_title),
@@ -160,85 +158,47 @@ fun ProjectDetailScreen(
                 }
             }
 
-            // Two layouts, and which one a project gets is decided by whether it has sections.
-            //
-            // Without them the list splits by urgency, the way it always has: overdue on top, the
-            // rest below. With them it splits by *where the user filed the work* instead —
-            // ungrouped band first, then each heading in its own order — because two splits at
-            // once would put a task's own section three headings away from it. An overdue task
-            // still reads as overdue inside its band; it just does not leave it.
-            if (sections.isEmpty()) {
-                if (overdue.isNotEmpty()) {
-                    item {
+            // Which bands a project's list has is decided in `taskList`, not here: without
+            // sections it splits by urgency (overdue on top, the rest below), with them by where
+            // the user filed the work. This draws whatever bands come back, in order.
+            list.bands.forEach { band ->
+                when (val heading = band.heading) {
+                    BandHeading.Overdue -> item(key = "h-overdue") {
                         SectionHeader(
                             stringResource(Res.string.project_section_overdue),
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
-                    taskBand(
-                        rows = state.expandedRows(overdue, expandedIds),
-                        keyPrefix = "o",
-                        state = state,
-                        today = today,
-                        overdueStyle = true,
-                        expandedIds = expandedIds,
-                        onToggleExpanded = ::toggleExpanded,
-                        onToggle = onToggle,
-                        onTaskClick = onTaskClick,
-                    )
+
+                    BandHeading.Everything -> item(key = "h-all") {
+                        SectionHeader(stringResource(Res.string.project_section_all))
+                    }
+
+                    BandHeading.Ungrouped -> item(key = "h-ungrouped") {
+                        SectionHeader(stringResource(Res.string.sections_ungrouped))
+                    }
+
+                    is BandHeading.Named -> item(key = "h-${heading.section.id}") {
+                        SectionBandHeader(
+                            section = heading.section,
+                            onRename = { sectionDialog = SectionDialogState.Rename(heading.section) },
+                            onDelete = { sectionDialog = SectionDialogState.Delete(heading.section) },
+                        )
+                    }
+
+                    else -> Unit
                 }
-                val rest = tasks.filterNot { it.isOverdue(today) }
-                if (rest.isNotEmpty()) {
-                    item { SectionHeader(stringResource(Res.string.project_section_all)) }
-                    taskBand(
-                        rows = state.expandedRows(rest, expandedIds),
-                        keyPrefix = "a",
-                        state = state,
-                        today = today,
-                        expandedIds = expandedIds,
-                        onToggleExpanded = ::toggleExpanded,
-                        onToggle = onToggle,
-                        onTaskClick = onTaskClick,
-                    )
-                }
-            } else {
-                val bandIds = sections.mapTo(mutableSetOf()) { it.id }
-                // The ungrouped band goes first and keeps its heading even when it is empty, so
-                // the list never reads as if a task could only live under a section.
-                val ungrouped = tasks.filter { it.sectionId == null || it.sectionId !in bandIds }
-                item { SectionHeader(stringResource(Res.string.sections_ungrouped)) }
                 taskBand(
-                    rows = state.expandedRows(ungrouped, expandedIds),
-                    keyPrefix = "u",
+                    rows = band.rows,
+                    keyPrefix = band.key,
                     state = state,
                     today = today,
+                    overdueStyle = band.heading == BandHeading.Overdue,
                     expandedIds = expandedIds,
                     onToggleExpanded = ::toggleExpanded,
                     onToggle = onToggle,
                     onTaskClick = onTaskClick,
                 )
-                sections.forEach { section ->
-                    item(key = "h-${section.id}") {
-                        SectionBandHeader(
-                            section = section,
-                            onRename = { sectionDialog = SectionDialogState.Rename(section) },
-                            onDelete = { sectionDialog = SectionDialogState.Delete(section) },
-                        )
-                    }
-                    taskBand(
-                        rows = state.expandedRows(
-                            tasks.filter { it.sectionId == section.id },
-                            expandedIds,
-                        ),
-                        keyPrefix = section.id,
-                        state = state,
-                        today = today,
-                        expandedIds = expandedIds,
-                        onToggleExpanded = ::toggleExpanded,
-                        onToggle = onToggle,
-                        onTaskClick = onTaskClick,
-                    )
-                }
             }
         }
     }
