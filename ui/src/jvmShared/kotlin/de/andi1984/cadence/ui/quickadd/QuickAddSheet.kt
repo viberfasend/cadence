@@ -85,13 +85,17 @@ fun QuickAddSheet(
     defaultProjectId: String?,
     onDismiss: () -> Unit,
     onSubmit: (ParsedQuickAdd) -> Unit,
+    // Voice capture (an App Actions `CREATE_ITEM_LIST` fulfillment on Android) opens the sheet
+    // with the spoken text already parsed, exactly as if the user had typed it — the sheet still
+    // requires a confirming tap so a bad transcription never reaches the task list unseen.
+    initialText: String = "",
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val focusRequester = remember { FocusRequester() }
     val cadenceColors = LocalCadenceColors.current
     val scheme = MaterialTheme.colorScheme
 
-    var text by remember { mutableStateOf("") }
+    var text by remember { mutableStateOf(initialText) }
     var dateOverride by remember { mutableStateOf<LocalDate?>(null) }
     var priorityOverride by remember { mutableStateOf<Priority?>(null) }
     var projectOverride by remember { mutableStateOf(defaultProjectId) }

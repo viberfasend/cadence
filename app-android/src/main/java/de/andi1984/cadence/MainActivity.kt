@@ -18,6 +18,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import de.andi1984.cadence.assistant.AppActionsIntents
 import de.andi1984.cadence.data.db.CADENCE_DATABASE_FILE_NAME
 import de.andi1984.cadence.reminders.AlarmReminderScheduler
 import de.andi1984.cadence.ui.CadenceApp
@@ -57,6 +58,12 @@ class MainActivity : ComponentActivity() {
             val openQuickAdd = remember {
                 intent.getBooleanExtra(WidgetIntents.EXTRA_QUICK_ADD, false)
             }
+            // App Actions voice capture (#46) — Assistant fulfills the CREATE_ITEM_LIST
+            // capability declared in res/xml/shortcuts.xml with this same explicit-component
+            // VIEW intent shape, so it is read once exactly like the widget's flag above.
+            val voiceQuickAddText = remember {
+                intent.getStringExtra(AppActionsIntents.EXTRA_ITEM_TEXT)
+            }
 
             // Automatic backup sync, when the user has switched it on, reads the file as the
             // app comes up and writes it as the app leaves. Both are no-ops otherwise.
@@ -83,6 +90,7 @@ class MainActivity : ComponentActivity() {
                     appInfo = appInfo,
                     startDestination = startDestination,
                     openQuickAdd = openQuickAdd,
+                    voiceQuickAddText = voiceQuickAddText,
                 )
             }
         }
