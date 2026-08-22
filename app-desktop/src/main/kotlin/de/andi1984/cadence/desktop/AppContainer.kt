@@ -12,6 +12,7 @@ import de.andi1984.cadence.data.db.SqlDelightSyncStore
 import de.andi1984.cadence.data.db.SqlDelightTagStore
 import de.andi1984.cadence.data.db.SqlDelightTaskStore
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
+import de.andi1984.cadence.desktop.data.DesktopAttachmentOpener
 import de.andi1984.cadence.desktop.data.DesktopBackupFilePicker
 import de.andi1984.cadence.desktop.data.DesktopBackupIo
 import de.andi1984.cadence.desktop.data.DesktopReminderScheduler
@@ -53,6 +54,10 @@ class AppContainer {
     val backupIo = DesktopBackupIo(repository, settingsStore)
 
     val backupFilePicker = DesktopBackupFilePicker()
+
+    /** `java.awt.Desktop` where Android has an intent — the picker half lives in the composition,
+     *  so only this one is a container singleton. */
+    val attachmentOpener = DesktopAttachmentOpener()
 
     /** Outlives every window: the same reasoning as the Android container's application-scoped
      *  backup sync — the write that starts as the user quits must not hang off a scope that is

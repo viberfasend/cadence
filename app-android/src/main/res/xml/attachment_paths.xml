@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    What the FileProvider is allowed to hand out, and nothing else.
+
+    Exactly the blob directory: `files/attachments/`, where `BlobStore` writes. Not `files/` at
+    large — the database sits there too, and a provider that can export it is a provider that
+    exports everything the app knows to whichever app the user last tapped "open with" on. The
+    staging directory (`attachments-tmp/`) is deliberately absent: a half-copied file is never
+    something to view.
+-->
+<paths>
+    <files-path name="attachments" path="attachments/" />
+</paths>

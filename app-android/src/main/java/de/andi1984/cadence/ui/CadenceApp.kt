@@ -30,6 +30,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import de.andi1984.cadence.ui.attachments.rememberSafAttachmentFilePicker
 import de.andi1984.cadence.ui.backup.rememberSafBackupFilePicker
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.FittedLabel
@@ -100,6 +101,7 @@ fun CadenceApp(
 ) {
     val navController = rememberNavController()
     val backupFilePicker = rememberSafBackupFilePicker()
+    val attachmentFilePicker = rememberSafAttachmentFilePicker()
     val snackbarHostState = remember { SnackbarHostState() }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -328,6 +330,13 @@ fun CadenceApp(
                         onMoveToSection = viewModel::setSection,
                         onToggleTag = viewModel::toggleTag,
                         onCreateTag = viewModel::addTag,
+                        attachmentPicker = attachmentFilePicker,
+                        onAddFileAttachment = viewModel::addFileAttachment,
+                        onAddLinkAttachment = viewModel::addLinkAttachment,
+                        onOpenAttachment = viewModel::openAttachment,
+                        onRelocateAttachment = viewModel::relocateAttachment,
+                        onRemoveAttachment = viewModel::deleteAttachment,
+                        attachmentBlobFile = viewModel::blobFile,
                     )
                 }
                 composable(Routes.PROJECT) { entry ->

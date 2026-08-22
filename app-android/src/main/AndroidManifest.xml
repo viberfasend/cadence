@@ -50,6 +50,22 @@
             android:excludeFromRecents="true"
             android:noHistory="true" />
 
+        <!--
+            Hands one attachment blob to a viewer as a content:// uri, since a file under filesDir
+            is unreadable to every other app and a file:// uri throws since Android 7. Not
+            exported: only this app may ask it for a uri, and the grant travels with the intent
+            that carries one.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.attachments"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/attachment_paths" />
+        </provider>
+
         <receiver
             android:name=".reminders.ReminderReceiver"
             android:exported="false" />

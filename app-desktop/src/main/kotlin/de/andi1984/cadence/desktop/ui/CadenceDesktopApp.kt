@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import de.andi1984.cadence.desktop.data.DesktopAttachmentFilePicker
 import de.andi1984.cadence.desktop.data.DesktopBackupFilePicker
 import de.andi1984.cadence.desktop.data.DesktopWorkspaceStore
 import de.andi1984.cadence.domain.model.Task
@@ -86,6 +87,7 @@ fun CadenceDesktopApp(
     selection: RowSelectionState,
 ) {
     val backupFilePicker = remember { DesktopBackupFilePicker() }
+    val attachmentFilePicker = remember { DesktopAttachmentFilePicker() }
     val snackbarHostState = remember { SnackbarHostState() }
     val workspace by workspaceStore.state.collectAsState()
 
@@ -209,6 +211,7 @@ fun CadenceDesktopApp(
                                     navigator = navigator,
                                     syncControls = syncControls,
                                     backupFilePicker = backupFilePicker,
+                                    attachmentFilePicker = attachmentFilePicker,
                                     onQuickAdd = ::openQuickAdd,
                                     onProjectDialog = { projectDialog = it },
                                 )
@@ -226,6 +229,7 @@ fun CadenceDesktopApp(
                                         navigator = navigator,
                                         syncControls = syncControls,
                                         backupFilePicker = backupFilePicker,
+                                        attachmentFilePicker = attachmentFilePicker,
                                         onQuickAdd = ::openQuickAdd,
                                         onProjectDialog = { projectDialog = it },
                                     )
@@ -305,6 +309,7 @@ private fun RouteContent(
     navigator: DesktopNavigator,
     syncControls: SyncControls,
     backupFilePicker: DesktopBackupFilePicker,
+    attachmentFilePicker: DesktopAttachmentFilePicker,
     onQuickAdd: (String?) -> Unit,
     onProjectDialog: (ProjectDialogState) -> Unit,
 ) {
@@ -429,6 +434,13 @@ private fun RouteContent(
                 onMoveToSection = viewModel::setSection,
                 onToggleTag = viewModel::toggleTag,
                 onCreateTag = viewModel::addTag,
+                attachmentPicker = attachmentFilePicker,
+                onAddFileAttachment = viewModel::addFileAttachment,
+                onAddLinkAttachment = viewModel::addLinkAttachment,
+                onOpenAttachment = viewModel::openAttachment,
+                onRelocateAttachment = viewModel::relocateAttachment,
+                onRemoveAttachment = viewModel::deleteAttachment,
+                attachmentBlobFile = viewModel::blobFile,
             )
         }
 
