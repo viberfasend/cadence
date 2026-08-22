@@ -6,6 +6,7 @@ import de.andi1984.cadence.domain.model.Task
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -327,5 +328,41 @@ class CadenceUiStateTest {
         val candidates = state.nestingCandidates(exclude = state.projects[0]).map { it.id }
 
         assertEquals(listOf("other"), candidates)
+    }
+
+    // ── Derived indexes ──────────────────────────────────────────────────────────────
+    //
+    // Every assertion above now runs against memoised maps rather than a scan per call. These two
+    // pin the memoisation itself: that a repeated question is not re-derived, and that a new
+    // state does not serve the previous one's answer.
+
+    @Test
+    fun `asking the same question twice does not derive it twice`() {
+        val state = CadenceUiState(
+            tasks = listOf(task("a", projectId = "root"), task("step", parentId = "a")),
+            projects = listOf(project("root")),
+            sections = listOf(section("band", projectId = "root")),
+        )
+
+        // Reference equality, not `assertEquals`: two equal lists would pass even if both were
+        // rebuilt, which is the thing being ruled out.
+        assertSame(state.rootTasks(), state.rootTasks())
+        assertSame(state.tasksIn("root"), state.tasksIn("root"))
+        assertSame(state.subtasks("a"), state.subtasks("a"))
+        assertSame(state.sectionsIn("root"), state.sectionsIn("root"))
+        assertSame(state.subprojects("root"), state.subprojects("root"))
+    }
+
+    @Test
+    fun `a new state derives its own answer rather than the previous one's`() {
+        val before = CadenceUiState(
+            tasks = listOf(task("a", projectId = "root")),
+            projects = listOf(project("root")),
+        )
+
+        val after = before.copy(tasks = before.tasks + task("b", projectId = "root"))
+
+        assertEquals(listOf("a"), before.tasksIn("root").ids())
+        assertEquals(listOf("a", "b"), after.tasksIn("root").ids())
     }
 }

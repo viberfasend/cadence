@@ -442,6 +442,50 @@
         <item quantity="one">1 item deleted</item>
         <item quantity="other">%1$d items deleted</item>
     </plurals>
+    <!-- ── Desktop shell ────────────────────────────────────────────────────────────
+         The sidebar, the command palette and the shortcut sheet. Only `:app-desktop` draws
+         these, but the strings live here with every other one — there is no second catalogue. -->
+    <string name="nav_views">Views</string>
+    <string name="sidebar_toggle">Show or hide the sidebar</string>
+    <string name="sidebar_resize">Resize the sidebar</string>
+    <string name="palette_title">Command palette</string>
+    <string name="palette_placeholder">Search tasks, projects and commands…</string>
+    <string name="palette_hint">&gt; for commands, # for projects</string>
+    <string name="palette_group_commands">Commands</string>
+    <string name="palette_group_projects">Projects</string>
+    <string name="palette_group_tasks">Tasks</string>
+    <string name="palette_empty">Nothing matches</string>
+    <string name="shortcuts_title">Keyboard shortcuts</string>
+    <string name="shortcuts_group_global">Anywhere</string>
+    <string name="shortcuts_group_navigation">Getting around</string>
+    <string name="shortcuts_group_selection">The selected task</string>
+    <string name="command_new_task">New task</string>
+    <string name="command_new_project">New project</string>
+    <string name="command_sync_now">Sync now</string>
+    <string name="command_toggle_theme">Switch light and dark</string>
+    <string name="command_toggle_density">Switch comfortable and compact</string>
+    <string name="command_show_shortcuts">Keyboard shortcuts</string>
+    <string name="command_toggle_sidebar">Show or hide the sidebar</string>
+    <string name="command_go_to">Go to %1$s</string>
+    <string name="selection_none">No task selected</string>
+    <string name="tray_show">Show Cadence</string>
+    <string name="tray_quit">Quit</string>
+
+    <!-- ── Context menus ────────────────────────────────────────────────────────────
+         The right-click menu on a row. Desktop only in practice — a touchscreen has no
+         secondary button — but the code is shared, so the strings are too. -->
+    <string name="menu_open">Open</string>
+    <string name="menu_due_date">Due date</string>
+    <string name="menu_next_week">Next week</string>
+    <string name="menu_duplicate">Duplicate</string>
+    <string name="menu_copy_title">Copy title</string>
+    <string name="menu_task_actions">Actions for %1$s</string>
+    <string name="menu_add_task_here">Add task here</string>
+    <string name="menu_nest_under">Nest under</string>
+    <string name="menu_top_level">Top level</string>
+    <!-- Appended to a duplicated task's title. %1$s is the original title. -->
+    <string name="menu_duplicate_title">%1$s (copy)</string>
+
     <!-- ── Snackbar ── -->
     <!-- Informational messages; no undo action attached. -->
     <string name="snackbar_error">Something went wrong: %1$s</string>

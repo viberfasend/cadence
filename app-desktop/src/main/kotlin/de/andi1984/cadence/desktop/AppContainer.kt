@@ -64,9 +64,19 @@ class AppContainer {
         scope = applicationScope,
     )
 
+    /**
+     * The tray icon, or null where there is no tray (a headless run, and several Linux desktops
+     * that claim one and have none).
+     *
+     * Held here rather than created inside the scheduler because it is no longer only the
+     * scheduler's: `main()` hangs the tray menu — show, new task, sync, quit — off the same icon,
+     * and two icons would mean two Cadences in the tray.
+     */
+    val trayIcon = createReminderTrayIcon()
+
     val reminderScheduler = DesktopReminderScheduler(
         scope = applicationScope,
-        trayIcon = createReminderTrayIcon(),
+        trayIcon = trayIcon,
     )
 
     init {

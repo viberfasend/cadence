@@ -501,6 +501,121 @@ class CadenceRepositoryTest {
             assertEquals(1, attachmentStore.forTask(task.id).size)
             assertNotNull(blobStore.file(secondHash))
         }
+
+    // ── Manual order ───────────────────────────────────────────────────────────────
+    //
+    // `sortOrder` was in every table from the first schema and nothing wrote it: every row was
+    // inserted at 0, so "manual" order was id order. These pin what writes it now.
+
+    @Test
+    fun `reorderTasks renumbers densely, in the order it was handed`() = runTest {
+        val a = store(Task(title = "A", sortOrder = 0))
+        val b = store(Task(title = "B", sortOrder = 1))
+        val c = store(Task(title = "C", sortOrder = 2))
+
+        repository.reorderTasks(listOf(c.id, a.id, b.id))
+
+        assertEquals(0, taskStore.row(c.id).sortOrder)
+        assertEquals(1, taskStore.row(a.id).sortOrder)
+        assertEquals(2, taskStore.row(b.id).sortOrder)
+    }
+
+    @Test
+    fun `reorderTasks leaves a row that did not move unwritten`() = runTest {
+        val stale = Instant.parse("2026-01-01T00:00:00Z")
+        val a = store(Task(title = "A", sortOrder = 0, updatedAt = stale))
+        val b = store(Task(title = "B", sortOrder = 1, updatedAt = stale))
+        val c = store(Task(title = "C", sortOrder = 2, updatedAt = stale))
+
+        // B and C swap; A stays where it was.
+        repository.reorderTasks(listOf(a.id, c.id, b.id))
+
+        // The push reads `updatedAt`, so an untouched row must keep its old one or a drag ships
+        // the whole list to the other device.
+        assertEquals(stale, taskStore.row(a.id).updatedAt)
+        assertTrue(taskStore.row(b.id).updatedAt.isAfter(stale))
+        assertTrue(taskStore.row(c.id).updatedAt.isAfter(stale))
+    }
+
+    @Test
+    fun `reorderTasks skips an id no row answers to`() = runTest {
+        val a = store(Task(title = "A", sortOrder = 0))
+        val b = store(Task(title = "B", sortOrder = 1))
+
+        // A row deleted by a pull while the list was being dragged.
+        repository.reorderTasks(listOf(b.id, "ghost", a.id))
+
+        assertEquals(0, taskStore.row(b.id).sortOrder)
+        assertEquals(2, taskStore.row(a.id).sortOrder)
+    }
+
+    @Test
+    fun `a new task lands at the bottom of its list, not the top`() = runTest {
+        store(Task(title = "First", projectId = "p1", sortOrder = 0))
+        store(Task(title = "Second", projectId = "p1", sortOrder = 1))
+
+        val id = repository.upsertTask(Task(title = "Third", projectId = "p1"))
+
+        assertEquals(2, taskStore.row(id).sortOrder)
+    }
+
+    @Test
+    fun `each list is numbered on its own — the Inbox does not follow a project`() = runTest {
+        store(Task(title = "In a project", projectId = "p1", sortOrder = 7))
+
+        val id = repository.upsertTask(Task(title = "In the Inbox"))
+
+        assertEquals(0, taskStore.row(id).sortOrder)
+    }
+
+    @Test
+    fun `reorderProjects ignores an id from another parent`() = runTest {
+        projectStore.insert(Project(id = "root-a", name = "A", sortOrder = 0))
+        projectStore.insert(Project(id = "root-b", name = "B", sortOrder = 1))
+        projectStore.insert(Project(id = "child", name = "C", parentId = "root-a", sortOrder = 0))
+
+        repository.reorderProjects(parentId = null, orderedIds = listOf("root-b", "child", "root-a"))
+
+        assertEquals(0, projectStore.row("root-b").sortOrder)
+        // Ordered *after* the ignored id, so the caller's relative order survives the filter.
+        assertEquals(1, projectStore.row("root-a").sortOrder)
+        // A subproject dragged into the root list is a move, not a reorder — untouched here.
+        assertEquals(0, projectStore.row("child").sortOrder)
+    }
+
+    @Test
+    fun `a new project lands last among its siblings`() = runTest {
+        projectStore.insert(Project(id = "root-a", name = "A", sortOrder = 0))
+        projectStore.insert(Project(id = "root-b", name = "B", sortOrder = 1))
+
+        val result = repository.upsertProject(Project(name = "C"))
+
+        val id = (result as RepositoryResult.Success).data
+        assertEquals(2, projectStore.row(id).sortOrder)
+    }
+
+    @Test
+    fun `reorderSections renumbers one project's bands and leaves another project alone`() = runTest {
+        sectionStore.insert(Section(id = "s1", projectId = "p1", name = "One", sortOrder = 0))
+        sectionStore.insert(Section(id = "s2", projectId = "p1", name = "Two", sortOrder = 1))
+        sectionStore.insert(Section(id = "other", projectId = "p2", name = "Other", sortOrder = 0))
+
+        repository.reorderSections(projectId = "p1", orderedIds = listOf("s2", "other", "s1"))
+
+        assertEquals(0, sectionStore.row("s2").sortOrder)
+        assertEquals(1, sectionStore.row("s1").sortOrder)
+        assertEquals(0, sectionStore.row("other").sortOrder)
+    }
+
+    @Test
+    fun `a new section lands below the bands the project already has`() = runTest {
+        sectionStore.insert(Section(id = "s1", projectId = "p1", name = "One", sortOrder = 0))
+
+        val result = repository.upsertSection(Section(projectId = "p1", name = "Two"))
+
+        val id = (result as RepositoryResult.Success).data
+        assertEquals(1, sectionStore.row(id).sortOrder)
+    }
 }
 
 /** An in-memory [TaskStore] with SQLite's semantics for the guarded writes. */
@@ -592,22 +707,64 @@ private class FakeTaskStore : TaskStore {
     override suspend fun openSuccessorsOf(id: String): List<String> = rows()
         .filter { it.spawnedFromId == id && it.completedAt == null }
         .map { it.id }
+
+    /**
+     * `Task.sq`'s `updateSortOrder`, guard included: a row whose position is already the one it
+     * would be given is *not* written. A fake that restamped it would hide the rule the sync push
+     * depends on — that a drag puts the rows that moved on the wire, and nothing else.
+     */
+    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant) {
+        var next = table.value
+        orders.forEach { (id, position) ->
+            val task = next[id]?.takeIf { it.deletedAt == null } ?: return@forEach
+            if (task.sortOrder == position) return@forEach
+            next = next + (id to task.copy(sortOrder = position, updatedAt = at))
+        }
+        table.value = next
+    }
+
+    override suspend fun maxSortOrder(projectId: String?): Int? = rows()
+        .filter { it.parentId == null && it.projectId == projectId }
+        .maxOfOrNull { it.sortOrder }
 }
 
-/** Projects play no part in completing a task; these fakes only satisfy the constructor. */
+/**
+ * An in-memory [ProjectStore].
+ *
+ * It used to answer `emptyList()` to everything and exist only to satisfy the constructor. It
+ * holds rows now because manual order is a fact about a *list* — "the projects under this parent"
+ * — and a store with no rows cannot tell one bucket from another.
+ */
 private class FakeProjectStore(private val tasksIn: List<String> = emptyList()) : ProjectStore {
 
-    override fun observeAll(): Flow<List<Project>> = MutableStateFlow(emptyList())
+    private val table = MutableStateFlow<Map<String, Project>>(emptyMap())
 
-    override suspend fun getAll(): List<Project> = emptyList()
+    fun rows(): List<Project> = table.value.values.filter { it.deletedAt == null }
 
-    override suspend fun insert(project: Project) = Unit
+    fun row(id: String): Project = table.value[id] ?: error("no project with id $id")
 
-    override suspend fun update(project: Project) = Unit
+    override fun observeAll(): Flow<List<Project>> =
+        table.map { m -> m.values.filter { it.deletedAt == null } }
+
+    override suspend fun getAll(): List<Project> = rows()
+
+    override suspend fun insert(project: Project) {
+        table.value = table.value + (project.id to project)
+    }
+
+    override suspend fun update(project: Project) = insert(project)
 
     override suspend fun taskIdsIn(id: String): List<String> = tasksIn
 
-    override suspend fun tombstoneWithChildren(id: String, deleteTasks: Boolean, at: Instant) = Unit
+    override suspend fun tombstoneWithChildren(id: String, deleteTasks: Boolean, at: Instant) {
+        table.value = table.value.mapValues { (_, project) ->
+            if ((project.id == id || project.parentId == id) && project.deletedAt == null) {
+                project.copy(deletedAt = at, updatedAt = at)
+            } else {
+                project
+            }
+        }
+    }
 
     /** Records the wipe so a test can assert the repository reached both tables, not just one. */
     var wipedAt: Instant? = null
@@ -615,7 +772,25 @@ private class FakeProjectStore(private val tasksIn: List<String> = emptyList()) 
 
     override suspend fun tombstoneAll(at: Instant) {
         wipedAt = at
+        table.value = table.value.mapValues { (_, project) ->
+            if (project.deletedAt == null) project.copy(deletedAt = at, updatedAt = at) else project
+        }
     }
+
+    /** See [FakeTaskStore.reorder] for why the unchanged rows are left alone. */
+    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant) {
+        var next = table.value
+        orders.forEach { (id, position) ->
+            val project = next[id]?.takeIf { it.deletedAt == null } ?: return@forEach
+            if (project.sortOrder == position) return@forEach
+            next = next + (id to project.copy(sortOrder = position, updatedAt = at))
+        }
+        table.value = next
+    }
+
+    override suspend fun maxSortOrder(parentId: String?): Int? = rows()
+        .filter { it.parentId == parentId }
+        .maxOfOrNull { it.sortOrder }
 }
 
 private class FakeBackupStore : BackupStore {
@@ -669,6 +844,21 @@ private class FakeSectionStore(private val tasks: FakeTaskStore) : SectionStore 
             if (section.deletedAt == null) section.copy(deletedAt = at, updatedAt = at) else section
         }
     }
+
+    /** See [FakeTaskStore.reorder] for why the unchanged rows are left alone. */
+    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant) {
+        var next = table.value
+        orders.forEach { (id, position) ->
+            val section = next[id]?.takeIf { it.deletedAt == null } ?: return@forEach
+            if (section.sortOrder == position) return@forEach
+            next = next + (id to section.copy(sortOrder = position, updatedAt = at))
+        }
+        table.value = next
+    }
+
+    override suspend fun maxSortOrder(projectId: String): Int? = rows()
+        .filter { it.projectId == projectId }
+        .maxOfOrNull { it.sortOrder }
 }
 
 /** An in-memory [AttachmentStore] mirroring [FakeTaskStore]'s shape. */

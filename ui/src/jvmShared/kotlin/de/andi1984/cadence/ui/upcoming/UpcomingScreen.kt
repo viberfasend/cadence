@@ -43,6 +43,9 @@ import de.andi1984.cadence.ui.components.SyncActions
 import de.andi1984.cadence.ui.components.SyncControls
 import de.andi1984.cadence.ui.components.SyncRefreshBox
 import de.andi1984.cadence.ui.components.TaskRow
+import de.andi1984.cadence.ui.dnd.DropTarget
+import de.andi1984.cadence.ui.dnd.cadenceDropTarget
+import de.andi1984.cadence.ui.dnd.dropHighlight
 import de.andi1984.cadence.ui.format.currentLocale
 import de.andi1984.cadence.ui.format.dayHeader
 import de.andi1984.cadence.ui.format.formatDate
@@ -139,6 +142,9 @@ fun UpcomingScreen(
                 ) { index ->
                     when (val item = agenda[index]) {
                         // "Tomorrow" is the one header that does not already say its date.
+                        // A day heading is the one place in the app where a date is a *place*:
+                        // dropping a task on it is how a week gets rearranged without opening
+                        // anything.
                         is AgendaItem.Header -> DayHeader(
                             title = dayHeader(item.date, today),
                             trailing = if (item.date == today.plusDays(1)) {
@@ -146,6 +152,9 @@ fun UpcomingScreen(
                             } else {
                                 "${item.count}"
                             },
+                            modifier = Modifier
+                                .cadenceDropTarget("day:${item.date}", DropTarget.OntoDate(item.date))
+                                .dropHighlight("day:${item.date}"),
                         )
 
                         is AgendaItem.Entry -> TaskRow(

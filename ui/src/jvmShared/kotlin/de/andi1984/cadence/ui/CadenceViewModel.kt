@@ -16,6 +16,7 @@ import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.model.projectPath
 import de.andi1984.cadence.domain.model.withoutSupersededOccurrences
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
+import de.andi1984.cadence.ui.dnd.DropIntent
 import de.andi1984.cadence.ui.platform.BackupGateway
 import de.andi1984.cadence.ui.platform.BackupTarget
 import de.andi1984.cadence.ui.platform.ReminderScheduler
@@ -45,6 +46,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.StringResource
 import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -142,9 +144,80 @@ data class CadenceUiState(
      */
     val pendingDeleteIds: Set<String> = emptySet(),
 ) {
-    fun project(id: String?): Project? = id?.let { projectId ->
-        projects.firstOrNull { it.id == projectId }
+    // ── Derived indexes ────────────────────────────────────────────────────────────
+    //
+    // Everything below this line used to be a scan of `tasks` or `projects` per call, and the
+    // calls are per *row*: `ProjectsScreen` asked `tasksIn(id)` four times for every project it
+    // drew, inside a `LazyColumn`, on every recomposition, and `rootTasks()` rebuilt a set of
+    // superseded ids each time. With twenty projects and two thousand tasks that is six figures
+    // of comparisons a frame, and it gets worse exactly as someone's list grows.
+    //
+    // These are `by lazy`, so a state that nobody asks about costs nothing and a state that is
+    // asked about builds each index once. A new emission is a new `CadenceUiState`, which is what
+    // invalidates them — there is no cache to expire.
+
+    private val taskById: Map<String, Task> by lazy { tasks.associateBy { it.id } }
+
+    private val projectById: Map<String, Project> by lazy { projects.associateBy { it.id } }
+
+    private val sectionById: Map<String, Section> by lazy { sections.associateBy { it.id } }
+
+    /** [rootTasks]'s answer, computed once — the superseded-occurrence set is the expensive half. */
+    private val rootTaskList: List<Task> by lazy {
+        tasks.withoutSupersededOccurrences().filter { !it.isSubtask }
     }
+
+    private val rootTasksByProject: Map<String?, List<Task>> by lazy {
+        rootTaskList.groupBy { it.projectId }
+    }
+
+    private val subtasksByParent: Map<String, List<Task>> by lazy {
+        tasks.filter { it.isSubtask }
+            .groupBy { checkNotNull(it.parentId) }
+            .mapValues { (_, steps) -> steps.sortedWith(compareBy({ it.sortOrder }, { it.id })) }
+    }
+
+    private val subprojectsByParent: Map<String, List<Project>> by lazy {
+        projects.filter { it.parentId != null }
+            .groupBy { checkNotNull(it.parentId) }
+            .mapValues { (_, children) -> children.sortedWith(compareBy({ it.sortOrder }, { it.id })) }
+    }
+
+    private val sectionsByProject: Map<String, List<Section>> by lazy {
+        sections.groupBy { it.projectId }
+            .mapValues { (_, bands) -> bands.sortedWith(compareBy({ it.sortOrder }, { it.id })) }
+    }
+
+    /**
+     * What [tasksIn] answers, for every project at once: a project's own tasks *and* those of its
+     * subprojects, in the order they stand in [tasks].
+     *
+     * Built in one pass over the roots — appending each task to its own project and to that
+     * project's parent — which is exactly the order the per-project filter produced, so no screen
+     * sees a different list than before.
+     */
+    private val rootTasksInProjectTree: Map<String, List<Task>> by lazy {
+        buildTaskTreeIndex(rootTaskList)
+    }
+
+    /** The same index over *every* row — see [allTasksIn] for why a delete asks a different
+     *  question than a screen does. */
+    private val allTasksInProjectTree: Map<String, List<Task>> by lazy {
+        buildTaskTreeIndex(tasks)
+    }
+
+    private fun buildTaskTreeIndex(source: List<Task>): Map<String, List<Task>> {
+        val parentOfProject = projects.associate { it.id to it.parentId }
+        val index = mutableMapOf<String, MutableList<Task>>()
+        source.forEach { task ->
+            val projectId = task.projectId ?: return@forEach
+            index.getOrPut(projectId) { mutableListOf() }.add(task)
+            parentOfProject[projectId]?.let { index.getOrPut(it) { mutableListOf() }.add(task) }
+        }
+        return index
+    }
+
+    fun project(id: String?): Project? = id?.let { projectById[it] }
 
     /** "Home / Finance" for a task's project, or null for Inbox items. */
     fun projectLabel(task: Task): String? = projectPath(project(task.projectId), projects)
@@ -165,16 +238,12 @@ data class CadenceUiState(
      * successor speaks for it here. Only these undated lists need that — Today and Upcoming are
      * scoped to a day, and Search is meant to reach history.
      */
-    fun rootTasks(): List<Task> = tasks
-        .withoutSupersededOccurrences()
-        .filter { !it.isSubtask }
+    fun rootTasks(): List<Task> = rootTaskList
 
-    fun inboxTasks(): List<Task> = rootTasks().filter { it.isInbox }
+    fun inboxTasks(): List<Task> = rootTasksByProject[null].orEmpty()
 
     /** The steps under a task, in the order they were added. */
-    fun subtasks(parentId: String): List<Task> = tasks
-        .filter { it.parentId == parentId }
-        .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+    fun subtasks(parentId: String): List<Task> = subtasksByParent[parentId].orEmpty()
 
     /** Null when a task has no checklist at all, so rows can leave the chip out entirely. */
     fun subtaskProgress(parentId: String): SubtaskProgress? {
@@ -186,8 +255,7 @@ data class CadenceUiState(
         }
     }
 
-    fun parentOf(task: Task): Task? =
-        task.parentId?.let { id -> tasks.firstOrNull { it.id == id } }
+    fun parentOf(task: Task): Task? = task.parentId?.let { taskById[it] }
 
     /**
      * [roots] with the subtasks of any parent in [expandedIds] spliced in directly below it —
@@ -203,15 +271,10 @@ data class CadenceUiState(
         }
 
     /** Subprojects of a project, in the order they were added. */
-    fun subprojects(parentId: String): List<Project> = projects
-        .filter { it.parentId == parentId }
-        .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+    fun subprojects(parentId: String): List<Project> = subprojectsByParent[parentId].orEmpty()
 
     /** Tasks in a project, including everything filed under its subprojects. */
-    fun tasksIn(projectId: String): List<Task> {
-        val childIds = subprojects(projectId).map { it.id }.toSet()
-        return rootTasks().filter { it.projectId == projectId || it.projectId in childIds }
-    }
+    fun tasksIn(projectId: String): List<Task> = rootTasksInProjectTree[projectId].orEmpty()
 
     /**
      * Every task filed under [projectId] or one of its subprojects — subtasks and superseded
@@ -222,19 +285,12 @@ data class CadenceUiState(
      * under a task in the project is a row that goes with it, and an alarm outlives the row it
      * belongs to unless someone cancels it.
      */
-    fun allTasksIn(projectId: String): List<Task> {
-        val childIds = subprojects(projectId).map { it.id }.toSet()
-        return tasks.filter { it.projectId == projectId || it.projectId in childIds }
-    }
+    fun allTasksIn(projectId: String): List<Task> = allTasksInProjectTree[projectId].orEmpty()
 
-    fun section(id: String?): Section? = id?.let { sectionId ->
-        sections.firstOrNull { it.id == sectionId }
-    }
+    fun section(id: String?): Section? = id?.let { sectionById[it] }
 
     /** The bands of a project's list, in the order they are drawn. */
-    fun sectionsIn(projectId: String): List<Section> = sections
-        .filter { it.projectId == projectId }
-        .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+    fun sectionsIn(projectId: String): List<Section> = sectionsByProject[projectId].orEmpty()
 
     /**
      * One band of a project's list: [sectionId]'s tasks, or the ungrouped band for null.
@@ -500,6 +556,118 @@ class CadenceViewModel(
 
     fun snooze(task: Task, days: Long = 1L) = scope.launch {
         repository.shiftDueDate(task, days)
+        armSync()
+    }
+
+    /**
+     * Copies a task, checklist and all, as a new open task beside it.
+     *
+     * Deliberately not a copy of every field: the duplicate is *new work*, so it carries no
+     * completion, and it is not part of anyone's recurrence chain, so it carries no
+     * `spawnedFromId` — a copy that claimed to replace an occurrence would take the original's
+     * place in every undated list. Its steps come along unticked, the same way a recurring task
+     * hands its checklist to the next occurrence.
+     */
+    fun duplicateTask(task: Task, title: String) = scope.launch {
+        val copyId = repository.upsertTask(
+            task.copy(
+                id = "",
+                title = title,
+                completedAt = null,
+                spawnedFromId = null,
+                createdAt = Instant.EPOCH,
+                updatedAt = Instant.EPOCH,
+                sortOrder = 0,
+            ),
+        )
+        state.value.subtasks(task.id).forEach { step ->
+            repository.upsertTask(
+                step.copy(
+                    id = "",
+                    parentId = copyId,
+                    completedAt = null,
+                    spawnedFromId = null,
+                    createdAt = Instant.EPOCH,
+                    updatedAt = Instant.EPOCH,
+                ),
+            )
+        }
+        armSync()
+    }
+
+    // ── Manual order ─────────────────────────────────────────────────────────────────
+    //
+    // One method per list kind, each a thin pass to the repository — the drag kernel has already
+    // decided what the new order is (`dnd/DragModel.kt`), and `applyDropIntent` below is the only
+    // caller in the app. They arm sync like every other mutation: a reorder that stayed local
+    // would be undone by the other device's next push.
+
+    fun reorderTasks(orderedIds: List<String>) = scope.launch {
+        repository.reorderTasks(orderedIds)
+        armSync()
+    }
+
+    fun reorderProjects(parentId: String?, orderedIds: List<String>) = scope.launch {
+        repository.reorderProjects(parentId, orderedIds)
+        armSync()
+    }
+
+    fun reorderSections(projectId: String, orderedIds: List<String>) = scope.launch {
+        repository.reorderSections(projectId, orderedIds)
+        armSync()
+    }
+
+    /**
+     * Runs what a drag resolved to — the single place a [DropIntent] becomes writes.
+     *
+     * A move that comes with a reorder is one gesture, so it is one coroutine: filing the row and
+     * then ordering it from a second launch would race, and the order would be written against
+     * the list the row had not joined yet.
+     */
+    fun applyDropIntent(intent: DropIntent) {
+        when (intent) {
+            is DropIntent.MoveTask -> moveTask(intent)
+
+            is DropIntent.RescheduleTask -> {
+                val task = state.value.tasks.firstOrNull { it.id == intent.taskId } ?: return
+                setDueDate(task, intent.date)
+            }
+
+            is DropIntent.NestProject -> {
+                val project = state.value.project(intent.projectId) ?: return
+                editProject(project, project.name, project.colorHex, intent.parentId)
+            }
+
+            is DropIntent.ReorderTasks -> scope.launch {
+                intent.move?.let { move ->
+                    val task = state.value.tasks.firstOrNull { it.id == move.taskId }
+                    if (task != null) {
+                        repository.moveToProject(task, move.projectId)
+                        val moved = repository.taskById(move.taskId) ?: task
+                        repository.moveToSection(moved, move.sectionId)
+                    }
+                }
+                repository.reorderTasks(intent.orderedIds)
+                armSync()
+            }
+
+            is DropIntent.ReorderProjects -> reorderProjects(intent.parentId, intent.orderedIds)
+
+            is DropIntent.ReorderSections -> reorderSections(intent.projectId, intent.orderedIds)
+
+            DropIntent.Rejected -> Unit
+        }
+    }
+
+    private fun moveTask(move: DropIntent.MoveTask) = scope.launch {
+        val task = state.value.tasks.firstOrNull { it.id == move.taskId } ?: return@launch
+        repository.moveToProject(task, move.projectId)
+        if (move.sectionId != null) {
+            // Read the row back: `moveToProject` cleared its section, and moving the snapshot
+            // would write the section onto a task that still names its old project.
+            val moved = repository.taskById(move.taskId) ?: return@launch
+            repository.moveToSection(moved, move.sectionId)
+        }
         armSync()
     }
 

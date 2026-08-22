@@ -124,3 +124,15 @@ SELECT * FROM projectRow ORDER BY updatedAt;
 
 collectTombstones:
 DELETE FROM projectRow WHERE deletedAt IS NOT NULL AND deletedAt < :before;
+
+-- ── Manual order ───────────────────────────────────────────────────────────────────
+-- See the same pair in `Task.sq` for why the guard is in the WHERE. The bucket here is "the
+-- projects under this parent", with the root list as `parentId IS NULL`.
+updateSortOrder:
+UPDATE projectRow SET sortOrder = :sortOrder, updatedAt = :updatedAt
+WHERE id = :id AND deletedAt IS NULL AND sortOrder != :sortOrder;
+
+-- See `taskRow.maxSortOrderIn` for why this is COALESCEd to a NOT NULL -1.
+maxSortOrderUnder:
+SELECT COALESCE(MAX(sortOrder), -1) FROM projectRow
+WHERE deletedAt IS NULL AND parentId IS :parentId;

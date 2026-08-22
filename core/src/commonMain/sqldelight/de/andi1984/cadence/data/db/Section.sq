@@ -82,3 +82,15 @@ SELECT * FROM sectionRow ORDER BY updatedAt;
 
 collectTombstones:
 DELETE FROM sectionRow WHERE deletedAt IS NOT NULL AND deletedAt < :before;
+
+-- ── Manual order ───────────────────────────────────────────────────────────────────
+-- See the same pair in `Task.sq`. A section's bucket is its project, and `projectId` is NOT NULL
+-- here, so this one can use `=`.
+updateSortOrder:
+UPDATE sectionRow SET sortOrder = :sortOrder, updatedAt = :updatedAt
+WHERE id = :id AND deletedAt IS NULL AND sortOrder != :sortOrder;
+
+-- See `taskRow.maxSortOrderIn` for why this is COALESCEd to a NOT NULL -1.
+maxSortOrderIn:
+SELECT COALESCE(MAX(sortOrder), -1) FROM sectionRow
+WHERE deletedAt IS NULL AND projectId = :projectId;

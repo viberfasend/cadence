@@ -84,6 +84,23 @@ interface TaskStore {
      * reopening one link is not a reason to unravel the rest of it.
      */
     suspend fun openSuccessorsOf(id: String): List<String>
+
+    /**
+     * Writes a manual order: each id takes the position it is paired with, all in one transaction.
+     *
+     * A row whose position is unchanged must not be written — [at] is what the sync push reads,
+     * and restamping nine untouched rows to move one turns a drag into nine rows on the wire.
+     * An id no row answers to is skipped rather than being an error: a list can be dragged while
+     * a pull is deleting one of its rows.
+     */
+    suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant)
+
+    /**
+     * The last position in [projectId]'s list, or null when nothing is filed there yet — what a
+     * new task's [Task.sortOrder] is derived from, so it lands at the bottom rather than sharing
+     * position 0 with everything else. `null` means the Inbox, as everywhere else in this port.
+     */
+    suspend fun maxSortOrder(projectId: String?): Int?
 }
 
 interface ProjectStore {
@@ -111,6 +128,15 @@ interface ProjectStore {
 
     /** Tombstones every project — see [TaskStore.tombstoneAll], which wipes the tasks. */
     suspend fun tombstoneAll(at: Instant)
+
+    /** Writes a manual order over the project tree — see [TaskStore.reorder]. */
+    suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant)
+
+    /**
+     * The last position among the projects directly under [parentId] — `null` for the root list.
+     * Returns null when that list is empty.
+     */
+    suspend fun maxSortOrder(parentId: String?): Int?
 }
 
 interface SectionStore {
@@ -137,6 +163,12 @@ interface SectionStore {
 
     /** Tombstones every section — see [TaskStore.tombstoneAll]. */
     suspend fun tombstoneAll(at: Instant)
+
+    /** Writes a manual order over one project's bands — see [TaskStore.reorder]. */
+    suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant)
+
+    /** The last position among [projectId]'s sections, or null when it has none yet. */
+    suspend fun maxSortOrder(projectId: String): Int?
 }
 
 interface BackupStore {

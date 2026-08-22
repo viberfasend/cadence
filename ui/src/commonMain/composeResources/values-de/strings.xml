@@ -427,6 +427,50 @@
         <item quantity="one">1 Eintrag gelöscht</item>
         <item quantity="other">%1$d Einträge gelöscht</item>
     </plurals>
+    <!-- ── Desktop-Hülle ────────────────────────────────────────────────────────────
+         Seitenleiste, Befehlspalette und Tastenkürzel-Übersicht. Nur `:app-desktop` zeichnet
+         das, die Texte stehen aber bei allen anderen — es gibt keinen zweiten Katalog. -->
+    <string name="nav_views">Ansichten</string>
+    <string name="sidebar_toggle">Seitenleiste ein- oder ausblenden</string>
+    <string name="sidebar_resize">Breite der Seitenleiste ändern</string>
+    <string name="palette_title">Befehlspalette</string>
+    <string name="palette_placeholder">Aufgaben, Projekte und Befehle suchen…</string>
+    <string name="palette_hint">&gt; für Befehle, # für Projekte</string>
+    <string name="palette_group_commands">Befehle</string>
+    <string name="palette_group_projects">Projekte</string>
+    <string name="palette_group_tasks">Aufgaben</string>
+    <string name="palette_empty">Nichts gefunden</string>
+    <string name="shortcuts_title">Tastenkürzel</string>
+    <string name="shortcuts_group_global">Überall</string>
+    <string name="shortcuts_group_navigation">Navigation</string>
+    <string name="shortcuts_group_selection">Ausgewählte Aufgabe</string>
+    <string name="command_new_task">Neue Aufgabe</string>
+    <string name="command_new_project">Neues Projekt</string>
+    <string name="command_sync_now">Jetzt synchronisieren</string>
+    <string name="command_toggle_theme">Hell und dunkel wechseln</string>
+    <string name="command_toggle_density">Komfortabel und kompakt wechseln</string>
+    <string name="command_show_shortcuts">Tastenkürzel</string>
+    <string name="command_toggle_sidebar">Seitenleiste ein- oder ausblenden</string>
+    <string name="command_go_to">Zu %1$s</string>
+    <string name="selection_none">Keine Aufgabe ausgewählt</string>
+    <string name="tray_show">Cadence anzeigen</string>
+    <string name="tray_quit">Beenden</string>
+
+    <!-- ── Kontextmenüs ─────────────────────────────────────────────────────────────
+         Das Rechtsklick-Menü einer Zeile. In der Praxis nur am Desktop — ein Touchscreen hat
+         keine Sekundärtaste —, aber der Code ist geteilt, also die Texte auch. -->
+    <string name="menu_open">Öffnen</string>
+    <string name="menu_due_date">Fällig am</string>
+    <string name="menu_next_week">Nächste Woche</string>
+    <string name="menu_duplicate">Duplizieren</string>
+    <string name="menu_copy_title">Titel kopieren</string>
+    <string name="menu_task_actions">Aktionen für %1$s</string>
+    <string name="menu_add_task_here">Aufgabe hier hinzufügen</string>
+    <string name="menu_nest_under">Einordnen unter</string>
+    <string name="menu_top_level">Oberste Ebene</string>
+    <!-- Wird an den Titel einer duplizierten Aufgabe angehängt. %1$s ist der Originaltitel. -->
+    <string name="menu_duplicate_title">%1$s (Kopie)</string>
+
     <!-- ── Snackbar ── -->
     <!-- Hinweismeldungen; ohne Rückgängig-Aktion. -->
     <string name="snackbar_error">Etwas ging schief: %1$s</string>

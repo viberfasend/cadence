@@ -105,6 +105,24 @@ class FakeTaskStore : TaskStore {
 
     override suspend fun openSuccessorsOf(id: String): List<String> =
         live().filter { it.spawnedFromId == id && !it.isDone }.map { it.id }
+
+    /** `Task.sq`'s `updateSortOrder`: a row already at that position is not written, so a drag
+     *  puts only the rows that moved on the wire. */
+    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant) {
+        val positions = orders.toMap()
+        rows.value = rows.value.map { task ->
+            val position = positions[task.id]
+            if (task.deletedAt == null && position != null && task.sortOrder != position) {
+                task.copy(sortOrder = position, updatedAt = at)
+            } else {
+                task
+            }
+        }
+    }
+
+    override suspend fun maxSortOrder(projectId: String?): Int? = live()
+        .filter { it.parentId == null && it.projectId == projectId }
+        .maxOfOrNull { it.sortOrder }
 }
 
 /** Projects, with the "and everything filed under it" semantics `deleteWithChildren` needs. */
@@ -164,6 +182,23 @@ class FakeProjectStore(private val taskStore: FakeTaskStore) : ProjectStore {
         }
     }
 
+    /** See [FakeTaskStore.reorder]. */
+    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant) {
+        val positions = orders.toMap()
+        rows.value = rows.value.map { project ->
+            val position = positions[project.id]
+            if (project.deletedAt == null && position != null && project.sortOrder != position) {
+                project.copy(sortOrder = position, updatedAt = at)
+            } else {
+                project
+            }
+        }
+    }
+
+    override suspend fun maxSortOrder(parentId: String?): Int? = live()
+        .filter { it.parentId == parentId }
+        .maxOfOrNull { it.sortOrder }
+
     private fun familyOf(id: String): Set<String> =
         setOf(id) + live().filter { it.parentId == id }.map { it.id }
 }
@@ -200,6 +235,23 @@ class FakeSectionStore : SectionStore {
             if (it.deletedAt == null) it.copy(deletedAt = at, updatedAt = at) else it
         }
     }
+
+    /** See [FakeTaskStore.reorder]. */
+    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant) {
+        val positions = orders.toMap()
+        rows.value = rows.value.map { section ->
+            val position = positions[section.id]
+            if (section.deletedAt == null && position != null && section.sortOrder != position) {
+                section.copy(sortOrder = position, updatedAt = at)
+            } else {
+                section
+            }
+        }
+    }
+
+    override suspend fun maxSortOrder(projectId: String): Int? = rows.value
+        .filter { it.deletedAt == null && it.projectId == projectId }
+        .maxOfOrNull { it.sortOrder }
 }
 
 /** Attachments are not what any of these tests are about; this only has to be a working no-op. */

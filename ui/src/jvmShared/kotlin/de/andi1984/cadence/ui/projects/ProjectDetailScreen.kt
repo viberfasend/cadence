@@ -42,6 +42,11 @@ import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.EmptyState
 import de.andi1984.cadence.ui.components.ProjectSwatch
 import de.andi1984.cadence.ui.components.SectionHeader
+import de.andi1984.cadence.ui.dnd.DropCaret
+import de.andi1984.cadence.ui.dnd.DropTarget
+import de.andi1984.cadence.ui.dnd.OrderedList
+import de.andi1984.cadence.ui.dnd.cadenceDropTarget
+import de.andi1984.cadence.ui.dnd.dropHighlight
 import de.andi1984.cadence.ui.components.TaskRow
 import de.andi1984.cadence.ui.format.pluralTasks
 import java.time.LocalDate
@@ -162,7 +167,8 @@ fun ProjectDetailScreen(
             // sections it splits by urgency (overdue on top, the rest below), with them by where
             // the user filed the work. This draws whatever bands come back, in order.
             list.bands.forEach { band ->
-                when (val heading = band.heading) {
+                val heading = band.heading
+                when (heading) {
                     BandHeading.Overdue -> item(key = "h-overdue") {
                         SectionHeader(
                             stringResource(Res.string.project_section_overdue),
@@ -175,7 +181,17 @@ fun ProjectDetailScreen(
                     }
 
                     BandHeading.Ungrouped -> item(key = "h-ungrouped") {
-                        SectionHeader(stringResource(Res.string.sections_ungrouped))
+                        // The heading is a drop target too: dropping a task on it takes its band
+                        // away without asking anyone to find the gap below it.
+                        SectionHeader(
+                            text = stringResource(Res.string.sections_ungrouped),
+                            modifier = Modifier
+                                .cadenceDropTarget(
+                                    "band:${project.id}:none",
+                                    DropTarget.IntoSection(project.id, null),
+                                )
+                                .dropHighlight("band:${project.id}:none"),
+                        )
                     }
 
                     is BandHeading.Named -> item(key = "h-${heading.section.id}") {
@@ -198,6 +214,12 @@ fun ProjectDetailScreen(
                     onToggleExpanded = ::toggleExpanded,
                     onToggle = onToggle,
                     onTaskClick = onTaskClick,
+                    reorderList = when (heading) {
+                        BandHeading.Everything -> OrderedList.Tasks(project.id)
+                        BandHeading.Ungrouped -> OrderedList.Tasks(project.id, sectionId = null)
+                        is BandHeading.Named -> OrderedList.Tasks(project.id, heading.section.id)
+                        else -> null
+                    },
                 )
             }
         }
@@ -243,11 +265,28 @@ private fun LazyListScope.taskBand(
     onToggle: (Task) -> Unit,
     onTaskClick: (Task) -> Unit,
     overdueStyle: Boolean = false,
+    /**
+     * The bucket a row dropped between two of these lands in, or null for a band that is derived
+     * rather than stored — the overdue split has no order of its own to write.
+     */
+    reorderList: OrderedList.Tasks? = null,
 ) {
-    items(
-        rows,
-        key = { "$keyPrefix-${if (it.isSubtaskRow) "sub" else "row"}-${it.task.id}" },
-    ) { row ->
+    // Only root rows are ordered: a subtask's place is decided by the checklist it belongs to,
+    // and a caret between two steps would write the parent list's order over it.
+    val rootIds = rows.filterNot { it.isSubtaskRow }.map { it.task.id }
+    var rootIndex = 0
+
+    rows.forEach { row ->
+        if (reorderList != null && !row.isSubtaskRow) {
+            val index = rootIndex++
+            item(key = "$keyPrefix-caret-$index") {
+                DropCaret(
+                    key = "$keyPrefix:caret:$index",
+                    target = DropTarget.Between(reorderList, index, rootIds),
+                )
+            }
+        }
+        item(key = "$keyPrefix-${if (row.isSubtaskRow) "sub" else "row"}-${row.task.id}") {
         val task = row.task
         val progress = if (row.isSubtaskRow) null else state.subtaskProgress(task.id)
         TaskRow(
@@ -264,8 +303,22 @@ private fun LazyListScope.taskBand(
             } else {
                 null
             },
-            modifier = if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier,
+            // Rows settle into their new place rather than jumping: a manual reorder that
+            // teleports gives no feedback that the drop landed where it was aimed.
+            modifier = Modifier
+                .animateItem()
+                .then(if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier),
         )
+        }
+    }
+
+    if (reorderList != null) {
+        item(key = "$keyPrefix-caret-end") {
+            DropCaret(
+                key = "$keyPrefix:caret:end",
+                target = DropTarget.Between(reorderList, rootIds.size, rootIds),
+            )
+        }
     }
 }
 
@@ -280,7 +333,17 @@ private fun SectionBandHeader(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SectionHeader(text = section.name, modifier = Modifier.weight(1f))
+        SectionHeader(
+            text = section.name,
+            // Dropping on the heading files a task under the band without hunting for a gap.
+            modifier = Modifier
+                .weight(1f)
+                .cadenceDropTarget(
+                    "band:${section.projectId}:${section.id}",
+                    DropTarget.IntoSection(section.projectId, section.id),
+                )
+                .dropHighlight("band:${section.projectId}:${section.id}"),
+        )
         SectionMenu(section = section, onRename = onRename, onDelete = onDelete)
     }
 }

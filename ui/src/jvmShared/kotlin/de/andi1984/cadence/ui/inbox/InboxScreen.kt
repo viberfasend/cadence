@@ -40,6 +40,9 @@ import de.andi1984.cadence.ui.components.SyncActions
 import de.andi1984.cadence.ui.components.SyncControls
 import de.andi1984.cadence.ui.components.SyncRefreshBox
 import de.andi1984.cadence.ui.components.TaskRow
+import de.andi1984.cadence.ui.dnd.DropCaret
+import de.andi1984.cadence.ui.dnd.DropTarget
+import de.andi1984.cadence.ui.dnd.OrderedList
 import java.time.LocalDate
 
 @Composable
@@ -108,7 +111,23 @@ fun InboxScreen(
                 contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                items(rows, key = { if (it.isSubtaskRow) "sub-${it.task.id}" else it.task.id }) { row ->
+                // The Inbox is a container, so a row dropped between two here is both an ordering
+                // and — if it came from a project — a move back to the Inbox. `resolveDrop` says
+                // which; this only registers the gaps. Only root rows are ordered: a step's place
+                // belongs to its parent's checklist.
+                val rootIds = rows.filterNot { it.isSubtaskRow }.map { it.task.id }
+                var rootIndex = 0
+                rows.forEach { row ->
+                    if (!row.isSubtaskRow) {
+                        val index = rootIndex++
+                        item(key = "caret-$index") {
+                            DropCaret(
+                                key = "inbox:caret:$index",
+                                target = DropTarget.Between(OrderedList.Tasks(null), index, rootIds),
+                            )
+                        }
+                    }
+                    item(key = if (row.isSubtaskRow) "sub-${row.task.id}" else row.task.id) {
                     val task = row.task
                     TaskRow(
                         task = task,
@@ -130,7 +149,17 @@ fun InboxScreen(
                         } else {
                             null
                         },
-                        modifier = if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier,
+                        // See the same line in `ProjectDetailScreen`: a reorder settles.
+                        modifier = Modifier
+                            .animateItem()
+                            .then(if (row.isSubtaskRow) Modifier.padding(start = 28.dp) else Modifier),
+                    )
+                    }
+                }
+                item(key = "caret-end") {
+                    DropCaret(
+                        key = "inbox:caret:end",
+                        target = DropTarget.Between(OrderedList.Tasks(null), rootIds.size, rootIds),
                     )
                 }
             }
