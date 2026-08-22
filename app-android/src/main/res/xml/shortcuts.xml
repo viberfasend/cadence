@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    App Actions (#46): declares the one built-in intent (BII) Google's catalog has anywhere near
+    "add a task by voice" — there is no CREATE_NOTE or CREATE_TASK BII, so this repurposes
+    CREATE_ITEM_LIST's first-item parameter as quick-add text. See
+    de.andi1984.cadence.assistant.AppActionsIntents for the extra key this feeds and why.
+
+    The target package is the release applicationId, not a debug build's ".debug"-suffixed one —
+    real Assistant dispatch only ever reaches a Play-published (release) install, so a debug
+    build's shortcuts.xml pointing at the wrong package is harmless.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <capability android:name="actions.intent.CREATE_ITEM_LIST">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="de.andi1984.cadence"
+            android:targetClass="de.andi1984.cadence.MainActivity">
+            <parameter
+                android:name="itemList.itemListElement.name"
+                android:key="de.andi1984.cadence.assistant.ITEM_TEXT" />
+        </intent>
+    </capability>
+</shortcuts>

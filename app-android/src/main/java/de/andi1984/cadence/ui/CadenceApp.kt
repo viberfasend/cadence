@@ -88,6 +88,9 @@ fun CadenceApp(
     // [startDestination] rather than replacing it, so "add a task" leaves the user where they
     // would otherwise have landed once the sheet is dismissed.
     openQuickAdd: Boolean = false,
+    // Voice capture (#46): the text Assistant heard, already routed through the same composer —
+    // see MainActivity's reading of AppActionsIntents.EXTRA_ITEM_TEXT.
+    voiceQuickAddText: String? = null,
 ) {
     val navController = rememberNavController()
     val backupFilePicker = rememberSafBackupFilePicker()
@@ -96,8 +99,10 @@ fun CadenceApp(
     val currentRoute = backStackEntry?.destination?.route
     val today = remember { LocalDate.now() }
 
-    var quickAddOpen by remember { mutableStateOf(openQuickAdd) }
+    var quickAddOpen by remember { mutableStateOf(openQuickAdd || voiceQuickAddText != null) }
     var quickAddProjectId by remember { mutableStateOf<String?>(null) }
+    // Consumed once: a later, manually opened sheet must not resurrect Assistant's transcript.
+    var pendingVoiceQuickAddText by remember { mutableStateOf(voiceQuickAddText) }
 
     val destinations = listOf(
         BottomDestination(Routes.TODAY, Res.string.nav_today, AppIcons.Today),
@@ -326,11 +331,16 @@ fun CadenceApp(
             projects = state.projects,
             today = today,
             defaultProjectId = quickAddProjectId,
-            onDismiss = { quickAddOpen = false },
+            onDismiss = {
+                quickAddOpen = false
+                pendingVoiceQuickAddText = null
+            },
             onSubmit = { parsed ->
                 viewModel.addParsedTask(parsed, quickAddProjectId)
                 quickAddOpen = false
+                pendingVoiceQuickAddText = null
             },
+            initialText = pendingVoiceQuickAddText ?: "",
         )
     }
 }
