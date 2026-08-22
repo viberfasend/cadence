@@ -408,8 +408,12 @@ class BackupCodecTest {
         assertEquals(emptyList<String>(), snapshot.tasks.single().tagIds)
     }
 
+    /**
+     * Tombstones survive the decode, like every other record: the merge is what decides whether a
+     * delete wins, and dropping it here would silently discard one the file was carrying.
+     */
     @Test
-    fun `a tombstoned tag is filtered out on import, like every other record`() {
+    fun `a tombstoned tag is carried through, not filtered out`() {
         val restored = roundTrip(
             BackupSnapshot(
                 tags = listOf(
@@ -419,6 +423,27 @@ class BackupCodecTest {
             ),
         )
 
-        assertEquals(listOf("g1"), restored.tags.map { it.id })
+        assertEquals(listOf("g1", "g2"), restored.tags.map { it.id })
+        assertEquals(exportedAt, restored.tags.last().deletedAt)
+    }
+
+    /**
+     * And the id of a tombstoned tag stays on the task.
+     *
+     * The merge may revive that tag — the other device's copy can be newer than the tombstone —
+     * and a task that had already lost the id would not get the label back. `CadenceUiState.tagsOf`
+     * is what keeps a dead label off the screen in the meantime.
+     */
+    @Test
+    fun `a task keeps the id of a tag the file tombstoned`() {
+        val restored = roundTrip(
+            BackupSnapshot(
+                projects = listOf(project),
+                tags = listOf(Tag(id = "g1", name = "Gone", deletedAt = exportedAt)),
+                tasks = listOf(task.copy(tagIds = listOf("g1"))),
+            ),
+        )
+
+        assertEquals(listOf("g1"), restored.tasks.single().tagIds)
     }
 }
