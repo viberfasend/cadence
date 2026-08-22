@@ -2,6 +2,7 @@ package de.andi1984.cadence.data.sync
 
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import java.time.Instant
 
@@ -22,6 +23,9 @@ data class SyncState(
     /** The third table's cursor. Null on a device that synced before sections existed, which is
      *  exactly right: its first round after upgrading pulls every section from the beginning. */
     val sectionCursor: String? = null,
+    /** The fourth table's cursor. Null on a device that synced before tags existed — same as
+     *  [sectionCursor], and right for the same reason. */
+    val tagCursor: String? = null,
     val pushWatermark: Instant = Instant.EPOCH,
     val lastSyncedAt: Instant? = null,
     val lastSweepAt: Instant? = null,
@@ -40,6 +44,8 @@ interface SyncStore {
 
     suspend fun sectionsChangedSince(since: Instant): List<Section>
 
+    suspend fun tagsChangedSince(since: Instant): List<Tag>
+
     /**
      * Folds a pulled page in and advances the cursors, in **one** transaction.
      *
@@ -54,10 +60,12 @@ interface SyncStore {
     suspend fun mergeAndAdvance(
         projects: List<Project>,
         sections: List<Section>,
+        tags: List<Tag>,
         tasks: List<Task>,
         taskCursor: String?,
         projectCursor: String?,
         sectionCursor: String?,
+        tagCursor: String?,
     )
 
     suspend fun setPushWatermark(at: Instant)

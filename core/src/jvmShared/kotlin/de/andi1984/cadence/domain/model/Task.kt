@@ -22,6 +22,25 @@ data class Task(
      */
     val sectionId: String? = null,
     /**
+     * The [Tag]s on this task, as ids, in the order they were applied.
+     *
+     * **Membership is an attribute of the task, not a row of its own.** There is no join table:
+     * the ids are packed into a single column
+     * ([de.andi1984.cadence.data.db.TagIdsCodec]) and travel with the task through sync and
+     * backup like [priority] or [sectionId] do. Two consequences, both deliberate:
+     *
+     * - Deleting a tag costs one row, not one per task that wore it. The dangling ids stay
+     *   behind and are dropped when the list is read against the live tags — the same "links are
+     *   repaired rather than trusted" rule the backup codec follows. It also means reviving a
+     *   tag from a backup puts it back on exactly the tasks that had it.
+     * - Two devices adding a *different* tag to the *same* task while offline resolve
+     *   last-writer-wins, and one of the two additions is lost. That is the trade a join table
+     *   would buy back, at the price of a fifth synced table whose tombstones would outnumber
+     *   the tasks — and it is the same trade the app already makes for a concurrently edited
+     *   title or note.
+     */
+    val tagIds: List<String> = emptyList(),
+    /**
      * The task this one is a step of, or null for a task that stands on its own.
      *
      * Nesting is one level deep on purpose: a subtask never becomes a parent itself, so a

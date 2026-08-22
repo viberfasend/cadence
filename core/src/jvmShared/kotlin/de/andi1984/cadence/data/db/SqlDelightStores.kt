@@ -7,12 +7,14 @@ import de.andi1984.cadence.data.AttachmentStore
 import de.andi1984.cadence.data.BackupStore
 import de.andi1984.cadence.data.ProjectStore
 import de.andi1984.cadence.data.SectionStore
+import de.andi1984.cadence.data.TagStore
 import de.andi1984.cadence.data.TaskStore
 import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -229,6 +231,58 @@ class SqlDelightSectionStore(
     }
 }
 
+class SqlDelightTagStore(
+    private val database: CadenceDatabase,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : TagStore {
+
+    private val queries = database.tagQueries
+
+    override fun observeAll(): Flow<List<Tag>> =
+        queries.selectAll(mapper = ::toTag).asFlow().mapToList(ioDispatcher)
+
+    override suspend fun getAll(): List<Tag> = withContext(ioDispatcher) {
+        queries.selectAll(mapper = ::toTag).executeAsList()
+    }
+
+    override suspend fun insert(tag: Tag) = withContext(ioDispatcher) {
+        database.transaction { queries.upsertRow(tag) }
+    }
+
+    /** The same upsert as [insert] — see [SqlDelightProjectStore.update] for why an update alone
+     *  is not enough. */
+    override suspend fun update(tag: Tag) = insert(tag)
+
+    /**
+     * One statement, and deliberately only one: no task is rewritten to drop the id.
+     *
+     * A tag on two thousand tasks would otherwise turn one delete into two thousand rows on the
+     * next push — for a change nobody can see, since the read side already drops an id no live
+     * tag answers to.
+     */
+    override suspend fun tombstone(id: String, at: Instant): Unit = withContext(ioDispatcher) {
+        queries.tombstoneRow(at = at.toEpochMilli(), id = id)
+    }
+
+    override suspend fun tombstoneAll(at: Instant): Unit = withContext(ioDispatcher) {
+        queries.tombstoneAllRows(at = at.toEpochMilli())
+    }
+
+    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant): Unit =
+        withContext(ioDispatcher) {
+            val stamp = at.toEpochMilli()
+            database.transaction {
+                orders.forEach { (id, position) ->
+                    queries.updateSortOrder(sortOrder = position.toLong(), updatedAt = stamp, id = id)
+                }
+            }
+        }
+
+    override suspend fun maxSortOrder(): Int? = withContext(ioDispatcher) {
+        queries.maxSortOrder().executeAsOne().toInt().takeIf { it >= 0 }
+    }
+}
+
 /**
  * How many ids may go into one `IN :list` query.
  *
@@ -331,10 +385,11 @@ class SqlDelightBackupStore(
     override suspend fun mergeAll(
         projects: List<Project>,
         sections: List<Section>,
+        tags: List<Tag>,
         tasks: List<Task>,
         revivedAt: Instant,
     ): Unit = withContext(ioDispatcher) {
-        database.transaction { database.mergeRecords(projects, sections, tasks, revivedAt) }
+        database.transaction { database.mergeRecords(projects, sections, tags, tasks, revivedAt) }
     }
 
 }
@@ -352,11 +407,13 @@ class SqlDelightBackupStore(
 internal fun CadenceDatabase.mergeRecords(
     projects: List<Project>,
     sections: List<Section>,
+    tags: List<Tag>,
     tasks: List<Task>,
     revivedAt: Instant? = null,
 ) {
     for (project in projects) projectQueries.mergeRow(project, revivedAt)
     for (section in sections) sectionQueries.mergeRow(section, revivedAt)
+    for (tag in tags) tagQueries.mergeRow(tag, revivedAt)
     for (task in tasks) taskQueries.mergeRow(task, revivedAt)
 }
 
@@ -373,6 +430,7 @@ internal fun TaskQueries.upsertRow(task: Task) {
         priority = task.priority.level.toLong(),
         projectId = task.projectId,
         sectionId = task.sectionId,
+        tagIds = TagIdsCodec.encode(task.tagIds),
         parentId = task.parentId,
         spawnedFromId = task.spawnedFromId,
         dueDate = task.dueDate?.toEpochDay(),
@@ -406,6 +464,7 @@ internal fun TaskQueries.mergeRow(task: Task, revivedAt: Instant? = null) {
             priority = task.priority.level.toLong(),
             projectId = task.projectId,
             sectionId = task.sectionId,
+        tagIds = TagIdsCodec.encode(task.tagIds),
             parentId = task.parentId,
             spawnedFromId = task.spawnedFromId,
             dueDate = task.dueDate?.toEpochDay(),
@@ -425,6 +484,7 @@ internal fun TaskQueries.mergeRow(task: Task, revivedAt: Instant? = null) {
         priority = task.priority.level.toLong(),
         projectId = task.projectId,
         sectionId = task.sectionId,
+        tagIds = TagIdsCodec.encode(task.tagIds),
         parentId = task.parentId,
         spawnedFromId = task.spawnedFromId,
         dueDate = task.dueDate?.toEpochDay(),
@@ -449,6 +509,7 @@ private fun TaskQueries.insertIfAbsent(task: Task) {
         priority = task.priority.level.toLong(),
         projectId = task.projectId,
         sectionId = task.sectionId,
+        tagIds = TagIdsCodec.encode(task.tagIds),
         parentId = task.parentId,
         spawnedFromId = task.spawnedFromId,
         dueDate = task.dueDate?.toEpochDay(),
@@ -559,6 +620,52 @@ private fun SectionQueries.insertIfAbsent(section: Section) {
     )
 }
 
+/** The tag half of the same pair — see [upsertRow]. */
+internal fun TagQueries.upsertRow(tag: Tag) {
+    updateRow(
+        name = tag.name,
+        colorHex = tag.colorHex,
+        sortOrder = tag.sortOrder.toLong(),
+        updatedAt = tag.updatedAt.toEpochMilli(),
+        deletedAt = tag.deletedAt?.toEpochMilli(),
+        id = tag.id,
+    )
+    insertIfAbsent(tag)
+}
+
+/** The tag half of the merge, [revivedAt] included — see [TaskQueries.mergeRow]. */
+internal fun TagQueries.mergeRow(tag: Tag, revivedAt: Instant? = null) {
+    if (revivedAt != null && tag.deletedAt == null) {
+        reviveIfDeleted(
+            name = tag.name,
+            colorHex = tag.colorHex,
+            sortOrder = tag.sortOrder.toLong(),
+            revivedAt = revivedAt.toEpochMilli(),
+            id = tag.id,
+        )
+    }
+    updateIfOlder(
+        name = tag.name,
+        colorHex = tag.colorHex,
+        sortOrder = tag.sortOrder.toLong(),
+        updatedAt = tag.updatedAt.toEpochMilli(),
+        deletedAt = tag.deletedAt?.toEpochMilli(),
+        id = tag.id,
+    )
+    insertIfAbsent(tag)
+}
+
+private fun TagQueries.insertIfAbsent(tag: Tag) {
+    insertIfAbsent(
+        id = tag.id,
+        name = tag.name,
+        colorHex = tag.colorHex,
+        sortOrder = tag.sortOrder.toLong(),
+        updatedAt = tag.updatedAt.toEpochMilli(),
+        deletedAt = tag.deletedAt?.toEpochMilli(),
+    )
+}
+
 /** Attachments keep their `INSERT OR REPLACE`: no table references `attachmentRow`, so the
  *  delete-then-insert REPLACE performs cascades nowhere, and every id here is freshly minted. */
 private fun AttachmentQueries.insertRow(attachment: Attachment) {
@@ -593,9 +700,10 @@ internal fun toTask(
     recurrence: String?,
     updatedAt: Long,
     deletedAt: Long?,
-    // Last, because `SELECT *` hands the mapper the table's own column order and `3.sqm` could
-    // only append this one — see the note on `taskRow.sectionId`.
+    // Last, because `SELECT *` hands the mapper the table's own column order and `3.sqm`/`4.sqm`
+    // could only append these — see the note on `taskRow.sectionId`.
     sectionId: String?,
+    tagIds: String?,
 ) = Task(
     id = id,
     title = title,
@@ -603,6 +711,7 @@ internal fun toTask(
     priority = Priority.fromLevel(priority.toInt()),
     projectId = projectId,
     sectionId = sectionId,
+    tagIds = TagIdsCodec.decode(tagIds),
     parentId = parentId,
     spawnedFromId = spawnedFromId,
     dueDate = dueDate?.let { LocalDate.ofEpochDay(it) },
@@ -645,6 +754,22 @@ internal fun toSection(
     id = id,
     projectId = projectId,
     name = name,
+    sortOrder = sortOrder.toInt(),
+    updatedAt = Instant.ofEpochMilli(updatedAt),
+    deletedAt = deletedAt?.let { Instant.ofEpochMilli(it) },
+)
+
+internal fun toTag(
+    id: String,
+    name: String,
+    colorHex: String,
+    sortOrder: Long,
+    updatedAt: Long,
+    deletedAt: Long?,
+) = Tag(
+    id = id,
+    name = name,
+    colorHex = colorHex,
     sortOrder = sortOrder.toInt(),
     updatedAt = Instant.ofEpochMilli(updatedAt),
     deletedAt = deletedAt?.let { Instant.ofEpochMilli(it) },

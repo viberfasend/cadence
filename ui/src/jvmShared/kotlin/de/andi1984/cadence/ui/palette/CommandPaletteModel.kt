@@ -7,7 +7,7 @@ package de.andi1984.cadence.ui.palette
  * places, because a palette that puts the wrong row first is worse than no palette: it turns a
  * two-keystroke action into "type, look, arrow down, look again".
  */
-enum class PaletteKind { Command, Project, Task }
+enum class PaletteKind { Command, Project, Tag, Task }
 
 /**
  * One thing the palette can offer.
@@ -31,6 +31,10 @@ object CommandPalette {
     const val COMMAND_PREFIX = '>'
     const val PROJECT_PREFIX = '#'
 
+    /** The same character the quick-add line takes for a tag, for the same reason `#` is the
+     *  project prefix here: the palette should not teach a second syntax. */
+    const val TAG_PREFIX = '@'
+
     /** How many of each kind survive, so one long task list cannot crowd out every command. */
     const val DEFAULT_LIMIT_PER_KIND = 6
 
@@ -48,6 +52,7 @@ object CommandPalette {
         val restrictedTo = when (query.firstOrNull()) {
             COMMAND_PREFIX -> PaletteKind.Command
             PROJECT_PREFIX -> PaletteKind.Project
+            TAG_PREFIX -> PaletteKind.Tag
             else -> null
         }
         // The prefix is an instruction, not part of what is being searched for.

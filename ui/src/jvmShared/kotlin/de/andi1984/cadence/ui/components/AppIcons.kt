@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Sell
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
@@ -84,4 +85,7 @@ object AppIcons {
 
     /** A section — stacked bands, because that is what one is: a heading over part of a list. */
     val Section: ImageVector = Icons.Rounded.ViewAgenda
+
+    /** A tag — the luggage-label shape, deliberately not `Folder`: a label is not a place. */
+    val Tag: ImageVector = Icons.Rounded.Sell
 }

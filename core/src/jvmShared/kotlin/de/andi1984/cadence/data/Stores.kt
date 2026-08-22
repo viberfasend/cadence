@@ -3,6 +3,7 @@ package de.andi1984.cadence.data
 import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
@@ -171,10 +172,47 @@ interface SectionStore {
     suspend fun maxSortOrder(projectId: String): Int?
 }
 
+/**
+ * A tag's *identity* — its name, its colour, where it sits in the list. Nothing here says which
+ * tasks wear it: that is [Task.tagIds], a column on the other side of the link.
+ *
+ * Which is why this port has no `tasksWith(id)` and no `tombstoneWithTasks`. Deleting a tag is one
+ * row, and the tasks that named it keep an id nothing answers to until the read side drops it —
+ * see the note on [de.andi1984.cadence.domain.model.Task.tagIds].
+ */
+interface TagStore {
+
+    fun observeAll(): Flow<List<Tag>>
+
+    suspend fun getAll(): List<Tag>
+
+    /** Inserts a tag that already carries its final id, minted by the caller. */
+    suspend fun insert(tag: Tag)
+
+    suspend fun update(tag: Tag)
+
+    /**
+     * Tombstones a tag. No task is rewritten — see the note on this interface.
+     *
+     * Idempotent: tombstoning an already-tombstoned row must not restamp it.
+     */
+    suspend fun tombstone(id: String, at: Instant)
+
+    /** Tombstones every tag — see [TaskStore.tombstoneAll]. */
+    suspend fun tombstoneAll(at: Instant)
+
+    /** Writes a manual order over the one flat tag list — see [TaskStore.reorder]. */
+    suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant)
+
+    /** The last position in the tag list, or null when there are no tags yet. */
+    suspend fun maxSortOrder(): Int?
+}
+
 interface BackupStore {
 
     /**
-     * Folds [projects], [sections] and [tasks] into what is already stored, and reports nothing:
+     * Folds [projects], [sections], [tags] and [tasks] into what is already stored, and reports
+     * nothing:
      * a merge has no failure mode short of the whole transaction rolling back.
      *
      * This replaced a `replaceAll` that deleted every row and reinserted, which is why importing
@@ -200,6 +238,7 @@ interface BackupStore {
     suspend fun mergeAll(
         projects: List<Project>,
         sections: List<Section>,
+        tags: List<Tag>,
         tasks: List<Task>,
         revivedAt: Instant,
     )

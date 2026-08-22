@@ -7,6 +7,7 @@ import de.andi1984.cadence.domain.model.RecurrenceMode
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -19,7 +20,7 @@ import java.time.OffsetDateTime
 import java.time.temporal.ChronoUnit
 
 /**
- * What a task, a project and a section look like on the wire.
+ * What a task, a project, a section and a tag look like on the wire.
  *
  * The published shape, not the storage shape (ADR 0002, decision 5): a date is a `date`, a time
  * is a `time`, an instant is a `timestamptz` and recurrence is an object — deliberately not the
@@ -70,6 +71,13 @@ data class RemoteTask(
     val priority: Int = Priority.DEFAULT.level,
     @SerialName("project_id") val projectId: String? = null,
     @SerialName("section_id") val sectionId: String? = null,
+    /**
+     * The tags on this task, as a `uuid[]` column — a real array on the wire, deliberately not
+     * the comma-packed string the local column holds. The published shape is the readable one
+     * (ADR 0002, decision 5), and Postgres can index and filter an array; it cannot do either
+     * with `'a,b,c'`.
+     */
+    @SerialName("tag_ids") val tagIds: List<String> = emptyList(),
     @SerialName("parent_id") val parentId: String? = null,
     @SerialName("spawned_from_id") val spawnedFromId: String? = null,
     @SerialName("due_date") val dueDate: String? = null,
@@ -108,6 +116,21 @@ data class RemoteSection(
     @SerialName("server_updated_at") val serverUpdatedAt: String? = null,
 )
 
+/**
+ * A tag's identity. Which tasks wear it is `tasks.tag_ids`, not a row here — the mirror carries no
+ * join table for the same reason the local schema carries none (see `Task.tagIds`).
+ */
+@Serializable
+data class RemoteTag(
+    val id: String,
+    val name: String,
+    @SerialName("color_hex") val colorHex: String,
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    @SerialName("updated_at") val updatedAt: String,
+    @SerialName("deleted_at") val deletedAt: String? = null,
+    @SerialName("server_updated_at") val serverUpdatedAt: String? = null,
+)
+
 @Serializable
 data class RemoteRecurrence(
     val mode: String = RecurrenceMode.SCHEDULE.name,
@@ -130,6 +153,7 @@ fun Task.toRemote() = RemoteTask(
     priority = priority.level,
     projectId = projectId,
     sectionId = sectionId,
+    tagIds = tagIds,
     parentId = parentId,
     spawnedFromId = spawnedFromId,
     dueDate = dueDate?.toString(),
@@ -161,6 +185,7 @@ fun RemoteTask.toDomain() = Task(
     priority = Priority.fromLevel(priority),
     projectId = projectId?.takeIf { it.isNotBlank() },
     sectionId = sectionId?.takeIf { it.isNotBlank() },
+    tagIds = tagIds.filter { it.isNotBlank() }.distinct(),
     parentId = parentId?.takeIf { it.isNotBlank() },
     spawnedFromId = spawnedFromId?.takeIf { it.isNotBlank() },
     dueDate = dueDate.parseOrNull { LocalDate.parse(it) },
@@ -207,6 +232,24 @@ fun RemoteSection.toDomain() = Section(
     id = id,
     projectId = projectId,
     name = name,
+    sortOrder = sortOrder,
+    updatedAt = updatedAt.parseInstantOrNull() ?: Instant.EPOCH,
+    deletedAt = deletedAt.parseInstantOrNull(),
+)
+
+fun Tag.toRemote() = RemoteTag(
+    id = id,
+    name = name,
+    colorHex = colorHex,
+    sortOrder = sortOrder,
+    updatedAt = updatedAt.toString(),
+    deletedAt = deletedAt?.toString(),
+)
+
+fun RemoteTag.toDomain() = Tag(
+    id = id,
+    name = name,
+    colorHex = colorHex,
     sortOrder = sortOrder,
     updatedAt = updatedAt.parseInstantOrNull() ?: Instant.EPOCH,
     deletedAt = deletedAt.parseInstantOrNull(),

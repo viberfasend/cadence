@@ -24,12 +24,16 @@ CREATE TABLE syncStateRow (
     -- The third table's cursor. Last on purpose, out of order with the two beside it: `3.sqm`
     -- adds it with `ALTER TABLE … ADD COLUMN`, which SQLite can only append, and `select` below
     -- is a `SELECT *` — see the same note on `taskRow.sectionId`.
-    sectionCursor TEXT
+    sectionCursor TEXT,
+    -- The fourth table's cursor, appended for the same reason `sectionCursor` was — `4.sqm` can
+    -- only add a column at the end. Null on a device that synced before tags existed, which is
+    -- exactly right: its first round after upgrading pulls every tag from the beginning.
+    tagCursor TEXT
 );
 
 -- The row is inserted with the table, so every read can assume it is there.
-INSERT INTO syncStateRow(id, session, taskCursor, projectCursor, pushWatermark, lastSyncedAt, lastSweepAt, sectionCursor)
-VALUES (1, NULL, NULL, NULL, 0, NULL, NULL, NULL);
+INSERT INTO syncStateRow(id, session, taskCursor, projectCursor, pushWatermark, lastSyncedAt, lastSweepAt, sectionCursor, tagCursor)
+VALUES (1, NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL);
 
 select:
 SELECT * FROM syncStateRow WHERE id = 1;
@@ -46,6 +50,9 @@ UPDATE syncStateRow SET projectCursor = :cursor WHERE id = 1;
 setSectionCursor:
 UPDATE syncStateRow SET sectionCursor = :cursor WHERE id = 1;
 
+setTagCursor:
+UPDATE syncStateRow SET tagCursor = :cursor WHERE id = 1;
+
 setPushWatermark:
 UPDATE syncStateRow SET pushWatermark = :watermark WHERE id = 1;
 
@@ -61,5 +68,5 @@ UPDATE syncStateRow SET lastSweepAt = :at WHERE id = 1;
 clearSync:
 UPDATE syncStateRow
 SET session = NULL, taskCursor = NULL, projectCursor = NULL, sectionCursor = NULL,
-    pushWatermark = 0, lastSyncedAt = NULL, lastSweepAt = NULL
+    tagCursor = NULL, pushWatermark = 0, lastSyncedAt = NULL, lastSweepAt = NULL
 WHERE id = 1;

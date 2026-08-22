@@ -57,6 +57,7 @@ import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.projectPath
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
 import de.andi1984.cadence.domain.parse.QuickAddLexicon
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.parse.QuickAddParser
 import de.andi1984.cadence.domain.parse.TokenKind
 import de.andi1984.cadence.ui.components.AppIcons
@@ -64,6 +65,7 @@ import de.andi1984.cadence.ui.components.CadenceDatePickerDialog
 import de.andi1984.cadence.ui.components.PrioritySpine
 import de.andi1984.cadence.ui.components.ProjectPickerDialog
 import de.andi1984.cadence.ui.components.ProjectSwatch
+import de.andi1984.cadence.ui.components.TagChip
 import de.andi1984.cadence.ui.format.currentLocale
 import de.andi1984.cadence.ui.format.describeRecurrence
 import de.andi1984.cadence.ui.format.formatDate
@@ -81,6 +83,7 @@ import java.time.LocalDate
 @Composable
 fun QuickAddSheet(
     projects: List<Project>,
+    tags: List<Tag>,
     today: LocalDate,
     defaultProjectId: String?,
     onDismiss: () -> Unit,
@@ -106,8 +109,8 @@ fun QuickAddSheet(
 
     // Keywords follow the app language, not the system one — English always stays understood.
     val lexicon = QuickAddLexicon.forLocale(currentLocale())
-    val parsed = remember(text, projects, lexicon) {
-        QuickAddParser.parse(text, projects, today, lexicon)
+    val parsed = remember(text, projects, tags, lexicon) {
+        QuickAddParser.parse(text, projects, tags, today, lexicon)
     }
     val effective = parsed.copy(
         dueDate = dateOverride ?: parsed.dueDate,
@@ -116,6 +119,7 @@ fun QuickAddSheet(
         recurrence = recurrenceOverride ?: parsed.recurrence,
     )
     val chosenProject = projects.firstOrNull { it.id == effective.projectId }
+    val chosenTags = effective.tagIds.mapNotNull { id -> tags.firstOrNull { it.id == id } }
 
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
@@ -131,6 +135,7 @@ fun QuickAddSheet(
             effective = effective,
             projects = projects,
             chosenProject = chosenProject,
+            chosenTags = chosenTags,
             cadenceColors = cadenceColors,
             focusRequester = focusRequester,
             onOpenDatePicker = { datePickerOpen = true },
@@ -184,6 +189,7 @@ private fun QuickAddBody(
     effective: ParsedQuickAdd,
     projects: List<Project>,
     chosenProject: Project?,
+    chosenTags: List<Tag>,
     cadenceColors: CadenceColors,
     focusRequester: FocusRequester,
     onOpenDatePicker: () -> Unit,
@@ -273,6 +279,18 @@ private fun QuickAddBody(
                         leading = { ProjectSwatch(colorHex = chosenProject.colorHex, size = 9) },
                     )
                 }
+                // Both halves of what the `@` pass found: the tags that exist, drawn as
+                // themselves, and the handles that matched nothing, which the sheet promises to
+                // create rather than leave in the title.
+                chosenTags.forEach { tag -> TagChip(tag = tag) }
+                effective.newTagNames.forEach { name ->
+                    TokenChip(
+                        label = "@$name",
+                        icon = AppIcons.Add,
+                        background = cadenceColors.tokenProject,
+                        foreground = cadenceColors.onTokenProject,
+                    )
+                }
             }
 
             Text(
@@ -356,7 +374,9 @@ private fun TokenChip(
     label: String,
     background: Color,
     foreground: Color,
-    onClick: () -> Unit,
+    /** Null for a chip that only reports — the tag the sheet is about to create has nothing to
+     *  open, and a clickable with no action is a target a screen reader promises for nothing. */
+    onClick: (() -> Unit)? = null,
     icon: ImageVector? = null,
     leading: @Composable (() -> Unit)? = null,
 ) {
@@ -365,7 +385,7 @@ private fun TokenChip(
             .height(36.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(background)
-            .clickable(onClick = onClick)
+            .then(if (onClick == null) Modifier else Modifier.clickable(onClick = onClick))
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -406,7 +426,10 @@ private class TokenHighlightTransformation(
                 val background = when (span.kind) {
                     TokenKind.DATE, TokenKind.TIME, TokenKind.RECURRENCE -> dateColor
                     TokenKind.PRIORITY -> priorityColor
-                    TokenKind.PROJECT -> projectColor
+                    // Tags share the project highlight for the same reason they share its
+                    // palette: two tints that mean "a thing this task belongs to" would only
+                    // ever be told apart by people who can tell them apart.
+                    TokenKind.PROJECT, TokenKind.TAG -> projectColor
                 }
                 addStyle(SpanStyle(background = background), start, end)
             }

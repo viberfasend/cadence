@@ -6,6 +6,7 @@ import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
 import kotlinx.coroutines.CancellationException
@@ -39,6 +40,7 @@ class CadenceRepository(
     private val taskStore: TaskStore,
     private val projectStore: ProjectStore,
     private val sectionStore: SectionStore,
+    private val tagStore: TagStore,
     private val backupStore: BackupStore,
     private val attachmentStore: AttachmentStore,
     private val blobStore: BlobStore,
@@ -49,6 +51,8 @@ class CadenceRepository(
     val projects: Flow<List<Project>> = projectStore.observeAll()
 
     val sections: Flow<List<Section>> = sectionStore.observeAll()
+
+    val tags: Flow<List<Tag>> = tagStore.observeAll()
 
     val attachments: Flow<List<Attachment>> = attachmentStore.observeAll()
 
@@ -123,7 +127,8 @@ class CadenceRepository(
      * Attachment rows and their blobs go first and explicitly, the same way [deleteTask] does it,
      * rather than being left to a cascade the fakes do not model.
      *
-     * Tasks are wiped first, then sections, then projects. The three are separate statements —
+     * Tasks are wiped first, then sections, then tags, then projects. The four are separate
+     * statements —
      * nothing spans several stores in one transaction anywhere in this class — and a process
      * killed between them leaves empty projects behind rather than tasks filed under projects
      * that no longer answer, which is the failure the whole `deleteWithChildren` rule exists to
@@ -136,6 +141,7 @@ class CadenceRepository(
         val at = now()
         taskStore.tombstoneAll(at)
         sectionStore.tombstoneAll(at)
+        tagStore.tombstoneAll(at)
         projectStore.tombstoneAll(at)
         reclaim(hashes)
         return taskIds
@@ -514,6 +520,96 @@ class CadenceRepository(
         sectionStore.tombstone(id, now())
     }
 
+    // ── Tags ───────────────────────────────────────────────────────────────────────
+
+    /**
+     * Validates and upserts a tag.
+     *
+     * The one rule beyond a non-blank name is that names are **unique, case-insensitively**. Tags
+     * are typed as `@handle` in the quick-add line and matched by name, so two tags called `home`
+     * and `Home` would make that line ambiguous — and a duplicate is almost always a second
+     * device having created the same label rather than someone wanting two of them. The check is
+     * a validation, not a merge: sync can still land two, and the read side simply shows both.
+     */
+    suspend fun upsertTag(tag: Tag): RepositoryResult<String> {
+        val name = tag.name.trim()
+        if (name.isBlank()) return RepositoryResult.ValidationError
+        val clash = tagStore.getAll()
+            .any { it.id != tag.id && it.name.equals(name, ignoreCase = true) }
+        if (clash) return RepositoryResult.Error("A tag called \"$name\" already exists")
+
+        return try {
+            val stamped = tag.copy(name = name, updatedAt = now())
+            val id = if (stamped.id.isBlank()) {
+                val minted = stamped.copy(
+                    id = UuidV7.random(),
+                    // Last in the list — see the same line in [upsertTask].
+                    sortOrder = if (stamped.sortOrder == 0) {
+                        (tagStore.maxSortOrder() ?: -1) + 1
+                    } else {
+                        stamped.sortOrder
+                    },
+                )
+                tagStore.insert(minted)
+                minted.id
+            } else {
+                tagStore.update(stamped)
+                stamped.id
+            }
+            RepositoryResult.Success(id)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            RepositoryResult.Error("Failed to save tag", e)
+        }
+    }
+
+    /**
+     * Removes a tag. Every task keeps every other label it had, and nothing else is written.
+     *
+     * There is deliberately no "delete the tasks too" the way [deleteProject] offers one, and no
+     * pass over the tasks that wore it either: a tag is a label, and stripping it from a thousand
+     * rows would push a thousand rows for a change that is already invisible — the read side drops
+     * an id no live tag answers to. It also means reviving the tag from a backup puts it back on
+     * exactly the tasks that had it.
+     */
+    suspend fun deleteTag(id: String) {
+        tagStore.tombstone(id, now())
+    }
+
+    /** Writes the order of the tag list — see [reorderTasks]. */
+    suspend fun reorderTags(orderedIds: List<String>) {
+        if (orderedIds.size < 2) return
+        tagStore.reorder(orderedIds.mapIndexed { index, id -> id to index }, now())
+    }
+
+    /**
+     * Replaces a task's labels wholesale.
+     *
+     * Wholesale rather than add/remove because that is what the row on the wire is: `tagIds` is one
+     * column, so a "remove one tag" that read the row back and wrote it again would be the same
+     * write with a race in front of it. The steps do **not** follow — unlike a project or a
+     * section, a label on the parent says nothing about its checklist, and tagging a task with
+     * `@errand` should not silently tag five subtasks.
+     *
+     * Ids are deduplicated and blanks dropped; ids naming a tag that does not exist are kept, not
+     * pruned. A pull can deliver a task before the tag it names, and a repository that pruned on
+     * write would erase the label a moment before its tag arrived.
+     */
+    suspend fun setTaskTags(task: Task, tagIds: List<String>) {
+        val cleaned = tagIds.filter { it.isNotBlank() }.distinct()
+        if (cleaned == task.tagIds) return
+        taskStore.update(task.copy(tagIds = cleaned, updatedAt = now()))
+    }
+
+    /** Adds [tagId] if the task does not have it, removes it if it does — what tapping a chip in
+     *  the picker does. */
+    suspend fun toggleTaskTag(task: Task, tagId: String) {
+        val next =
+            if (tagId in task.tagIds) task.tagIds - tagId else task.tagIds + tagId
+        setTaskTags(task, next)
+    }
+
     // ── Attachments ────────────────────────────────────────────────────────────────
 
     sealed class AddAttachmentResult {
@@ -608,6 +704,7 @@ class CadenceRepository(
     suspend fun snapshot(): BackupSnapshot = BackupSnapshot(
         projects = projectStore.getAll(),
         sections = sectionStore.getAll(),
+        tags = tagStore.getAll(),
         tasks = taskStore.getAll(),
         settings = null, // Settings are added by the app-specific BackupIo
     )
@@ -639,6 +736,7 @@ class CadenceRepository(
         backupStore.mergeAll(
             projects = snapshot.projects,
             sections = snapshot.sections,
+            tags = snapshot.tags,
             tasks = snapshot.tasks,
             revivedAt = now(),
         )

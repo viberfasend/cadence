@@ -1,0 +1,31 @@
+-- 4 → 5: tags. A fourth synced table, one new column on `taskRow` and one on `syncStateRow`.
+--
+-- Exactly the shape `3.sqm` had, and for the same reason: every statement here is an
+-- `ALTER TABLE … ADD COLUMN` or a `CREATE TABLE`, so this migration rebuilds nothing. `2.sqm` had
+-- to rebuild both tables because SQLite cannot drop a constraint; there is nothing to drop here.
+--
+-- SQLite can only *append* an added column, which is why `taskRow.tagIds` and
+-- `syncStateRow.tagCursor` are declared last in their `.sq` files as well. The queries are
+-- `SELECT *`, so a fresh database and a migrated one have to agree on column order exactly.
+--
+-- Note what this migration does **not** create: a `taskTagRow` join table. Which tasks wear a tag
+-- is a packed column on the task, not rows of its own — see the note on `Task.tagIds` for the
+-- trade that buys and the one it costs.
+
+ALTER TABLE taskRow ADD COLUMN tagIds TEXT;
+
+CREATE TABLE tagRow (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    colorHex TEXT NOT NULL,
+    sortOrder INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    deletedAt INTEGER
+);
+
+CREATE INDEX idx_tag_sort ON tagRow(sortOrder);
+CREATE INDEX idx_tag_updated ON tagRow(updatedAt);
+
+-- A device that has already synced keeps its three existing cursors; the tag cursor starts empty,
+-- so the first round after this pulls every tag the account has from the beginning.
+ALTER TABLE syncStateRow ADD COLUMN tagCursor TEXT;

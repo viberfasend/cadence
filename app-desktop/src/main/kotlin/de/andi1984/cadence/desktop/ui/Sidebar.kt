@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import de.andi1984.cadence.desktop.data.DesktopWorkspace
 import de.andi1984.cadence.domain.model.Project
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.toTree
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.components.AppIcons
@@ -80,6 +82,7 @@ fun CadenceSidebar(
     current: Route,
     onSwitchTo: (Route) -> Unit,
     onOpenProject: (Project) -> Unit,
+    onOpenTag: (Tag) -> Unit,
     onToggleProjectFold: (String) -> Unit,
     onWidthChange: (Float) -> Unit,
     onToggleCollapsed: () -> Unit,
@@ -245,6 +248,28 @@ fun CadenceSidebar(
                             key = "projects:root:end",
                             target = DropTarget.Between(OrderedList.Projects(null), tree.size, rootIds),
                         )
+                    }
+
+                    // Below the project tree, and flat: a tag is not a place in the hierarchy, so
+                    // it gets no fold, no nesting and no drop target. The group disappears
+                    // entirely when there are no tags — an empty heading in a sidebar is noise,
+                    // and the Projects screen is where one is created.
+                    if (state.tags.isNotEmpty()) {
+                        item {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            SidebarLabel(stringResource(Res.string.tags_title))
+                        }
+                        items(state.tags, key = { it.id }) { tag ->
+                            SidebarRow(
+                                icon = AppIcons.Tag,
+                                label = "@" + tag.handle,
+                                // The open count, unlike the Tags screen's total: a sidebar
+                                // number is "how much is waiting", the same as every row above it.
+                                count = state.openCountForTag(tag.id),
+                                selected = current == Route.TagDetail(tag.id),
+                                onClick = { onOpenTag(tag) },
+                            )
+                        }
                     }
                 }
 

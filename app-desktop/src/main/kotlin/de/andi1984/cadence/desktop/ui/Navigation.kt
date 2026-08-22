@@ -21,12 +21,21 @@ sealed interface Route {
     data object Search : Route
     data object Settings : Route
     data object Triage : Route
+    data object Tags : Route
     data class TaskDetail(val taskId: String) : Route
     data class ProjectDetail(val projectId: String) : Route
+    data class TagDetail(val tagId: String) : Route
 
-    /** Detail routes fill the second pane when the window is wide enough, rather than replacing
-     *  the list (issue #131). Everything else is a whole-window destination. */
-    val isDetail: Boolean get() = this is TaskDetail || this is ProjectDetail
+    /**
+     * Detail routes fill the second pane when the window is wide enough, rather than replacing
+     * the list (issue #131). Everything else is a whole-window destination.
+     *
+     * A tag's list is a detail route for the same reason a project's is: the sidebar names it, so
+     * clicking one on a wide window should fill the pane beside the sidebar rather than take the
+     * whole window over.
+     */
+    val isDetail: Boolean
+        get() = this is TaskDetail || this is ProjectDetail || this is TagDetail
 }
 
 /**
