@@ -66,6 +66,36 @@ class BackupCodecTest {
         assertEquals(listOf(task), restored.tasks)
     }
 
+    /** The regression: `decode` used to filter out every tombstoned row, so a file carrying a
+     *  delete could never make that delete compete on `updatedAt` in `BackupStore.mergeAll` — the
+     *  deleted record came back to life on import instead. */
+    @Test
+    fun `a tombstoned task and a tombstoned project survive a round trip`() {
+        val tombstonedProject = project.copy(deletedAt = Instant.parse("2026-08-05T08:00:00Z"))
+        val tombstonedTask = task.copy(deletedAt = Instant.parse("2026-08-05T08:00:00Z"))
+
+        val restored = roundTrip(
+            BackupSnapshot(projects = listOf(tombstonedProject), tasks = listOf(tombstonedTask)),
+        )
+
+        assertEquals(tombstonedProject, restored.projects.single())
+        assertEquals(tombstonedTask, restored.tasks.single())
+    }
+
+    @Test
+    fun `a tombstoned section survives a round trip`() {
+        val section = Section(
+            id = "s1",
+            projectId = "7",
+            name = "Gone now",
+            deletedAt = Instant.parse("2026-08-05T08:00:00Z"),
+        )
+
+        val restored = roundTrip(BackupSnapshot(projects = listOf(project), sections = listOf(section)))
+
+        assertEquals(listOf(section), restored.sections)
+    }
+
     @Test
     fun `a task without dates or recurrence survives a round trip`() {
         val bare = Task(id = "11", title = "Someday", createdAt = Instant.EPOCH)

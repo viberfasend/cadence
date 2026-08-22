@@ -96,18 +96,20 @@ object BackupCodec {
         // missing its id is not dropped — unlike the old autoincrement column, nothing assigns
         // one implicitly on insert now, so decode mints a fresh one, the same substitute Room's
         // `id = 0` used to trigger.
-        // Tombstones (deletedAt != null) are filtered out during import.
-        val projects = document.projects.filter { it.id.isNotBlank() && it.deletedAt == null }.map { it.toDomain() }
+        // Tombstones (deletedAt != null) are kept, not dropped: `BackupStore.mergeAll`'s
+        // updatedAt-wins rule already treats a tombstone as just another version of a record, and
+        // dropping it here would silently discard a delete the file was carrying.
+        val projects = document.projects.filter { it.id.isNotBlank() }.map { it.toDomain() }
         val knownProjects = projects.map { it.id }.toSet()
         // A section belongs to exactly one project, and unlike a task it has nowhere else to go:
         // there is no Inbox for headings. One naming a project the file lacks is dropped, and its
         // tasks fall back to the project's ungrouped band below.
         val sections = document.sections
-            .filter { it.id.isNotBlank() && it.name.isNotBlank() && it.deletedAt == null }
+            .filter { it.id.isNotBlank() && it.name.isNotBlank() }
             .map { it.toDomain() }
             .filter { it.projectId in knownProjects }
         val sectionProjects = sections.associate { it.id to it.projectId }
-        val decoded = document.tasks.filter { it.title.isNotBlank() && it.deletedAt == null }.map { it.toDomain() }
+        val decoded = document.tasks.filter { it.title.isNotBlank() }.map { it.toDomain() }
         val knownTasks = decoded.mapTo(mutableSetOf()) { it.id }
         val tasks = decoded
             .map { task ->
