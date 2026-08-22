@@ -3,7 +3,17 @@
 A design for letting Cadence receive text, links, images and files from other apps, and for storing
 what it receives. Written before any of it is built, so the decisions can be argued with cheaply.
 
-Nothing here is implemented yet. Line references are against `main` at `32fd8d2`.
+**Status: phases 0 to 2 have shipped** — storage, and attachments in the app. Phase 3 (the share
+target), phase 4 (the bundle export) and phase 5 (the extras) have not. Two things have moved
+under the document since it was written, and are worth knowing before following any code snippet
+here: storage is **SQLDelight in `:core`**, not Room in `:app` (ADR 0001, phase 2), so section A's
+`@Entity` and `MIGRATION_4_5` describe a shape that no longer exists — the live schema is
+`core/src/commonMain/sqldelight/…/Attachment.sq`, created by `2.sqm`; and the UI is **Compose
+Multiplatform in `:ui`**, so phase 2's Android-only pieces are stated as ports
+(`AttachmentFilePicker`, `AttachmentOpener`) that each shell implements, and section F's
+`BitmapFactory` decode is `ByteArray.decodeToImageBitmap()` instead. Every *decision* in those
+sections still holds; only the API they are spelled in has changed. Line references are against
+`main` at `32fd8d2`.
 
 ## The problem
 

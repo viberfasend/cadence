@@ -107,6 +107,7 @@ fun SearchScreen(
                     onClick = { onTaskClick(task) },
                     parentTitle = parentTask?.title,
                     subtaskProgress = state.subtaskProgress(task.id),
+                    attachmentCount = state.attachmentCount(task.id),
                     // For subtasks in search, show the parent context more prominently
                     showProject = parentTask != null, // Always show project for subtasks
                 )

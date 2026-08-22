@@ -318,6 +318,11 @@ class SqlDelightAttachmentStore(
         queries.insertRow(attachment)
     }
 
+    // `insertOrReplace`, so the same statement covers both — and safely: nothing references an
+    // attachment row, so SQLite's delete-then-insert takes nothing with it (the rule the task and
+    // project tables had to be rewritten for does not bite here).
+    override suspend fun update(attachment: Attachment) = insert(attachment)
+
     override suspend fun delete(id: String): Unit = withContext(ioDispatcher) {
         queries.delete(id)
     }

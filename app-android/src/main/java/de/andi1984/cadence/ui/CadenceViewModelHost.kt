@@ -23,6 +23,7 @@ class CadenceViewModelHost(application: CadenceApplication) : ViewModel() {
         settingsStore = container.settingsStore,
         reminderScheduler = container.reminderScheduler,
         backupGateway = container.backupIo,
+        attachmentOpener = container.attachmentOpener,
         syncEngine = container.syncEngine,
         scope = viewModelScope,
     )

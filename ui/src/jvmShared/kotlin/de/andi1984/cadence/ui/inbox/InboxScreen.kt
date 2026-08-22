@@ -137,6 +137,7 @@ fun InboxScreen(
                         onClick = { onTaskClick(task) },
                         showProject = false,
                         subtaskProgress = if (row.isSubtaskRow) null else state.subtaskProgress(task.id),
+                        attachmentCount = state.attachmentCount(task.id),
                         expanded = task.id in expandedIds,
                         onExpandToggle = if (!row.isSubtaskRow && state.subtaskProgress(task.id) != null) {
                             {

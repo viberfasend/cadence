@@ -39,6 +39,7 @@ import de.andi1984.cadence.ui.resources.*
 import de.andi1984.cadence.domain.model.SubtaskProgress
 import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
+import de.andi1984.cadence.ui.attachments.attachmentCountLabel
 import de.andi1984.cadence.ui.dnd.DragPayload
 import de.andi1984.cadence.ui.dnd.cadenceDragSource
 import de.andi1984.cadence.ui.dnd.dragSourceAlpha
@@ -77,6 +78,7 @@ fun TaskRow(
     parentTitle: String? = null,
     subtaskProgress: SubtaskProgress? = null,
     tags: List<Tag> = emptyList(),
+    attachmentCount: Int = 0,
     expanded: Boolean = false,
     onExpandToggle: (() -> Unit)? = null,
 ) {
@@ -95,6 +97,7 @@ fun TaskRow(
             parentTitle = parentTitle,
             subtaskProgress = subtaskProgress,
             tags = tags,
+            attachmentCount = attachmentCount,
             expanded = expanded,
             onExpandToggle = onExpandToggle,
         )
@@ -183,6 +186,9 @@ private fun TaskRowContent(
     /** The task's live tags, resolved by the caller through `state.tagsOf(task)` — the row never
      *  looks an id up itself, the same way it is handed `projectLabel` rather than a project. */
     tags: List<Tag> = emptyList(),
+    /** How many files and links are filed on this task; 0 draws no paperclip. Resolved by the
+     *  caller through `state.attachmentCount(task.id)`, for the same reason [tags] is. */
+    attachmentCount: Int = 0,
     /** Whether this row's subtasks are currently shown inline below it. */
     expanded: Boolean = false,
     /** Set only where a row can reveal its subtasks inline — renders the expand toggle. */
@@ -293,6 +299,9 @@ private fun TaskRowContent(
                             if (subtaskProgress != null) {
                                 SubtaskChip(progress = subtaskProgress, tint = metaColor)
                             }
+                            if (attachmentCount > 0) {
+                                AttachmentChip(count = attachmentCount, tint = metaColor)
+                            }
                             if (parentTitle != null) {
                                 MetaWithIcon(
                                     icon = AppIcons.ParentTask,
@@ -324,6 +333,17 @@ private fun TaskRowContent(
                         Icon(
                             imageVector = AppIcons.EventRepeat,
                             contentDescription = recurrenceText,
+                            tint = scheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                    // Compact keeps the paperclip and drops the number: the count is what does
+                    // not fit on a 52dp row, and "has something attached" is what the glance is
+                    // for. The number stays in the content description.
+                    if (attachmentCount > 0) {
+                        Icon(
+                            imageVector = AppIcons.Attachment,
+                            contentDescription = attachmentCountLabel(attachmentCount),
                             tint = scheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp),
                         )
@@ -431,6 +451,29 @@ private fun SubtaskChip(progress: SubtaskProgress, tint: Color) {
         )
         Text(
             text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = tint,
+        )
+    }
+}
+
+/** "2" behind a paperclip — the same shape as [SubtaskChip], for the same kind of fact. */
+@Composable
+private fun AttachmentChip(count: Int, tint: Color) {
+    val spoken = attachmentCountLabel(count)
+    Row(
+        modifier = Modifier.semantics { contentDescription = spoken },
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = AppIcons.Attachment,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = count.toString(),
             style = MaterialTheme.typography.bodySmall,
             color = tint,
         )

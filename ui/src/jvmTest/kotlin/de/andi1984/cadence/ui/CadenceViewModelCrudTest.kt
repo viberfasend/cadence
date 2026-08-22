@@ -3,6 +3,7 @@ package de.andi1984.cadence.ui
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.domain.backup.BackupFailure
 import de.andi1984.cadence.domain.backup.BackupOutcome
+import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceRule
@@ -13,14 +14,17 @@ import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
 import de.andi1984.cadence.ui.dnd.DropIntent
 import de.andi1984.cadence.ui.platform.BackupTarget
+import de.andi1984.cadence.ui.platform.PickedFile
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayInputStream
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -38,10 +42,13 @@ class CadenceViewModelCrudTest {
     private val projectStore = FakeProjectStore(taskStore)
     private val sectionStore = FakeSectionStore()
     private val tagStore = FakeTagStore()
-    private val repository = repositoryOver(taskStore, projectStore, sectionStore, tagStore)
+    private val attachmentStore = FakeAttachmentStore()
+    private val repository =
+        repositoryOver(taskStore, projectStore, sectionStore, tagStore, attachmentStore)
     private val reminders = RecordingReminderScheduler()
     private val settings = FakeSettingsStore()
     private val backupGateway = FakeBackupGateway()
+    private val attachmentOpener = RecordingAttachmentOpener()
 
     private fun TestScope.viewModel(): CadenceViewModel {
         val viewModel = CadenceViewModel(
@@ -49,6 +56,7 @@ class CadenceViewModelCrudTest {
             settingsStore = settings,
             reminderScheduler = reminders,
             backupGateway = backupGateway,
+            attachmentOpener = attachmentOpener,
             syncEngine = CadenceSyncEngine(FakeSyncStore(), backgroundScope),
             scope = backgroundScope,
         )
@@ -672,5 +680,142 @@ class CadenceViewModelCrudTest {
         assertEquals(1, tagStore.rows().size)
         assertEquals("Post the parcel", taskStore.allRows().single().title)
         assertEquals(emptyList<String>(), taskStore.allRows().single().tagIds)
+    }
+
+    // ── Attachments ──────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `a link is filed on the task and shows up in the state`() = runTest {
+        taskStore.seed(listOf(task("t1")))
+        val viewModel = viewModel()
+
+        viewModel.addLinkAttachment(task("t1"), "https://example.org/receipt", "Receipt")
+        runCurrent()
+
+        val stored = attachmentStore.rows().single()
+        assertEquals(AttachmentKind.LINK, stored.kind)
+        assertEquals("https://example.org/receipt", stored.url)
+        assertEquals("Receipt", stored.name)
+        assertEquals(listOf(stored.id), viewModel.state.value.attachmentsOf("t1").map { it.id })
+        assertEquals(1, viewModel.state.value.attachmentCount("t1"))
+    }
+
+    /** The repository refuses it; the ViewModel is what says so out loud. */
+    @Test
+    fun `a blank link is refused with a message rather than filed`() = runTest {
+        taskStore.seed(listOf(task("t1")))
+        val viewModel = viewModel()
+
+        viewModel.addLinkAttachment(task("t1"), "   ", "Receipt")
+        runCurrent()
+
+        assertTrue(attachmentStore.rows().isEmpty())
+        assertNotNull(viewModel.state.value.snackbarMessage)
+    }
+
+    @Test
+    fun `a picked file is copied in, and its bytes are read exactly once`() = runTest {
+        taskStore.seed(listOf(task("t1")))
+        val viewModel = viewModel()
+        var opened = 0
+
+        viewModel.addFileAttachment(
+            task("t1"),
+            PickedFile(name = "invoice.pdf", mimeType = "application/pdf") {
+                opened++
+                ByteArrayInputStream(byteArrayOf(1, 2, 3))
+            },
+        )
+        runCurrent()
+
+        assertEquals(1, opened)
+        val stored = attachmentStore.rows().single()
+        assertEquals("invoice.pdf", stored.name)
+        assertEquals(3L, stored.sizeBytes)
+        assertNotNull(stored.sha256)
+        // The bytes are on disk, so the row draws as openable rather than as missing.
+        assertTrue(viewModel.state.value.isPresent(stored))
+    }
+
+    /**
+     * A picker can hand back a uri whose provider is already gone — a cloud file the user just
+     * signed out of, a card pulled between the tap and the read. That is a message, not a crash.
+     */
+    @Test
+    fun `a file whose bytes cannot be opened raises a message instead of throwing`() = runTest {
+        taskStore.seed(listOf(task("t1")))
+        val viewModel = viewModel()
+
+        viewModel.addFileAttachment(
+            task("t1"),
+            PickedFile(name = "gone.pdf", mimeType = "application/pdf") {
+                throw java.io.FileNotFoundException("no bytes")
+            },
+        )
+        runCurrent()
+
+        assertTrue(attachmentStore.rows().isEmpty())
+        assertNotNull(viewModel.state.value.snackbarMessage)
+    }
+
+    @Test
+    fun `removing an attachment takes the row with it`() = runTest {
+        taskStore.seed(listOf(task("t1")))
+        val viewModel = viewModel()
+        viewModel.addLinkAttachment(task("t1"), "https://example.org", "Receipt")
+        runCurrent()
+
+        viewModel.deleteAttachment(attachmentStore.rows().single())
+        runCurrent()
+
+        assertTrue(attachmentStore.rows().isEmpty())
+        assertEquals(0, viewModel.state.value.attachmentCount("t1"))
+    }
+
+    @Test
+    fun `opening a link hands it to the platform`() = runTest {
+        taskStore.seed(listOf(task("t1")))
+        val viewModel = viewModel()
+        viewModel.addLinkAttachment(task("t1"), "https://example.org", "Receipt")
+        runCurrent()
+
+        viewModel.openAttachment(attachmentStore.rows().single())
+
+        assertEquals(listOf("https://example.org"), attachmentOpener.openedLinks)
+        assertNull(viewModel.state.value.snackbarMessage)
+    }
+
+    /** A phone with no viewer for the type is an ordinary state, and the user has to be told —
+     *  a tap that does nothing at all reads as a broken row. */
+    @Test
+    fun `a machine that opens nothing says so`() = runTest {
+        taskStore.seed(listOf(task("t1")))
+        val viewModel = viewModel()
+        viewModel.addLinkAttachment(task("t1"), "https://example.org", "Receipt")
+        runCurrent()
+        attachmentOpener.canOpen = false
+
+        viewModel.openAttachment(attachmentStore.rows().single())
+        runCurrent()
+
+        assertNotNull(viewModel.state.value.snackbarMessage)
+    }
+
+    /** The rows a delete is about to take are hidden at once — the paperclip must not outlive
+     *  the row it hangs off for the length of the undo window. */
+    @Test
+    fun `a pending task delete hides its attachments too`() = runTest {
+        taskStore.seed(listOf(task("t1")))
+        val viewModel = viewModel()
+        viewModel.addLinkAttachment(task("t1"), "https://example.org", "Receipt")
+        runCurrent()
+        assertEquals(1, viewModel.state.value.attachmentCount("t1"))
+
+        viewModel.deleteTask(task("t1"))
+        runCurrent()
+
+        assertEquals(0, viewModel.state.value.attachmentCount("t1"))
+        // Still in the database: nothing has been committed yet, and an undo brings both back.
+        assertEquals(1, attachmentStore.rows().size)
     }
 }

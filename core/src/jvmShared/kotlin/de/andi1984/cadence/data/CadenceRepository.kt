@@ -10,7 +10,13 @@ import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.io.InputStream
 import java.time.Instant
 import java.time.LocalDate
@@ -29,6 +35,17 @@ const val MAX_ATTACHMENT_BYTES = 25L * 1024 * 1024
 /** Maximum number of attachments allowed per task. */
 const val MAX_ATTACHMENTS_PER_TASK = 20
 
+/**
+ * The attachment rows, plus the hashes among them whose bytes are on disk.
+ *
+ * One value rather than two flows so the pair can never be drawn half-updated — a row added and
+ * a presence set from before it existed would render the new attachment as missing for a frame.
+ */
+data class AttachmentIndex(
+    val attachments: List<Attachment> = emptyList(),
+    val presentBlobs: Set<String> = emptySet(),
+)
+
 /** Result of a repository operation that can fail. */
 sealed class RepositoryResult<out T> {
     data class Success<T>(val data: T) : RepositoryResult<T>()
@@ -44,6 +61,9 @@ class CadenceRepository(
     private val backupStore: BackupStore,
     private val attachmentStore: AttachmentStore,
     private val blobStore: BlobStore,
+    /** Where the blob store's filesystem work runs — every other port already dispatches its
+     *  own I/O, and [BlobStore] is a plain `java.io` class with no dispatcher of its own. */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
     val tasks: Flow<List<Task>> = taskStore.observeAll()
@@ -55,6 +75,24 @@ class CadenceRepository(
     val tags: Flow<List<Tag>> = tagStore.observeAll()
 
     val attachments: Flow<List<Attachment>> = attachmentStore.observeAll()
+
+    /**
+     * Every attachment, and which of the blobs they name are actually on disk right now.
+     *
+     * The two travel together because presence is not a property of the row and must not become
+     * a filesystem hit per row per frame: a screen asking "is this one here?" while drawing a
+     * list would stat the same blob directory a hundred times a second. One `exists()` per
+     * *distinct* hash per emission, on [ioDispatcher], is the whole cost — and a new emission is
+     * exactly when it can have changed, since every add, delete and reclaim goes through a write
+     * this flow is downstream of.
+     *
+     * A row whose blob is missing is not an error: the row is the truth of "the user attached
+     * this", the blob is a cache that a restored backup, a new device or a process killed
+     * mid-copy can legitimately leave empty.
+     */
+    val attachmentIndex: Flow<AttachmentIndex> = attachments
+        .map { rows -> AttachmentIndex(rows, blobStore.present(rows.mapNotNull { it.sha256 })) }
+        .flowOn(ioDispatcher)
 
     fun task(id: String): Flow<Task?> = taskStore.observeById(id)
 
@@ -629,7 +667,11 @@ class CadenceRepository(
     ): AddAttachmentResult {
         val existing = attachmentStore.forTask(taskId)
         if (existing.size >= MAX_ATTACHMENTS_PER_TASK) return AddAttachmentResult.LimitReached
-        return when (val result = blobStore.store(source, MAX_ATTACHMENT_BYTES)) {
+        // Every other port dispatches its own I/O; [BlobStore] is a plain `java.io` class, and
+        // this is a copy of up to 25 MB — on Android the ViewModel's scope is the main thread, so
+        // an undispatched call here is a frozen UI for the length of the file.
+        val stored = withContext(ioDispatcher) { blobStore.store(source, MAX_ATTACHMENT_BYTES) }
+        return when (val result = stored) {
             is StoreResult.Ok -> {
                 val id = UuidV7.random()
                 attachmentStore.insert(
@@ -681,12 +723,51 @@ class CadenceRepository(
         reclaim(listOfNotNull(attachment.sha256))
     }
 
+    /**
+     * The bytes behind [sha256], or null when they are not on this device.
+     *
+     * The one place outside this class that gets a [File] — a viewer has to be handed something
+     * the platform can open, and the shells' openers take it from here rather than assembling a
+     * path out of the store's layout themselves.
+     */
+    fun blobFile(sha256: String): File? = blobStore.file(sha256)
+
+    /**
+     * Points a FILE row at bytes the user found again, and heals it.
+     *
+     * The row keeps its name, its task and its place in the list; the hash and the size come from
+     * what was just copied in. That the new bytes may hash differently is deliberate and not an
+     * error — someone re-exporting the same invoice from their bank gets a different file with
+     * the same meaning, and refusing it would leave the row broken forever to protect a hash
+     * nobody promised.
+     *
+     * The old hash is reclaimed like any other: if no surviving row names it, its blob goes — it
+     * is normally already gone, which is why this path exists at all.
+     */
+    suspend fun relocateAttachment(id: String, source: InputStream): AddAttachmentResult {
+        val existing = attachmentStore.byId(id) ?: return AddAttachmentResult.ValidationError
+        if (existing.kind != AttachmentKind.FILE) return AddAttachmentResult.ValidationError
+        val stored = withContext(ioDispatcher) { blobStore.store(source, MAX_ATTACHMENT_BYTES) }
+        return when (val result = stored) {
+            is StoreResult.Ok -> {
+                attachmentStore.update(
+                    existing.copy(sha256 = result.sha256, sizeBytes = result.sizeBytes),
+                )
+                val previous = existing.sha256
+                if (previous != null && previous != result.sha256) reclaim(listOf(previous))
+                AddAttachmentResult.Success(id)
+            }
+            StoreResult.TooLarge -> AddAttachmentResult.TooLarge
+            is StoreResult.Failed -> AddAttachmentResult.Failed(result.cause)
+        }
+    }
+
     /** A blob is garbage the moment no row names it — the attachments table is the only
      *  refcount, read back here rather than trusted from a stored counter. */
     private suspend fun reclaim(hashes: List<String>) {
         if (hashes.isEmpty()) return
         val kept = attachmentStore.stillReferenced(hashes).toSet()
-        blobStore.deleteAll(hashes.toSet() - kept)
+        withContext(ioDispatcher) { blobStore.deleteAll(hashes.toSet() - kept) }
     }
 
     /**
@@ -695,7 +776,8 @@ class CadenceRepository(
      * makes reclaiming one hash at a time meaningless.
      */
     suspend fun sweepOrphanBlobs() {
-        blobStore.sweepOrphans(attachmentStore.referencedHashes().toSet())
+        val referenced = attachmentStore.referencedHashes().toSet()
+        withContext(ioDispatcher) { blobStore.sweepOrphans(referenced) }
     }
 
     // ── Backup ─────────────────────────────────────────────────────────────────────

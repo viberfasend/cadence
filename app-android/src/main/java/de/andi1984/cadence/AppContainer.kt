@@ -7,6 +7,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import de.andi1984.cadence.data.BlobStore
 import de.andi1984.cadence.data.CadenceRepository
+import de.andi1984.cadence.data.attachments.AndroidAttachmentOpener
 import de.andi1984.cadence.data.backup.BackupIo
 import de.andi1984.cadence.data.db.CadenceDatabase
 import de.andi1984.cadence.data.db.DatabaseDriverFactory
@@ -55,6 +56,10 @@ class AppContainer(context: Context) {
     val backupIo = BackupIo(context, repository, settingsStore)
 
     val reminderScheduler = AlarmReminderScheduler(context)
+
+    /** The `FileProvider` half of attachments; the picker half is a composable, since a SAF
+     *  launcher can only be created in a composition. */
+    val attachmentOpener = AndroidAttachmentOpener(context)
 
     /**
      * Outlives every screen: the backup written as the user leaves the app starts while the

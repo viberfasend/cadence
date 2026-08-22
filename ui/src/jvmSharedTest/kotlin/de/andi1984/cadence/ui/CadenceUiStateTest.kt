@@ -1,5 +1,7 @@
 package de.andi1984.cadence.ui
 
+import de.andi1984.cadence.domain.model.Attachment
+import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Tag
@@ -8,6 +10,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -445,6 +448,73 @@ class CadenceUiStateTest {
         assertEquals(emptyList<Task>(), state.tasksWithTag("g1"))
         assertEquals(0, state.openCountForTag("g1"))
         assertNull(state.tag("nope"))
+    }
+
+    // ── Attachments ──────────────────────────────────────────────────────────────────
+
+    private fun file(id: String, taskId: String, sha256: String?, sortOrder: Int = 0) = Attachment(
+        id = id,
+        taskId = taskId,
+        kind = AttachmentKind.FILE,
+        name = id,
+        mimeType = "application/pdf",
+        sha256 = sha256,
+        sortOrder = sortOrder,
+    )
+
+    @Test
+    fun `a task's attachments come back in the order they were filed`() {
+        val state = CadenceUiState(
+            tasks = listOf(task("a"), task("b")),
+            attachments = listOf(
+                file("second", "a", "h2", sortOrder = 1),
+                file("first", "a", "h1", sortOrder = 0),
+                file("elsewhere", "b", "h3"),
+            ),
+        )
+
+        assertEquals(listOf("first", "second"), state.attachmentsOf("a").map { it.id })
+        assertEquals(2, state.attachmentCount("a"))
+        assertEquals(0, state.attachmentCount("nobody"))
+    }
+
+    /**
+     * The row is the truth of "the user attached this"; the blob is a cache that a restored
+     * backup or a second device can legitimately leave empty. A missing one is a state to draw,
+     * so it must be answerable without touching the filesystem.
+     */
+    @Test
+    fun `a file is present only while its blob is, and a link always is`() {
+        val link = Attachment(
+            id = "link",
+            taskId = "a",
+            kind = AttachmentKind.LINK,
+            name = "Receipt",
+            mimeType = "text/uri-list",
+            url = "https://example.org",
+        )
+        val here = file("here", "a", "h1")
+        val gone = file("gone", "a", "h2")
+        val state = CadenceUiState(
+            tasks = listOf(task("a")),
+            attachments = listOf(link, here, gone),
+            presentBlobs = setOf("h1"),
+        )
+
+        assertTrue(state.isPresent(link))
+        assertTrue(state.isPresent(here))
+        assertFalse(state.isPresent(gone))
+    }
+
+    /** The index is built once per state, like every other derivation on this class. */
+    @Test
+    fun `attachmentsOf is computed once per state`() {
+        val state = CadenceUiState(
+            tasks = listOf(task("a")),
+            attachments = listOf(file("one", "a", "h1")),
+        )
+
+        assertSame(state.attachmentsOf("a"), state.attachmentsOf("a"))
     }
 
     /** The index is built once per state, like every other derivation on this class. */

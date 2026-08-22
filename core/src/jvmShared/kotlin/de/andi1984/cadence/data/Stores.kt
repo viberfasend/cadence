@@ -263,6 +263,15 @@ interface AttachmentStore {
     /** Inserts an attachment that already carries its final id, minted by the caller. */
     suspend fun insert(attachment: Attachment)
 
+    /**
+     * Replaces the row [attachment] names.
+     *
+     * Only ever the heal path: a FILE row whose blob is gone gets its hash and size rewritten
+     * from bytes the user pointed at again. Separate from [insert] because "the id already
+     * exists" is the *expected* case here and the failure case there.
+     */
+    suspend fun update(attachment: Attachment)
+
     suspend fun delete(id: String)
 
     /**

@@ -297,6 +297,7 @@ private fun LazyListScope.taskBand(
             onClick = { onTaskClick(task) },
             overdueStyle = overdueStyle,
             subtaskProgress = progress,
+            attachmentCount = state.attachmentCount(task.id),
             expanded = task.id in expandedIds,
             onExpandToggle = if (progress != null) {
                 { onToggleExpanded(task.id) }

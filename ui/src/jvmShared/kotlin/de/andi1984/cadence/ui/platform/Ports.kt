@@ -2,6 +2,8 @@ package de.andi1984.cadence.ui.platform
 
 import de.andi1984.cadence.domain.backup.BackupOutcome
 import de.andi1984.cadence.domain.model.Task
+import java.io.File
+import java.io.InputStream
 
 /**
  * What the ViewModel needs from the machine it is running on.
@@ -72,3 +74,50 @@ data class AppInfo(
     val version: String,
     val databaseSizeBytes: Long,
 )
+
+/**
+ * A file the user just chose, with its bytes still unread.
+ *
+ * [open] rather than a `ByteArray`: an attachment is up to 25 MB, and the repository streams what
+ * it is given straight into the blob store while hashing it, so nothing ever needs the whole file
+ * in memory. It is called exactly once, off the main thread, and the caller closes the stream.
+ *
+ * On Android the grant behind that stream lives only as long as the Activity that asked for it,
+ * which is why the read happens immediately rather than being deferred until a screen wants it.
+ */
+class PickedFile(
+    val name: String,
+    val mimeType: String,
+    val open: () -> InputStream,
+)
+
+/**
+ * The platform's file chooser for attachments — SAF's `OpenDocument` on Android, Swing's chooser
+ * on the desktop.
+ *
+ * Separate from [BackupFilePicker] rather than a method on it: that one speaks [BackupTarget], an
+ * opaque handle `:ui` only ever hands back, and this one has to yield *bytes* plus the name and
+ * media type the row is drawn from. Callback-shaped for the same reason as its neighbour —
+ * Android's answer arrives after the composition that asked for it.
+ */
+interface AttachmentFilePicker {
+    /** [onPicked] is not called when the user cancels — "no file" is not an answer. */
+    fun pickFile(onPicked: (PickedFile) -> Unit)
+}
+
+/**
+ * Opens an attachment with whatever the machine has for it.
+ *
+ * Both methods answer whether anything took it, so a screen can say "no app can open this" rather
+ * than look broken: a phone with no PDF viewer and a headless desktop are both ordinary states,
+ * not errors.
+ *
+ * [openFile] takes the blob straight from `CadenceRepository.blobFile`. Android wraps it in its
+ * `FileProvider` first — a file under `filesDir` is unreadable to every other app — and the
+ * desktop hands it to `java.awt.Desktop`.
+ */
+interface AttachmentOpener {
+    fun openFile(file: File, name: String, mimeType: String): Boolean
+
+    fun openLink(url: String): Boolean
+}

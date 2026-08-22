@@ -322,6 +322,28 @@
     <string name="subtasks_expand">Show subtasks</string>
     <string name="subtasks_collapse">Hide subtasks</string>
 
+    <!-- ── Attachments: files and links filed on a task ────────────────────────────── -->
+    <string name="attachments_title">Attachments</string>
+    <string name="attachments_supporting">Files and links you file here stay with the task.</string>
+    <string name="attachments_add_file">Add file</string>
+    <string name="attachments_add_link">Add link</string>
+    <string name="attachments_remove">Remove attachment</string>
+    <!-- A file whose bytes are not on this device: restored from a backup without them, or never
+         seen by this device at all. The row is still the truth of "the user attached this". -->
+    <string name="attachments_missing">Not on this device</string>
+    <string name="attachments_locate">Find file</string>
+    <string name="attachments_open">Open “%1$s”</string>
+    <!-- The paperclip on a task row, and what a screen reader says for it. -->
+    <plurals name="attachments_count">
+        <item quantity="one">%1$d attachment</item>
+        <item quantity="other">%1$d attachments</item>
+    </plurals>
+    <string name="attachments_link_title">Add link</string>
+    <string name="attachments_link_url">Link</string>
+    <string name="attachments_link_url_placeholder">https://…</string>
+    <string name="attachments_link_name">Title (optional)</string>
+    <string name="attachments_link_add">Add</string>
+
     <!-- ── Search ──────────────────────────────────────────────────────────────────── -->
     <string name="search_placeholder">Search tasks</string>
     <string name="search_title">Search</string>
@@ -527,4 +549,10 @@
     <string name="snackbar_tag_name_empty">Tag name cannot be empty</string>
     <!-- %1$s is the name that already exists. -->
     <string name="snackbar_tag_duplicate">A tag called “%1$s” already exists</string>
+    <!-- %1$d is the ceiling in whole megabytes. -->
+    <string name="snackbar_attachment_too_large">That file is larger than %1$d MB</string>
+    <string name="snackbar_attachment_limit">A task holds at most %1$d attachments</string>
+    <string name="snackbar_attachment_failed">That file could not be copied</string>
+    <string name="snackbar_attachment_invalid_link">Please enter a link</string>
+    <string name="snackbar_attachment_no_viewer">Nothing on this device opens that</string>
 </resources>

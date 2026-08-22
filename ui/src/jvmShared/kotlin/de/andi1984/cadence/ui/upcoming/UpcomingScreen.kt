@@ -165,6 +165,7 @@ fun UpcomingScreen(
                             onClick = { onTaskClick(item.task) },
                             parentTitle = state.parentOf(item.task)?.title,
                             subtaskProgress = state.subtaskProgress(item.task.id),
+                            attachmentCount = state.attachmentCount(item.task.id),
                         )
                     }
                 }
