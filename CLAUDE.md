@@ -213,14 +213,18 @@ of ADR 0001 decision 9 is still outstanding.
                           and SupabaseConfig — a plain class, not a port (ADR 0002, decision 7)
 :ui           ui/         theme, shared components, ui/format/, one package per screen, CadenceViewModel
               ui/platform/ the ports the ViewModel needs from the machine — ReminderScheduler,
-                          BackupGateway, BackupFilePicker
+                          BackupGateway, BackupFilePicker, AttachmentFilePicker, AttachmentOpener
               ui/dnd/     the drag kernel (ADR 0003): DragModel.kt is pure — payloads, targets,
                           resolveDrop, hitTest — and DragAndDrop.kt is the gesture, ghost and caret
               ui/palette/ CommandPaletteModel — the fuzzy ranking behind Ctrl/Cmd+K, pure Kotlin
               ui/tags/    TagsScreen (manage), TagDetailScreen (one tag's list), the picker and
                           editor dialogs — tags hang off Projects, not the bottom bar (ADR 0004)
+              ui/attachments/ the card on the task detail screen, the paste-a-link dialog and the
+                          hand-rolled thumbnail decoder (docs/attachments-and-share.md, phase 2)
               composeResources/ strings.xml and values-de/, reached as Res.string.x
 :app-android  ui/         CadenceApp (NavHost, bottom bar, FAB), CadenceViewModelHost, the SAF picker
+              ui/attachments/ SafAttachmentFilePicker (OpenDocument)
+              data/attachments/AndroidAttachmentOpener (FileProvider + ACTION_VIEW)
               data/backup/BackupIo (SAF read/write)
               data/settings/SharedPrefsSettingsStore
               reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
@@ -235,13 +239,15 @@ of ADR 0001 decision 9 is still outstanding.
               data/       DesktopBackupIo (java.nio), DesktopSettingsStore
                           (JSON file), DesktopWorkspaceStore (window + sidebar, desktop-only),
                           DesktopBackupFilePicker (JFileChooser), DesktopReminderScheduler
-                          (coroutine poll + system tray, no AlarmManager here)
+                          (coroutine poll + system tray, no AlarmManager here),
+                          DesktopAttachments.kt (JFileChooser + java.awt.Desktop)
               platform/   PlatformDirs — the per-OS data directory (ADR 0001 §8)
 ```
 
 **`:ui` states its platform needs as ports too.** `:core` already treats storage that way; the
 same idea covers everything else the app touches that Android and the desktop do differently.
-`ui/platform/Ports.kt` declares `ReminderScheduler`, `BackupGateway` and `BackupFilePicker`, plus
+`ui/platform/Ports.kt` declares `ReminderScheduler`, `BackupGateway`, `BackupFilePicker`,
+`AttachmentFilePicker` and `AttachmentOpener`, plus
 `BackupTarget` — an opaque string that is a SAF content uri on Android and a plain absolute path
 on the desktop, which `:ui` only ever hands back. `:app-android` implements all three
 (`AlarmReminderScheduler`, `BackupIo`, `rememberSafBackupFilePicker`) and `:app-desktop`
@@ -497,6 +503,40 @@ than reaching for `!!`.
     and it writes it two ways: dragging, on the desktop only — `DragAndDropHost` wraps that
     window and nothing on Android, where a drag source would swallow the list's scroll and then
     do nothing — and **Move up / Move down** in the row menu, on both.
+- **An attachment is a local fact: the row is the truth, the blob is a cache**
+  (`docs/attachments-and-share.md`, phase 2). A LINK is a URL; a FILE points at bytes
+  content-addressed by SHA-256 under `filesDir/attachments/`. Neither is in the wire shape and
+  neither is in the backup file yet (the bundle is phase 4), so **no attachment write arms the
+  sync debounce** — there is nothing for a round to push. What that costs and what it buys:
+  - **A missing blob is a state to draw, never an error.** A backup restored without its files, a
+    second device, a process killed mid-copy: the row stays and the bytes are gone. The card
+    greys it, says "not on this device", and offers **Find file** —
+    `CadenceRepository.relocateAttachment` heals the row *in place* rather than adding a second
+    one, and accepts bytes that hash differently (a re-exported invoice is a different file with
+    the same meaning; refusing it would leave the row broken forever).
+  - **Presence is read once per emission, never per row per frame.**
+    `CadenceRepository.attachmentIndex` pairs the rows with the hashes on disk in one flow —
+    stating each distinct hash once, on the I/O dispatcher — and `CadenceUiState.isPresent`
+    answers from that set. A screen that touched the filesystem while drawing would stat the same
+    directory a hundred times a second. The pair travels as one value so it can never be drawn
+    half-updated.
+  - **Blob I/O is dispatched by the repository, because `BlobStore` is plain `java.io`.** Every
+    other port dispatches its own; this one is handed `ioDispatcher` instead, since a 25 MB copy
+    on Android's ViewModel scope is the main thread. Tests pass `Dispatchers.Unconfined` for the
+    same reason the SQLDelight stores take one — a real dispatcher inside `attachmentIndex`'s
+    `flowOn` puts the state flow on a thread `runTest`'s virtual clock does not control.
+  - **Thumbnails are hand-rolled and bounded, not Coil.** `ByteArray.decodeToImageBitmap()` is
+    multiplatform and already on the classpath (the string resources use the same artifact), so
+    `:ui` needs no `expect`/`actual` for one call. It has no `inSampleSize`, so the decoder
+    refuses a source over 4 MB and the row draws its mime icon instead; decoded squares sit in a
+    byte-bounded LRU.
+  - **Android hands a blob out through a `FileProvider`, and only the blob directory.** A file
+    under `filesDir` is unreadable to every other app and a `file://` uri throws since Android 7.
+    `res/xml/attachment_paths.xml` declares `attachments/` alone — not `files/`, which holds the
+    database, and not the staging directory. The desktop uses `java.awt.Desktop`, guarded twice,
+    since a headless run opens nothing and says so.
+  - **A recurring task hands its attachments to the next occurrence**, with the checklist — the
+    rows are cloned, the bytes are not, because two rows naming one hash *is* the dedupe.
 - **A fresh install starts empty.** There is no seeding: the first screen a new user sees is the
   empty state, not sample content. Anything that needs a populated app (screenshots, a demo) is
   built by importing a backup file, not by putting fixtures back into the app.
