@@ -612,6 +612,19 @@ class CadenceViewModel(
         armSync()
     }
 
+    /**
+     * Puts a label on a task, keeping the ones it has — what dropping a row on a tag does.
+     *
+     * Add-only rather than [toggleTag] deliberately, even though `resolveDrop` already refuses a
+     * label the task wears: the row the drag started from is a snapshot, and a toggle resolving
+     * against a task that gained the label meanwhile would *remove* it. A drag is an act of
+     * adding, and this method cannot do anything else.
+     */
+    fun applyTag(task: Task, tagId: String) = scope.launch {
+        repository.setTaskTags(task, task.tagIds + tagId)
+        armSync()
+    }
+
     fun snooze(task: Task, days: Long = 1L) = scope.launch {
         repository.shiftDueDate(task, days)
         armSync()
@@ -691,6 +704,11 @@ class CadenceViewModel(
                 setDueDate(task, intent.date)
             }
 
+            is DropIntent.TagTask -> {
+                val task = state.value.tasks.firstOrNull { it.id == intent.taskId } ?: return
+                applyTag(task, intent.tagId)
+            }
+
             is DropIntent.NestProject -> {
                 val project = state.value.project(intent.projectId) ?: return
                 editProject(project, project.name, project.colorHex, intent.parentId)
@@ -708,6 +726,8 @@ class CadenceViewModel(
                 repository.reorderTasks(intent.orderedIds)
                 armSync()
             }
+
+            is DropIntent.ReorderTags -> reorderTags(intent.orderedIds)
 
             is DropIntent.ReorderProjects -> reorderProjects(intent.parentId, intent.orderedIds)
 

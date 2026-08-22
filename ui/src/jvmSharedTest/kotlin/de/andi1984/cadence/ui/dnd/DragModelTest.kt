@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.CadenceUiState
 import org.junit.Assert.assertEquals
@@ -25,7 +26,15 @@ class DragModelTest {
         projectId: String? = null,
         sectionId: String? = null,
         due: LocalDate? = null,
-    ) = Task(id = id, title = id, projectId = projectId, sectionId = sectionId, dueDate = due)
+        tagIds: List<String> = emptyList(),
+    ) = Task(
+        id = id,
+        title = id,
+        projectId = projectId,
+        sectionId = sectionId,
+        dueDate = due,
+        tagIds = tagIds,
+    )
 
     private fun project(id: String, parentId: String? = null) =
         Project(id = id, name = id, parentId = parentId)
@@ -38,6 +47,10 @@ class DragModelTest {
             project("childless"),
         ),
         sections = listOf(Section(id = "band", projectId = "work", name = "Band")),
+        tags = listOf(
+            Tag(id = "errand", name = "Errand"),
+            Tag(id = "waiting", name = "Waiting", sortOrder = 1),
+        ),
     )
 
     private fun drop(payload: DragPayload, target: DropTarget) = resolveDrop(payload, target, state)
@@ -280,6 +293,74 @@ class DragModelTest {
         assertEquals(
             DropIntent.Rejected,
             drop(DragPayload.SectionDrag(band), DropTarget.IntoProject("home")),
+        )
+    }
+
+    // ── A tag ────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `a task dropped on a tag row is labelled, keeping the labels it has`() {
+        val intent = drop(
+            DragPayload.TaskDrag(task("t", tagIds = listOf("waiting"))),
+            DropTarget.IntoTag("errand"),
+        )
+
+        // The intent names one tag, not a list: the ViewModel adds it to what the task already
+        // wears, so a drag can never be the thing that dropped a label.
+        assertEquals(DropIntent.TagTask("t", "errand"), intent)
+    }
+
+    @Test
+    fun `a task dropped on a tag it already wears does nothing`() {
+        val intent = drop(
+            DragPayload.TaskDrag(task("t", tagIds = listOf("errand"))),
+            DropTarget.IntoTag("errand"),
+        )
+
+        // Not a toggle: a drop that removed the label would make one gesture do two opposite
+        // things depending on state the pointer cannot see.
+        assertEquals(DropIntent.Rejected, intent)
+    }
+
+    @Test
+    fun `a tag dropped into a gap writes the new order`() {
+        val intent = drop(
+            DragPayload.TagDrag(Tag(id = "waiting", name = "Waiting")),
+            DropTarget.Between(OrderedList.Tags, index = 0, orderedIds = listOf("errand", "waiting")),
+        )
+
+        assertEquals(DropIntent.ReorderTags(listOf("waiting", "errand")), intent)
+    }
+
+    @Test
+    fun `a tag dropped where it already sits does nothing`() {
+        val intent = drop(
+            DragPayload.TagDrag(Tag(id = "errand", name = "Errand")),
+            DropTarget.Between(OrderedList.Tags, index = 0, orderedIds = listOf("errand", "waiting")),
+        )
+
+        assertEquals(DropIntent.Rejected, intent)
+    }
+
+    @Test
+    fun `a tag dropped on a project, a band or another tag list does nothing`() {
+        val dragged = DragPayload.TagDrag(Tag(id = "errand", name = "Errand"))
+
+        // A tag holds nothing, so there is nowhere to drop one *into* — including onto a tag row,
+        // where the only possible meaning would be a merge (ADR 0004, decision 1).
+        assertEquals(DropIntent.Rejected, drop(dragged, DropTarget.IntoProject("home")))
+        assertEquals(DropIntent.Rejected, drop(dragged, DropTarget.IntoTag("waiting")))
+        assertEquals(
+            DropIntent.Rejected,
+            drop(dragged, DropTarget.Between(OrderedList.Projects(null), 0, listOf("home"))),
+        )
+    }
+
+    @Test
+    fun `a project dropped on a tag does nothing`() {
+        assertEquals(
+            DropIntent.Rejected,
+            drop(DragPayload.ProjectDrag(project("home")), DropTarget.IntoTag("errand")),
         )
     }
 

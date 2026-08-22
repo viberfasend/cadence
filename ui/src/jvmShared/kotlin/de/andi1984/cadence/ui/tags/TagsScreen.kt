@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -34,6 +34,12 @@ import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.EmptyState
 import de.andi1984.cadence.ui.components.ScreenHeader
 import de.andi1984.cadence.ui.components.TagChip
+import de.andi1984.cadence.ui.dnd.DragPayload
+import de.andi1984.cadence.ui.dnd.DropCaret
+import de.andi1984.cadence.ui.dnd.DropTarget
+import de.andi1984.cadence.ui.dnd.OrderedList
+import de.andi1984.cadence.ui.dnd.cadenceDragSource
+import de.andi1984.cadence.ui.dnd.dragSourceAlpha
 import de.andi1984.cadence.ui.resources.Res
 import de.andi1984.cadence.ui.resources.*
 import org.jetbrains.compose.resources.pluralStringResource
@@ -55,9 +61,20 @@ fun TagsScreen(
     onCreateTag: (name: String, colorHex: String) -> Unit,
     onEditTag: (Tag, name: String, colorHex: String) -> Unit,
     onDeleteTag: (Tag) -> Unit,
+    onReorder: (List<String>) -> Unit,
+    /**
+     * Whether rows can be dragged into a new order.
+     *
+     * The one platform flag on this screen, and it exists because the drag kernel needs a host:
+     * `DragAndDropHost` wraps the desktop window and nothing on Android, so a drag source there
+     * would be a gesture that swallows the list's scroll and then does nothing. Android reorders
+     * from the row menu instead, which is the same write either way.
+     */
+    reorderable: Boolean = false,
 ) {
     var editing by remember { mutableStateOf<TagDialogState?>(null) }
     var deleting by remember { mutableStateOf<Tag?>(null) }
+    val tagIds = state.tags.map { it.id }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -91,16 +108,45 @@ fun TagsScreen(
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            items(state.tags, key = { it.id }) { tag ->
-                TagRow(
-                    tag = tag,
-                    // The total, not the open count: this screen is about the label itself, and a
-                    // tag whose work is all finished is still a tag someone has to decide about.
-                    taskCount = state.tasksWithTag(tag.id).size,
-                    onClick = { onTagClick(tag) },
-                    onEdit = { editing = TagDialogState.Edit(tag) },
-                    onDelete = { deleting = tag },
-                )
+            // Hand-ordered, like the project tree and a project's bands: `sortOrder` is a column
+            // the user writes, and this screen is the only place they can write it.
+            itemsIndexed(state.tags, key = { _, tag -> tag.id }) { index, tag ->
+                Column {
+                    if (reorderable) {
+                        DropCaret(
+                            key = "tags:$index",
+                            target = DropTarget.Between(OrderedList.Tags, index, tagIds),
+                        )
+                    }
+                    TagRow(
+                        tag = tag,
+                        reorderable = reorderable,
+                        // The total, not the open count: this screen is about the label itself,
+                        // and a tag whose work is all finished is still a tag someone has to
+                        // decide about.
+                        taskCount = state.tasksWithTag(tag.id).size,
+                        onClick = { onTagClick(tag) },
+                        onEdit = { editing = TagDialogState.Edit(tag) },
+                        onDelete = { deleting = tag },
+                        // Null at the ends, so the menu never offers a move that would do
+                        // nothing — the same reason `resolveDrop` refuses a drop onto the gap a
+                        // row already sits in.
+                        onMoveUp = { onReorder(tagIds.swapping(index, index - 1)) }
+                            .takeIf { index > 0 },
+                        onMoveDown = { onReorder(tagIds.swapping(index, index + 1)) }
+                            .takeIf { index < tagIds.lastIndex },
+                    )
+                }
+            }
+
+            // The gap below the last row, which is the only way to drag a tag to the end.
+            if (reorderable) {
+                item {
+                    DropCaret(
+                        key = "tags:end",
+                        target = DropTarget.Between(OrderedList.Tags, state.tags.size, tagIds),
+                    )
+                }
             }
         }
     }
@@ -139,14 +185,21 @@ private sealed interface TagDialogState {
 private fun TagRow(
     tag: Tag,
     taskCount: Int,
+    reorderable: Boolean,
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onMoveUp: (() -> Unit)?,
+    onMoveDown: (() -> Unit)?,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // The ghost is the chip rather than the whole row: what is being moved is the label,
+            // and the count beside it belongs to the list, not to the thing in your hand.
+            .cadenceDragSource(DragPayload.TagDrag(tag).takeIf { reorderable }) { TagChip(tag = tag) }
+            .dragSourceAlpha(tag.id)
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surfaceContainer)
             .clickable(onClick = onClick)
@@ -183,7 +236,33 @@ private fun TagRow(
                         onDelete()
                     },
                 )
+                onMoveUp?.let { move ->
+                    DropdownMenuItem(
+                        text = { Text(stringResource(Res.string.tags_move_up)) },
+                        onClick = {
+                            menuOpen = false
+                            move()
+                        },
+                    )
+                }
+                onMoveDown?.let { move ->
+                    DropdownMenuItem(
+                        text = { Text(stringResource(Res.string.tags_move_down)) },
+                        onClick = {
+                            menuOpen = false
+                            move()
+                        },
+                    )
+                }
             }
         }
     }
 }
+
+/** [this] with the entries at [a] and [b] exchanged — one step of the row menu's reordering. */
+private fun List<String>.swapping(a: Int, b: Int): List<String> =
+    toMutableList().apply {
+        val held = this[a]
+        this[a] = this[b]
+        this[b] = held
+    }

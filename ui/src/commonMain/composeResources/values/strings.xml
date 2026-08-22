@@ -251,6 +251,10 @@
     <string name="tags_new">New tag</string>
     <string name="tags_edit">Edit tag</string>
     <string name="tags_delete">Delete tag</string>
+    <!-- Row menu: the keyboard-free half of reordering, and the only half on Android,
+         where no drag host exists. -->
+    <string name="tags_move_up">Move up</string>
+    <string name="tags_move_down">Move down</string>
     <string name="tags_dialog_name">Tag name</string>
     <string name="tags_dialog_color">Colour</string>
     <!-- %1$s is the tag name. -->
