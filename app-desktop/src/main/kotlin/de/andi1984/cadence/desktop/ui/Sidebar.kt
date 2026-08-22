@@ -69,7 +69,8 @@ import java.time.LocalDate
  * not what a desktop application's left-hand side is for. This is: the views, then the whole
  * project tree with its counts, resizable, foldable, and — the part a rail could never be — a
  * **drop target on every row**. Dragging a task onto a project files it, onto Inbox unfiles it,
- * onto Today dates it; dragging a project onto another nests it, and into a gap orders it.
+ * onto Today dates it, onto a tag labels it; dragging a project onto another nests it, and into a
+ * gap orders it.
  *
  * Every rule about what may land where is `resolveDrop`'s (`:ui`'s `dnd/DragModel.kt`); this file
  * only says which target each row registers.
@@ -268,6 +269,11 @@ fun CadenceSidebar(
                                 count = state.openCountForTag(tag.id),
                                 selected = current == Route.TagDetail(tag.id),
                                 onClick = { onOpenTag(tag) },
+                                // Dropping a task here labels it, and keeps the labels it has —
+                                // `resolveDrop` refuses the drop when it already wears this one,
+                                // so the row does not light up for a gesture that changes nothing.
+                                dropKey = "tag:${tag.id}",
+                                dropTarget = DropTarget.IntoTag(tag.id),
                             )
                         }
                     }

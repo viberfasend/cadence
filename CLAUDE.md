@@ -194,7 +194,8 @@ same callbacks; only the chrome around them and how a route is stored differ. Qu
 driven by composable state on both, not a route.
 
 The desktop chrome is a **sidebar** (`ui/Sidebar.kt`) rather than a rail: the views plus the whole
-project tree, resizable, foldable, and a drop target on every row. At 1000dp and up the window
+project tree and the tag list, resizable, foldable, and a drop target on every row — a task
+dropped on a tag row is labelled with it. At 1000dp and up the window
 draws **two panes** and a detail route fills the second one instead of pushing; below that it
 pushes as before, and resizing across the threshold moves an open detail between the two rather
 than dropping it (ADR 0003, decision 7). Everything ADR 0001 §8 left for later — the detail pane,
@@ -474,12 +475,28 @@ than reaching for `!!`.
     the tasks naming the loser, which is the O(n) write the whole design avoids.
   - **Quick add takes `@handle`, and an unmatched handle creates the tag** — unlike `#project`,
     which only ever selects. Tags are also the one token kind that repeats, and the `@` must start
-    a word (checked in Kotlin, not with a `\b`; see Localisation).
+    a word (checked in Kotlin, not with a `\b`; see Localisation). Because an unmatched handle
+    *creates*, `matchingHandle`'s prefix pass answers only when **exactly one** tag matches
+    (`singleOrNull`): with `@workout` and `@workshop` both present, a generous `@work` would label
+    the task wrongly and leave a tag actually called *work* unreachable from that line forever.
   - **A label on a parent does not reach its steps**, unlike a project or a section. A recurring
     task *does* hand its labels to the next occurrence, with the checklist and the attachments.
   - **Where they are reached from**: the Projects screen on both shells, plus the desktop sidebar
     and `Ctrl`/`Cmd`+`K` under an `@` prefix. Deliberately not a fifth bottom-bar destination —
     tags find work, they are not a place it lives.
+  - **Search reads labels, and a leading `@` narrows to them** (`TaskLists.kt`'s `searchList`).
+    That is how a phone reaches a tag by typing at all — the palette that answers `@` is the
+    desktop's. Without the prefix, title, notes and labels are all matched, since "errand" and
+    "@errand" are the same thought.
+  - **A tag is dropped *onto*, never *into*.** `DropTarget.IntoTag` applies a label and keeps the
+    ones the task has — add-only, so `CadenceViewModel.applyTag` exists beside `toggleTag`: the
+    dragged row is a snapshot, and a toggle would take a label back off a task that gained it
+    meanwhile. Dragging a *tag* only ever reorders (`OrderedList.Tags`), because a tag holds
+    nothing and dropping one on another could only mean "merge", which is the O(n) rewrite the
+    packed column exists to avoid. The Tags screen is the only place `sortOrder` can be written,
+    and it writes it two ways: dragging, on the desktop only — `DragAndDropHost` wraps that
+    window and nothing on Android, where a drag source would swallow the list's scroll and then
+    do nothing — and **Move up / Move down** in the row menu, on both.
 - **A fresh install starts empty.** There is no seeding: the first screen a new user sees is the
   empty state, not sample content. Anything that needs a populated app (screenshots, a demo) is
   built by importing a backup file, not by putting fixtures back into the app.

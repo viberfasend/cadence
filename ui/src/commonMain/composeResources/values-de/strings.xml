@@ -240,6 +240,8 @@
     <string name="tags_new">Neues Tag</string>
     <string name="tags_edit">Tag bearbeiten</string>
     <string name="tags_delete">Tag löschen</string>
+    <string name="tags_move_up">Nach oben</string>
+    <string name="tags_move_down">Nach unten</string>
     <string name="tags_dialog_name">Name des Tags</string>
     <string name="tags_dialog_color">Farbe</string>
     <!-- %1$s ist der Tag-Name. -->

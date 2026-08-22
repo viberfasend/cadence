@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.CadenceUiState
 import java.time.LocalDate
@@ -38,6 +39,12 @@ sealed interface DragPayload {
     data class SectionDrag(val section: Section) : DragPayload {
         override val id: String get() = section.id
     }
+
+    /** A tag row from the Tags screen. It only ever reorders — a tag holds nothing, so there is
+     *  nowhere to drop one *into*. */
+    data class TagDrag(val tag: Tag) : DragPayload {
+        override val id: String get() = tag.id
+    }
 }
 
 /** One of the app's hand-ordered lists — the bucket a [DropTarget.Between] inserts into. */
@@ -60,6 +67,9 @@ sealed interface OrderedList {
 
     /** One project's bands. */
     data class Sections(val projectId: String) : OrderedList
+
+    /** Every tag, in the one flat list they live in — no parent and no bucket to name. */
+    data object Tags : OrderedList
 }
 
 /**
@@ -77,6 +87,11 @@ sealed interface DropTarget {
 
     /** A day header in Upcoming, or a "no date" affordance (`date == null`). */
     data class OntoDate(val date: LocalDate?) : DropTarget
+
+    /** A tag row — in the desktop sidebar, or anywhere else one is drawn. Dropping a task here
+     *  *applies* the label and never removes it: a drag is an act of adding, and a gesture that
+     *  did one thing or its opposite depending on invisible state is not one anybody can aim. */
+    data class IntoTag(val tagId: String) : DropTarget
 
     /** The gap between two rows of [list]: the payload lands at [index] of [orderedIds].
      *
@@ -98,6 +113,9 @@ sealed interface DropIntent {
 
     data class RescheduleTask(val taskId: String, val date: LocalDate?) : DropIntent
 
+    /** Put [tagId] on [taskId], keeping every label it already has. */
+    data class TagTask(val taskId: String, val tagId: String) : DropIntent
+
     /** Nest a project under [parentId], or (null) lift it back to the root list. */
     data class NestProject(val projectId: String, val parentId: String?) : DropIntent
 
@@ -113,6 +131,8 @@ sealed interface DropIntent {
     data class ReorderProjects(val parentId: String?, val orderedIds: List<String>) : DropIntent
 
     data class ReorderSections(val projectId: String, val orderedIds: List<String>) : DropIntent
+
+    data class ReorderTags(val orderedIds: List<String>) : DropIntent
 
     /** Nothing would change, or the drop is not allowed. A zone resolving to this is not
      *  highlighted, so an impossible drag never *looks* possible. */
@@ -131,6 +151,7 @@ fun resolveDrop(payload: DragPayload, target: DropTarget, state: CadenceUiState)
         is DragPayload.TaskDrag -> resolveTaskDrop(payload.task, target)
         is DragPayload.ProjectDrag -> resolveProjectDrop(payload.project, target, state)
         is DragPayload.SectionDrag -> resolveSectionDrop(payload.section, target)
+        is DragPayload.TagDrag -> resolveTagDrop(payload.tag, target)
     }
 
 private fun resolveTaskDrop(task: Task, target: DropTarget): DropIntent =
@@ -154,6 +175,12 @@ private fun resolveTaskDrop(task: Task, target: DropTarget): DropIntent =
             if (task.dueDate == target.date) DropIntent.Rejected
             else DropIntent.RescheduleTask(task.id, target.date)
 
+        // A label the task already wears is a drop that would change nothing, so the row does not
+        // light up — the same rule every branch here follows.
+        is DropTarget.IntoTag ->
+            if (target.tagId in task.tagIds) DropIntent.Rejected
+            else DropIntent.TagTask(task.id, target.tagId)
+
         is DropTarget.Between -> when (val list = target.list) {
             is OrderedList.Tasks -> {
                 val move = if (task.projectId != list.projectId || task.sectionId != list.sectionId) {
@@ -171,7 +198,8 @@ private fun resolveTaskDrop(task: Task, target: DropTarget): DropIntent =
                 if (ordered == null) DropIntent.Rejected else DropIntent.ReorderTasks(ordered)
             }
 
-            is OrderedList.Projects, is OrderedList.Sections -> DropIntent.Rejected
+            is OrderedList.Projects, is OrderedList.Sections, OrderedList.Tags ->
+                DropIntent.Rejected
         }
     }
 
@@ -206,7 +234,8 @@ private fun resolveProjectDrop(
         }
     }
 
-    is DropTarget.IntoSection, is DropTarget.OntoDate -> DropIntent.Rejected
+    is DropTarget.IntoSection, is DropTarget.OntoDate, is DropTarget.IntoTag ->
+        DropIntent.Rejected
 }
 
 private fun resolveSectionDrop(section: Section, target: DropTarget): DropIntent {
@@ -216,6 +245,20 @@ private fun resolveSectionDrop(section: Section, target: DropTarget): DropIntent
     val ordered = insertAt(between.orderedIds, section.id, between.index)
         ?: return DropIntent.Rejected
     return DropIntent.ReorderSections(list.projectId, ordered)
+}
+
+/**
+ * A tag row dragged: order, and nothing else.
+ *
+ * There is no `IntoTag` case here on purpose. A tag holds no tasks — membership is the task's
+ * column (ADR 0004, decision 1) — so dropping one tag on another could only ever mean "merge
+ * them", which is the O(n) rewrite of every labelled task that decision exists to avoid.
+ */
+private fun resolveTagDrop(tag: Tag, target: DropTarget): DropIntent {
+    val between = target as? DropTarget.Between ?: return DropIntent.Rejected
+    if (between.list !is OrderedList.Tags) return DropIntent.Rejected
+    val ordered = insertAt(between.orderedIds, tag.id, between.index) ?: return DropIntent.Rejected
+    return DropIntent.ReorderTags(ordered)
 }
 
 /**

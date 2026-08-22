@@ -603,6 +603,38 @@ class CadenceViewModelCrudTest {
     }
 
     /**
+     * What dropping a task on a tag row does, end to end.
+     *
+     * Add-only, deliberately: the dragged row is a snapshot, and a toggle resolving against a task
+     * that gained the label meanwhile would take it back off. `resolveDrop` already refuses the
+     * drop when the snapshot wears it, so this path can only ever add.
+     */
+    @Test
+    fun `a task dropped on a tag keeps the labels it already had`() = runTest {
+        tagStore.put(Tag(id = "g1", name = "Errand"))
+        tagStore.put(Tag(id = "g2", name = "Waiting"))
+        taskStore.seed(listOf(task("t1").copy(tagIds = listOf("g2"))))
+        val viewModel = viewModel()
+
+        viewModel.applyDropIntent(DropIntent.TagTask("t1", "g1"))
+        runCurrent()
+
+        assertEquals(listOf("g2", "g1"), stored("t1").tagIds)
+    }
+
+    @Test
+    fun `dragging a tag into a gap writes the new order`() = runTest {
+        tagStore.put(Tag(id = "g1", name = "Errand", sortOrder = 0))
+        tagStore.put(Tag(id = "g2", name = "Waiting", sortOrder = 1))
+        val viewModel = viewModel()
+
+        viewModel.applyDropIntent(DropIntent.ReorderTags(listOf("g2", "g1")))
+        runCurrent()
+
+        assertEquals(listOf("g2", "g1"), tagStore.rows().map { it.id })
+    }
+
+    /**
      * Quick-add's one asymmetry with `#project`: a handle that matched nothing creates the tag
      * before the task, so the line "Post the parcel @waiting" leaves both behind.
      */

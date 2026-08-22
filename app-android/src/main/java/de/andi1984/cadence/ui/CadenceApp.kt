@@ -255,6 +255,7 @@ fun CadenceApp(
                         onCreateTag = viewModel::addTag,
                         onEditTag = viewModel::editTag,
                         onDeleteTag = viewModel::deleteTag,
+                        onReorder = viewModel::reorderTags,
                     )
                 }
                 composable(Routes.TAG) { entry ->

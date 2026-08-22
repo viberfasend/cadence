@@ -359,6 +359,10 @@ private fun RouteContent(
             onCreateTag = viewModel::addTag,
             onEditTag = viewModel::editTag,
             onDeleteTag = viewModel::deleteTag,
+            onReorder = viewModel::reorderTags,
+            // The window is wrapped in a DragAndDropHost, so rows here can be dragged; the
+            // Android shell has no host and reorders from the row menu.
+            reorderable = true,
         )
 
         is Route.TagDetail -> TagDetailScreen(
