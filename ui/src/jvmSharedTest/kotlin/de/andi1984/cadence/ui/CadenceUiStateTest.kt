@@ -316,7 +316,18 @@ class CadenceUiStateTest {
     }
 
     @Test
-    fun `a project cannot nest under itself or under one of its own children`() {
+    fun `a childless project cannot nest under itself`() {
+        val state = CadenceUiState(
+            projects = listOf(project("root"), project("other")),
+        )
+
+        val candidates = state.nestingCandidates(exclude = state.projects[0]).map { it.id }
+
+        assertEquals(listOf("other"), candidates)
+    }
+
+    @Test
+    fun `a project that already has subprojects offers no nesting candidates`() {
         val state = CadenceUiState(
             projects = listOf(
                 project("root"),
@@ -327,7 +338,7 @@ class CadenceUiStateTest {
 
         val candidates = state.nestingCandidates(exclude = state.projects[0]).map { it.id }
 
-        assertEquals(listOf("other"), candidates)
+        assertEquals(emptyList<String>(), candidates)
     }
 
     // ── Derived indexes ──────────────────────────────────────────────────────────────

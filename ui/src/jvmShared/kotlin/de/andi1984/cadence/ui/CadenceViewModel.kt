@@ -310,10 +310,13 @@ data class CadenceUiState(
 
     /**
      * Projects that can be parents for a new project.
-     * A project cannot be nested under itself or any of its descendants.
+     * A project cannot be nested under itself or any of its descendants, and a project that
+     * already has subprojects cannot be nested under anything else — projects nest exactly
+     * one level.
      */
     fun nestingCandidates(exclude: Project?): List<Project> {
         if (exclude == null) return projects.filter { it.parentId == null }
+        if (projects.any { it.parentId == exclude.id }) return emptyList()
 
         // Find all descendants of the excluded project
         val descendants = mutableSetOf<String>()
