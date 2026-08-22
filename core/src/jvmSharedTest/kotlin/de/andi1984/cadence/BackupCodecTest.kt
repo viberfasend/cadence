@@ -11,6 +11,7 @@ import de.andi1984.cadence.domain.model.RecurrenceMode
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -328,8 +329,8 @@ class BackupCodecTest {
             {
               "format": "cadence.backup",
               "version": 1,
-              "tags": ["work"],
-              "tasks": [{"id": "1", "title": "Tagged", "tagIds": [4]}]
+              "colorTheme": "midnight",
+              "tasks": [{"id": "1", "title": "Tagged", "energyLevel": 4}]
             }
         """.trimIndent()
 
@@ -357,5 +358,67 @@ class BackupCodecTest {
         val result = BackupCodec.decode("""{"format": "cadence.backup", "version": 3}""")
 
         assertEquals(BackupError.NEWER_VERSION, (result as BackupReadResult.Failed).reason)
+    }
+
+    // ── Tags ───────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `tags and the ids on a task survive a round trip`() {
+        val tag = Tag(id = "g1", name = "Errand", colorHex = "#BA1A1A", sortOrder = 3)
+        val labelled = task.copy(tagIds = listOf("g1"))
+
+        val restored = roundTrip(
+            BackupSnapshot(projects = listOf(project), tags = listOf(tag), tasks = listOf(labelled)),
+        )
+
+        assertEquals(listOf(tag), restored.tags)
+        assertEquals(listOf("g1"), restored.tasks.single().tagIds)
+    }
+
+    /**
+     * The link-repair rule, applied to labels: a `tagIds` entry naming nothing would be invisible
+     * in this app and would travel to the other device as a phantom.
+     */
+    @Test
+    fun `a tag id the file does not define is dropped from the task`() {
+        val restored = roundTrip(
+            BackupSnapshot(
+                projects = listOf(project),
+                tasks = listOf(task.copy(tagIds = listOf("gone"))),
+            ),
+        )
+
+        assertEquals(emptyList<String>(), restored.tasks.single().tagIds)
+    }
+
+    /** Additive, so the version does not move — an older install must not refuse a whole file
+     *  over a key it can ignore. */
+    @Test
+    fun `a file written before tags existed still reads`() {
+        val json = """
+            {"format":"cadence.backup","version":2,
+             "projects":[],
+             "tasks":[{"id":"1","title":"Water the plants"}]}
+        """.trimIndent()
+
+        val result = BackupCodec.decode(json)
+
+        val snapshot = (result as BackupReadResult.Ok).snapshot
+        assertEquals(emptyList<Tag>(), snapshot.tags)
+        assertEquals(emptyList<String>(), snapshot.tasks.single().tagIds)
+    }
+
+    @Test
+    fun `a tombstoned tag is filtered out on import, like every other record`() {
+        val restored = roundTrip(
+            BackupSnapshot(
+                tags = listOf(
+                    Tag(id = "g1", name = "Errand"),
+                    Tag(id = "g2", name = "Gone", deletedAt = exportedAt),
+                ),
+            ),
+        )
+
+        assertEquals(listOf("g1"), restored.tags.map { it.id })
     }
 }

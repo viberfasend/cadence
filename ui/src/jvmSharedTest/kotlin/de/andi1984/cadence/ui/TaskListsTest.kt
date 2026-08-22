@@ -3,6 +3,7 @@ package de.andi1984.cadence.ui
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.settings.CadenceSettings
 import de.andi1984.cadence.ui.settings.SortMode
@@ -39,12 +40,14 @@ class TaskListsTest {
         done: Boolean = false,
         priority: Priority = Priority.DEFAULT,
         sortOrder: Int = 0,
+        tagIds: List<String> = emptyList(),
     ) = Task(
         id = id,
         title = title,
         notes = notes,
         projectId = projectId,
         sectionId = sectionId,
+        tagIds = tagIds,
         parentId = parentId,
         dueDate = due,
         completedAt = if (done) Instant.EPOCH else null,
@@ -56,12 +59,14 @@ class TaskListsTest {
         tasks: List<Task> = emptyList(),
         projects: List<Project> = emptyList(),
         sections: List<Section> = emptyList(),
+        tags: List<Tag> = emptyList(),
         showCompleted: Boolean = false,
         sortMode: SortMode = SortMode.IMPORTANCE,
     ) = CadenceUiState(
         tasks = tasks,
         projects = projects,
         sections = sections,
+        tags = tags,
         settings = CadenceSettings(showCompleted = showCompleted, sortMode = sortMode),
     )
 
@@ -334,4 +339,67 @@ class TaskListsTest {
 
     private fun section(id: String, projectId: String, sortOrder: Int = 0) =
         Section(id = id, projectId = projectId, name = id, sortOrder = sortOrder)
+
+    // ── A tag's list ─────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `a tag's list is one band, across projects`() {
+        val state = state(
+            tasks = listOf(
+                task("a", projectId = "p1", tagIds = listOf("g1")),
+                task("b", projectId = "p2", tagIds = listOf("g1")),
+                task("c", projectId = "p1"),
+            ),
+            projects = listOf(Project(id = "p1", name = "One"), Project(id = "p2", name = "Two")),
+            tags = listOf(Tag(id = "g1", name = "Errand")),
+        )
+
+        val list = state.taskList(TaskView.Tag("g1"), today)
+
+        assertEquals(1, list.bands.size)
+        assertEquals(listOf("a", "b"), list.ids())
+    }
+
+    /**
+     * `showCompleted` applies, unlike Search: a tag list is a place you work from, so a finished
+     * errand should leave it the way it leaves the Inbox.
+     */
+    @Test
+    fun `a done task leaves a tag's list unless showCompleted is on`() {
+        val tasks = listOf(
+            task("open", tagIds = listOf("g1")),
+            task("done", tagIds = listOf("g1"), done = true),
+        )
+
+        assertEquals(
+            listOf("open"),
+            state(tasks = tasks).taskList(TaskView.Tag("g1"), today).ids(),
+        )
+        assertEquals(
+            listOf("open", "done"),
+            state(tasks = tasks, showCompleted = true).taskList(TaskView.Tag("g1"), today).ids(),
+        )
+    }
+
+    /** Like the container views and unlike Today: a daily `@errand` must not stack up a
+     *  struck-through copy per day in a list that is not scoped to a date. */
+    @Test
+    fun `a replaced recurring occurrence is dropped from a tag's list`() {
+        val state = state(
+            tasks = listOf(
+                task("first", tagIds = listOf("g1"), done = true),
+                task("second", tagIds = listOf("g1")).copy(spawnedFromId = "first"),
+            ),
+            showCompleted = true,
+        )
+
+        assertEquals(listOf("second"), state.taskList(TaskView.Tag("g1"), today).ids())
+    }
+
+    @Test
+    fun `a tag nothing wears draws an empty list rather than everything`() {
+        val state = state(tasks = listOf(task("a")))
+
+        assertTrue(state.taskList(TaskView.Tag("g1"), today).isEmpty)
+    }
 }

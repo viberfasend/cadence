@@ -2,6 +2,7 @@ package de.andi1984.cadence.ui
 
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -33,11 +34,13 @@ class CadenceUiStateTest {
         due: LocalDate? = null,
         done: Boolean = false,
         sortOrder: Int = 0,
+        tagIds: List<String> = emptyList(),
     ) = Task(
         id = id,
         title = title,
         projectId = projectId,
         sectionId = sectionId,
+        tagIds = tagIds,
         parentId = parentId,
         spawnedFromId = spawnedFromId,
         dueDate = due,
@@ -50,6 +53,9 @@ class CadenceUiStateTest {
 
     private fun section(id: String, projectId: String, name: String = id, sortOrder: Int = 0) =
         Section(id = id, projectId = projectId, name = name, sortOrder = sortOrder)
+
+    private fun tag(id: String, name: String = id, sortOrder: Int = 0) =
+        Tag(id = id, name = name, sortOrder = sortOrder)
 
     private fun List<Task>.ids() = map { it.id }
 
@@ -375,5 +381,80 @@ class CadenceUiStateTest {
 
         assertEquals(listOf("a"), before.tasksIn("root").ids())
         assertEquals(listOf("a", "b"), after.tasksIn("root").ids())
+    }
+
+    // ── Tags ───────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `tagsOf returns the task's labels in the order it lists them`() {
+        val state = CadenceUiState(
+            tasks = listOf(task("a", tagIds = listOf("g2", "g1"))),
+            tags = listOf(tag("g1"), tag("g2")),
+        )
+
+        assertEquals(listOf("g2", "g1"), state.tagsOf(state.tasks.single()).map { it.id })
+    }
+
+    /**
+     * The read side of the packed column: deleting a tag writes one row and leaves the ids behind,
+     * so this is where a link to a tag that is gone is repaired.
+     */
+    @Test
+    fun `an id no live tag answers to is dropped rather than drawn`() {
+        val state = CadenceUiState(
+            tasks = listOf(task("a", tagIds = listOf("g1", "deleted"))),
+            tags = listOf(tag("g1")),
+        )
+
+        assertEquals(listOf("g1"), state.tagsOf(state.tasks.single()).map { it.id })
+    }
+
+    /** Over every row, not just the roots: a labelled subtask is work wearing that label. */
+    @Test
+    fun `tasksWithTag finds subtasks as well as roots`() {
+        val state = CadenceUiState(
+            tasks = listOf(
+                task("parent", tagIds = listOf("g1")),
+                task("step", parentId = "parent", tagIds = listOf("g1")),
+                task("other"),
+            ),
+            tags = listOf(tag("g1")),
+        )
+
+        assertEquals(listOf("parent", "step"), state.tasksWithTag("g1").ids())
+    }
+
+    @Test
+    fun `the sidebar count is open work only`() {
+        val state = CadenceUiState(
+            tasks = listOf(
+                task("a", tagIds = listOf("g1")),
+                task("b", tagIds = listOf("g1"), done = true),
+            ),
+            tags = listOf(tag("g1")),
+        )
+
+        assertEquals(2, state.tasksWithTag("g1").size)
+        assertEquals(1, state.openCountForTag("g1"))
+    }
+
+    @Test
+    fun `a tag nothing wears answers with an empty list rather than null`() {
+        val state = CadenceUiState(tags = listOf(tag("g1")))
+
+        assertEquals(emptyList<Task>(), state.tasksWithTag("g1"))
+        assertEquals(0, state.openCountForTag("g1"))
+        assertNull(state.tag("nope"))
+    }
+
+    /** The index is built once per state, like every other derivation on this class. */
+    @Test
+    fun `tasksWithTag is computed once per state`() {
+        val state = CadenceUiState(
+            tasks = listOf(task("a", tagIds = listOf("g1"))),
+            tags = listOf(tag("g1")),
+        )
+
+        assertSame(state.tasksWithTag("g1"), state.tasksWithTag("g1"))
     }
 }

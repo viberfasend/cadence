@@ -15,6 +15,7 @@ class CommandPaletteModelTest {
 
     private fun command(title: String) = PaletteEntry(title, title, PaletteKind.Command)
     private fun project(title: String) = PaletteEntry(title, title, PaletteKind.Project)
+    private fun tag(title: String) = PaletteEntry(title, title, PaletteKind.Tag)
     private fun task(title: String, subtitle: String? = null) =
         PaletteEntry(title, title, PaletteKind.Task, subtitle)
 
@@ -109,5 +110,34 @@ class CommandPaletteModelTest {
 
         assertTrue(CommandPalette.search("WATER", entries).isNotEmpty())
         assertTrue(CommandPalette.search("plants", entries).isNotEmpty())
+    }
+
+    /** The same character quick add takes, so the palette teaches no second syntax. */
+    @Test
+    fun `a leading at-sign restricts to tags and is not itself searched for`() {
+        val entries = listOf(tag("@errand"), project("Errands"), task("Run an errand"))
+
+        val results = CommandPalette.search("@errand", entries)
+
+        assertEquals(listOf("@errand"), titles(results))
+    }
+
+    /** Tags carry their `@` in the title, so the bare name has to keep matching — the score is a
+     *  subsequence, not a prefix. */
+    @Test
+    fun `a tag matches without typing its at-sign`() {
+        val results = CommandPalette.search("errand", listOf(tag("@errand")))
+
+        assertEquals(listOf("@errand"), titles(results))
+    }
+
+    /** Grouping follows `PaletteKind`'s own order: verbs, then places, then labels, then work. */
+    @Test
+    fun `tags are grouped between projects and tasks`() {
+        val entries = listOf(task("Sync the phone"), tag("@sync"), project("Syncing"), command("Sync now"))
+
+        val results = CommandPalette.search("sync", entries)
+
+        assertEquals(listOf("Sync now", "Syncing", "@sync", "Sync the phone"), titles(results))
     }
 }

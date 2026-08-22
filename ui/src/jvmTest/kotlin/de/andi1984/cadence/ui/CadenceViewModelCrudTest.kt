@@ -8,6 +8,7 @@ import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
 import de.andi1984.cadence.ui.dnd.DropIntent
@@ -36,7 +37,8 @@ class CadenceViewModelCrudTest {
     private val taskStore = FakeTaskStore()
     private val projectStore = FakeProjectStore(taskStore)
     private val sectionStore = FakeSectionStore()
-    private val repository = repositoryOver(taskStore, projectStore, sectionStore)
+    private val tagStore = FakeTagStore()
+    private val repository = repositoryOver(taskStore, projectStore, sectionStore, tagStore)
     private val reminders = RecordingReminderScheduler()
     private val settings = FakeSettingsStore()
     private val backupGateway = FakeBackupGateway()
@@ -549,5 +551,94 @@ class CadenceViewModelCrudTest {
         assertEquals("work", nested.parentId)
         assertEquals("Home", nested.name)
         assertEquals("#123456", nested.colorHex)
+    }
+
+    // ── Tags ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `adding a tag stores it and a duplicate name raises a snackbar instead`() = runTest {
+        val viewModel = viewModel()
+
+        viewModel.addTag("Errand", "#BA1A1A")
+        runCurrent()
+        assertEquals(listOf("Errand"), tagStore.rows().map { it.name })
+
+        viewModel.addTag("errand", "#006A60")
+        runCurrent()
+        assertEquals(1, tagStore.rows().size)
+        assertTrue(viewModel.state.value.snackbarMessage != null)
+    }
+
+    @Test
+    fun `toggling a tag on a task adds it and toggling again removes it`() = runTest {
+        taskStore.seed(listOf(task("t1")))
+        val tag = tagStore.put(Tag(name = "Errand"))
+        val viewModel = viewModel()
+
+        viewModel.toggleTag(stored("t1"), tag.id)
+        runCurrent()
+        assertEquals(listOf(tag.id), stored("t1").tagIds)
+
+        viewModel.toggleTag(stored("t1"), tag.id)
+        runCurrent()
+        assertEquals(emptyList<String>(), stored("t1").tagIds)
+    }
+
+    /** Written straight through, not deferred behind the undo window: no work disappears, so
+     *  there is nothing for an undo to give back. */
+    @Test
+    fun `deleting a tag takes effect at once and leaves the task's other labels`() = runTest {
+        val errand = tagStore.put(Tag(id = "g1", name = "Errand"))
+        tagStore.put(Tag(id = "g2", name = "Waiting"))
+        taskStore.seed(listOf(task("t1").copy(tagIds = listOf("g1", "g2"))))
+        val viewModel = viewModel()
+
+        viewModel.deleteTag(errand)
+        runCurrent()
+
+        assertEquals(listOf("g2"), tagStore.rows().map { it.id })
+        // The id stays on the row; the read side is what drops it.
+        assertEquals(listOf("g1", "g2"), stored("t1").tagIds)
+        assertEquals(listOf("g2"), viewModel.state.value.tagsOf(stored("t1")).map { it.id })
+    }
+
+    /**
+     * Quick-add's one asymmetry with `#project`: a handle that matched nothing creates the tag
+     * before the task, so the line "Post the parcel @waiting" leaves both behind.
+     */
+    @Test
+    fun `a quick-add handle that matches nothing creates the tag and applies it`() = runTest {
+        val known = tagStore.put(Tag(id = "g1", name = "Errand"))
+        val viewModel = viewModel()
+
+        viewModel.addParsedTask(
+            ParsedQuickAdd(
+                title = "Post the parcel",
+                tagIds = listOf(known.id),
+                newTagNames = listOf("waiting"),
+            ),
+        )
+        runCurrent()
+
+        assertEquals(listOf("Errand", "waiting"), tagStore.rows().map { it.name })
+        val created = tagStore.rows().first { it.name == "waiting" }
+        assertEquals(listOf("g1", created.id), taskStore.allRows().single().tagIds)
+    }
+
+    /** A name that cannot be saved is left off the task rather than failing the capture — the
+     *  point of quick-add is that the task lands. */
+    @Test
+    fun `a quick-add handle that clashes with an existing tag still files the task`() = runTest {
+        tagStore.put(Tag(id = "g1", name = "Errand"))
+        val viewModel = viewModel()
+
+        viewModel.addParsedTask(
+            ParsedQuickAdd(title = "Post the parcel", newTagNames = listOf("errand")),
+        )
+        runCurrent()
+
+        assertEquals(1, tagStore.rows().size)
+        assertEquals("Post the parcel", taskStore.allRows().single().title)
+        assertEquals(emptyList<String>(), taskStore.allRows().single().tagIds)
     }
 }

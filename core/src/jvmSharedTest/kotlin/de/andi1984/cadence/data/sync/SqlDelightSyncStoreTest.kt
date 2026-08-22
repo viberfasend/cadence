@@ -5,9 +5,11 @@ import de.andi1984.cadence.data.db.CadenceDatabase
 import de.andi1984.cadence.data.db.SqlDelightProjectStore
 import de.andi1984.cadence.data.db.SqlDelightSectionStore
 import de.andi1984.cadence.data.db.SqlDelightSyncStore
+import de.andi1984.cadence.data.db.SqlDelightTagStore
 import de.andi1984.cadence.data.db.SqlDelightTaskStore
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -17,7 +19,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 
-/** What sync remembers, and the three tombstone-aware views only it uses. */
+/** What sync remembers, and the four tombstone-aware views only it uses. */
 class SqlDelightSyncStoreTest {
 
     private fun newDatabase(): CadenceDatabase {
@@ -40,6 +42,7 @@ class SqlDelightSyncStoreTest {
             assertNull(state.taskCursor)
             assertNull(state.projectCursor)
             assertNull(state.sectionCursor)
+            assertNull(state.tagCursor)
             assertEquals(Instant.EPOCH, state.pushWatermark)
             assertNull(state.lastSyncedAt)
         }
@@ -52,9 +55,11 @@ class SqlDelightSyncStoreTest {
         store.mergeAndAdvance(
             projects = emptyList(),
             sections = emptyList(),
+            tags = emptyList(),
             tasks = emptyList(),
             taskCursor = "2026-08-11T09:00:00Z",
             projectCursor = null,
+            tagCursor = null,
             sectionCursor = "2026-08-11T09:00:00Z",
         )
         store.setPushWatermark(now)
@@ -116,9 +121,11 @@ class SqlDelightSyncStoreTest {
         store.mergeAndAdvance(
             projects = listOf(Project(id = "p1", name = "Stale", updatedAt = now.minusSeconds(1))),
             sections = listOf(Section(id = "s1", projectId = "p1", name = "Newer", updatedAt = now.plusSeconds(1))),
+            tags = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Newer", createdAt = now, updatedAt = now.plusSeconds(1))),
             taskCursor = "2026-08-11T09:00:01Z",
             projectCursor = "2026-08-11T09:00:01Z",
+            tagCursor = null,
             sectionCursor = "2026-08-11T09:00:01Z",
         )
 
@@ -180,9 +187,11 @@ class SqlDelightSyncStoreTest {
         store.mergeAndAdvance(
             projects = emptyList(),
             sections = emptyList(),
+            tags = emptyList(),
             tasks = listOf(Task(id = "t1", title = "Still there", createdAt = now, updatedAt = now)),
             taskCursor = "2026-08-11T09:00:01Z",
             projectCursor = null,
+            tagCursor = null,
             sectionCursor = null,
         )
 
@@ -197,18 +206,22 @@ class SqlDelightSyncStoreTest {
         store.mergeAndAdvance(
             projects = emptyList(),
             sections = emptyList(),
+            tags = emptyList(),
             tasks = emptyList(),
             taskCursor = "2026-08-11T09:00:00Z",
             projectCursor = "2026-08-11T08:00:00Z",
+            tagCursor = null,
             sectionCursor = "2026-08-11T07:00:00Z",
         )
 
         store.mergeAndAdvance(
             projects = emptyList(),
             sections = emptyList(),
+            tags = emptyList(),
             tasks = emptyList(),
             taskCursor = "2026-08-11T10:00:00Z",
             projectCursor = null,
+            tagCursor = null,
             sectionCursor = null,
         )
 
@@ -234,5 +247,58 @@ class SqlDelightSyncStoreTest {
         val remaining = store.tasksChangedSince(Instant.EPOCH).map { it.id }.toSet()
         assertEquals(setOf("t2", "t3"), remaining)
         assertTrue(store.state().lastSweepAt != null)
+    }
+
+    // ── Tags ───────────────────────────────────────────────────────────────────────
+
+    /** The fourth cursor: null on a device that synced before tags existed, so its first round
+     *  after upgrading pulls every tag from the beginning. */
+    @Test
+    fun `the tag cursor advances with the page and clears on sign-out`() = runTest {
+        val store = syncStore(newDatabase())
+
+        store.mergeAndAdvance(
+            projects = emptyList(),
+            sections = emptyList(),
+            tags = listOf(Tag(id = "g1", name = "Errand", updatedAt = now)),
+            tasks = emptyList(),
+            taskCursor = null,
+            projectCursor = null,
+            sectionCursor = null,
+            tagCursor = "2026-08-11T09:00:00Z",
+        )
+        assertEquals("2026-08-11T09:00:00Z", store.state().tagCursor)
+
+        store.clear()
+        assertNull(store.state().tagCursor)
+    }
+
+    @Test
+    fun `the push sees a tombstoned tag, which every other read hides`() = runTest {
+        val database = newDatabase()
+        val tagStore = SqlDelightTagStore(database, Dispatchers.Unconfined)
+        val store = syncStore(database)
+        tagStore.insert(Tag(id = "g1", name = "Errand", updatedAt = now))
+        tagStore.tombstone("g1", now.plusSeconds(1))
+
+        assertTrue(tagStore.getAll().isEmpty())
+        val pushed = store.tagsChangedSince(Instant.EPOCH)
+        assertEquals(listOf("g1"), pushed.map { it.id })
+        assertEquals(now.plusSeconds(1), pushed.single().deletedAt)
+    }
+
+    @Test
+    fun `the sweep collects a stale tag tombstone and leaves a fresh one`() = runTest {
+        val database = newDatabase()
+        val tagStore = SqlDelightTagStore(database, Dispatchers.Unconfined)
+        val store = syncStore(database)
+        tagStore.insert(Tag(id = "old", name = "Old", updatedAt = now))
+        tagStore.insert(Tag(id = "new", name = "New", updatedAt = now))
+        tagStore.tombstone("old", now.minusSeconds(60))
+        tagStore.tombstone("new", now)
+
+        store.collectTombstones(before = now.minusSeconds(30), at = now)
+
+        assertEquals(listOf("new"), store.tagsChangedSince(Instant.EPOCH).map { it.id })
     }
 }
