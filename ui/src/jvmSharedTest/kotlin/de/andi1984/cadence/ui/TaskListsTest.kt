@@ -316,6 +316,62 @@ class TaskListsTest {
         assertEquals(emptyList<TaskBand>(), list.bands)
     }
 
+    @Test
+    fun `search reads labels too, so a phone can reach a tag by typing`() {
+        val state = state(
+            tasks = listOf(
+                task("labelled", title = "Post the forms", tagIds = listOf("g1")),
+                task("named", title = "Errand list"),
+                task("miss", title = "Call Ada"),
+            ),
+            tags = listOf(Tag(id = "g1", name = "Errand")),
+        )
+
+        // Both, without the at-sign: "errand" and "@errand" are the same thought, and the
+        // desktop's command palette is the only other thing in the app that answers the second.
+        assertEquals(
+            setOf("labelled", "named"),
+            state.taskList(TaskView.Search("errand"), today).ids().toSet(),
+        )
+    }
+
+    @Test
+    fun `a leading at-sign narrows a search to labels`() {
+        val state = state(
+            tasks = listOf(
+                task("labelled", title = "Post the forms", tagIds = listOf("g1")),
+                task("named", title = "Errand list"),
+            ),
+            tags = listOf(Tag(id = "g1", name = "Errand")),
+        )
+
+        // The row whose *title* says errand is not wearing the label, so "@errand" leaves it out.
+        assertEquals(
+            listOf("labelled"),
+            state.taskList(TaskView.Search("@errand"), today).ids(),
+        )
+    }
+
+    @Test
+    fun `a tag with a space in its name is reachable by its handle`() {
+        val state = state(
+            tasks = listOf(task("labelled", title = "Draft the memo", tagIds = listOf("g1"))),
+            tags = listOf(Tag(id = "g1", name = "Deep Work")),
+        )
+
+        assertEquals(listOf("labelled"), state.taskList(TaskView.Search("@deepwork"), today).ids())
+    }
+
+    @Test
+    fun `an at-sign on its own is somebody mid-word, not a search for every label`() {
+        val state = state(
+            tasks = listOf(task("labelled", title = "Post the forms", tagIds = listOf("g1"))),
+            tags = listOf(Tag(id = "g1", name = "Errand")),
+        )
+
+        assertTrue(state.taskList(TaskView.Search("@"), today).isEmpty)
+    }
+
     // ── Sorting ──────────────────────────────────────────────────────────────────────
 
     @Test

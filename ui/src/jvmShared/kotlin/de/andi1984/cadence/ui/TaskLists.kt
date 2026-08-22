@@ -1,6 +1,7 @@
 package de.andi1984.cadence.ui
 
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.model.withoutSupersededOccurrences
 import java.time.LocalDate
@@ -249,21 +250,48 @@ private fun CadenceUiState.projectList(
 }
 
 /**
- * Title and notes, case-insensitively. A blank query is not a search for everything — it is a
- * search nobody has typed yet, and it matches nothing.
+ * Title, notes and labels, case-insensitively. A blank query is not a search for everything — it
+ * is a search nobody has typed yet, and it matches nothing.
  *
  * Completed tasks are deliberately included: search is the one view meant to reach history.
+ *
+ * **A leading `@` narrows to labels**, the same character the quick-add line and the desktop's
+ * command palette already take for one. Without it search still reads them, because "errand" and
+ * "@errand" are the same thought and only one of the two is a thing you can type by accident.
+ * This is the whole way a phone reaches a tag by typing: the palette that answers `@` is the
+ * desktop's, and a search that ignored labels would leave Android with no way to ask the question
+ * at all.
  */
 private fun CadenceUiState.searchList(query: String): TaskList {
-    if (query.isBlank()) return TaskList.EMPTY
+    val typed = query.trim()
+    if (typed.isBlank()) return TaskList.EMPTY
+    // `@` alone is someone who has started typing, not a search for every labelled task.
+    val handle = typed.removePrefix("@").takeIf { typed.startsWith('@') && it.isNotBlank() }
     val results = tasks
         .filter { task ->
-            task.title.contains(query, ignoreCase = true) ||
-                task.notes?.contains(query, ignoreCase = true) == true
+            val labels = tagsOf(task)
+            if (handle != null) {
+                labels.any { it.matchesTyped(handle) }
+            } else {
+                task.title.contains(typed, ignoreCase = true) ||
+                    task.notes?.contains(typed, ignoreCase = true) == true ||
+                    labels.any { it.matchesTyped(typed) }
+            }
         }
         .sortedFor(settings.sortMode)
     return TaskList(listOf(band(BandHeading.None, results, key = "s")))
 }
+
+/**
+ * Whether a label answers to what someone typed — its name or its spaceless handle, containing
+ * rather than starting with, because search is where a half-remembered word is the whole point.
+ *
+ * Deliberately looser than [de.andi1984.cadence.domain.model.matchingHandle], which has to pick
+ * exactly one tag or create a new one; a search that returns two lists' worth of rows costs the
+ * reader a glance, not a wrongly labelled task.
+ */
+private fun Tag.matchesTyped(typed: String): Boolean =
+    name.contains(typed, ignoreCase = true) || handle.contains(typed, ignoreCase = true)
 
 /**
  * Everything labelled [tagId], in one band.
