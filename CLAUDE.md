@@ -23,6 +23,11 @@ are built out of `:core` and `:ui` in the steps laid out in
 The product rule the whole app is built on: **importance first, due date breaks ties**
 (`:ui`'s `ui/TaskSorting.kt`). Recurrence supports both calendar rules and "n days after completion".
 
+A task lives in one **project** and wears any number of **tags** — cross-cutting labels, `@errand`
+in quick add, with a flat list of their own ([ADR 0004](docs/adr/0004-tags.md)). Which tasks wear a
+tag is a packed column on the *task*, not a join table; that one decision explains most of what the
+tag code looks like.
+
 The desktop is pointer- and keyboard-first, not a phone app in a window: drag and drop, right-click
 menus, a command palette, a project-tree sidebar and a two-pane layout
 ([ADR 0003](docs/adr/0003-desktop-interaction-model.md)). Almost all of it is shared code in `:ui`
@@ -116,8 +121,8 @@ assert only that the ViewModel called what the test told it to expect.
 
 JDK 17, compileSdk/targetSdk 35, minSdk 26. No lint or format task is wired up.
 
-The server half of sync is `supabase/migrations/*.sql` — three tables, forced RLS, the stale-write
-trigger and the nightly `pg_cron` job that collects tombstones from all three past the same 90-day
+The server half of sync is `supabase/migrations/*.sql` — four tables, forced RLS, the stale-write
+trigger and the nightly `pg_cron` job that collects tombstones from all four past the same 90-day
 horizon the client uses (by `server_updated_at`, the server's clock, since `deleted_at` is a device's). It is
 committed rather than left in the dashboard because it is the one part of the system the Kotlin
 suite cannot reach.
@@ -211,6 +216,8 @@ of ADR 0001 decision 9 is still outstanding.
               ui/dnd/     the drag kernel (ADR 0003): DragModel.kt is pure — payloads, targets,
                           resolveDrop, hitTest — and DragAndDrop.kt is the gesture, ghost and caret
               ui/palette/ CommandPaletteModel — the fuzzy ranking behind Ctrl/Cmd+K, pure Kotlin
+              ui/tags/    TagsScreen (manage), TagDetailScreen (one tag's list), the picker and
+                          editor dialogs — tags hang off Projects, not the bottom bar (ADR 0004)
               composeResources/ strings.xml and values-de/, reached as Res.string.x
 :app-android  ui/         CadenceApp (NavHost, bottom bar, FAB), CadenceViewModelHost, the SAF picker
               data/backup/BackupIo (SAF read/write)
@@ -310,12 +317,17 @@ than reaching for `!!`.
   its final id and return nothing.
 - `taskRow`/`projectRow` are the schema's table names, not `task`/`project` — SQLDelight names the
   generated row class after the table, and `Task`/`Project` were already taken by the domain
-  model. The tables live in `data/db/Task.sq`, `data/db/Project.sq`, `data/db/Attachment.sq` and
-  `data/db/SyncState.sq`. **The schema is at version 3 and has a migration chain**: shipped
+  model. The tables live in `data/db/Task.sq`, `data/db/Project.sq`, `data/db/Section.sq`,
+  `data/db/Tag.sq`, `data/db/Attachment.sq` and
+  `data/db/SyncState.sq`. **The schema is at version 5 and has a migration chain**: shipped
   installs of older versions exist, so a schema change means both editing the `.sq` file *and*
   adding an `N.sqm` beside it (`1.sqm` migrates 1→2 and adds `syncStateRow`; `2.sqm` migrates
-  2→3, rebuilding both tables to drop foreign keys), the way `MIGRATION_3_4`
-  used to work under Room. `AndroidSqliteDriver` runs migrations from its callback; the desktop's
+  2→3, rebuilding both tables to drop foreign keys; `3.sqm` adds sections; `4.sqm` adds tags), the
+  way `MIGRATION_3_4`
+  used to work under Room. **A column added from now on goes last in its `.sq` file**: `ALTER
+  TABLE … ADD COLUMN` can only append, every read is a `SELECT *`, and the generated mapper takes
+  its arguments positionally — so a fresh database that declared `taskRow.tagIds` anywhere but at
+  the end would hand that mapper a different column than a migrated one does. `AndroidSqliteDriver` runs migrations from its callback; the desktop's
   `JdbcSqliteDriver` has no such lifecycle, so `DatabaseDriverFactory` tracks the version in
   SQLite's own `PRAGMA user_version` — where **0 means "version 1, from before we counted"**,
   because nothing set it until now and the file already has the version-1 tables.
@@ -441,6 +453,33 @@ than reaching for `!!`.
   - **A widget must visibly answer a tap.** Ticking a row honours the user's `showCompleted`
     setting like every screen does, so the row strikes through and stays instead of vanishing —
     a row that disappears reads as deleted, not completed.
+- **A tag is identity only; membership is a column on the task** (ADR 0004). `tagRow` carries a
+  name, a colour and a position. Which tasks wear it is `taskRow.tagIds`, packed comma-separated by
+  `TagIdsCodec` — **there is no join table, deliberately**, and the reasons are worth knowing before
+  changing any of it:
+  - **Deleting a tag writes one row.** No task is rewritten, so the ids stay behind on every task
+    that named it, and `CadenceUiState.tagsOf` is what drops an id no live tag answers to — the
+    same "links are repaired rather than trusted" rule `BackupCodec` follows. It also means
+    reviving a tag, from a backup or from the other device, puts it back on exactly the tasks that
+    had it. A join table would have made one delete into one row per labelled task on the wire.
+  - **A pull can deliver a task before the tag it names**, so `setTaskTags` keeps an unknown id
+    rather than pruning it. Pruning on write would erase a label a moment before its tag landed.
+  - **The cost is stated in the ADR and is real**: two devices adding *different* tags to the same
+    task offline resolve last-writer-wins over the whole set, and one addition is lost. The same
+    trade the app already makes for a concurrently edited title.
+  - **The wire and the backup file are not packed.** `tasks.tag_ids` is a Postgres `uuid[]` (GIN
+    indexed) and `BackupTask.tagIds` is a JSON array; the packed string is a storage detail.
+  - **Names are unique case-insensitively, as a validation only.** `@home` has to mean one tag on
+    this device; sync can still land two, and both are then shown. Reconciling them would rewrite
+    the tasks naming the loser, which is the O(n) write the whole design avoids.
+  - **Quick add takes `@handle`, and an unmatched handle creates the tag** — unlike `#project`,
+    which only ever selects. Tags are also the one token kind that repeats, and the `@` must start
+    a word (checked in Kotlin, not with a `\b`; see Localisation).
+  - **A label on a parent does not reach its steps**, unlike a project or a section. A recurring
+    task *does* hand its labels to the next occurrence, with the checklist and the attachments.
+  - **Where they are reached from**: the Projects screen on both shells, plus the desktop sidebar
+    and `Ctrl`/`Cmd`+`K` under an `@` prefix. Deliberately not a fifth bottom-bar destination —
+    tags find work, they are not a place it lives.
 - **A fresh install starts empty.** There is no seeding: the first screen a new user sees is the
   empty state, not sample content. Anything that needs a populated app (screenshots, a demo) is
   built by importing a backup file, not by putting fixtures back into the app.
