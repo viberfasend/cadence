@@ -4,4 +4,23 @@
     <string name="reminder_channel_name">Aufgaben-Erinnerungen</string>
     <string name="reminder_channel_description">Erinnerungen für fällige Aufgaben</string>
     <string name="reminder_content_text">Heute fällig</string>
+
+    <string name="widget_today_title">Heute</string>
+    <string name="widget_today_empty">Heute nichts fällig — zum Anlegen tippen</string>
+    <string name="widget_today_description">Heutige und überfällige Aufgaben, nach Wichtigkeit</string>
+    <string name="widget_inbox_title">Eingang</string>
+    <string name="widget_inbox_empty">Eingang ist leer — zum Anlegen tippen</string>
+    <string name="widget_inbox_description">Nicht zugeordnete Aufgaben, nach Wichtigkeit</string>
+    <string name="widget_next_task_empty">Alles erledigt — zum Anlegen tippen</string>
+    <string name="widget_next_task_description">Die wichtigste offene Aufgabe</string>
+    <string name="widget_quick_add_description">Ein Knopf, der die Schnellerfassung öffnet</string>
+
+    <string name="widget_overdue">Überfällig</string>
+    <string name="widget_due_today">Heute</string>
+    <string name="widget_no_due_date">Kein Datum</string>
+    <string name="widget_done">Erledigt</string>
+    <string name="widget_add_task">Aufgabe hinzufügen</string>
+    <!-- %1$s ist der Aufgabentitel. -->
+    <string name="widget_mark_done">\"%1$s\" als erledigt markieren</string>
+    <string name="widget_mark_open">\"%1$s\" als nicht erledigt markieren</string>
 </resources>

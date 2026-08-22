@@ -216,6 +216,7 @@ of ADR 0001 decision 9 is still outstanding.
               data/backup/BackupIo (SAF read/write)
               data/settings/SharedPrefsSettingsStore
               reminders/  AlarmManager scheduling, notification receiver, boot re-schedule
+              widget/     Glance home-screen widgets — Android-only, so never in :ui
 :app-desktop  Main.kt     application {}/Window, wires CadenceViewModel, dispatches Shortcuts.kt,
                           restores the window, recomputes `today` at midnight
               AppContainer.kt hand-rolled DI, same shape as :app-android's
@@ -374,6 +375,16 @@ than reaching for `!!`.
     `TaskStore.completeIfOpen` closes the row in SQL and reports whether this call is the one that
     closed it, so only that call schedules the successor and the rest of the work reads the row
     back instead of trusting the snapshot. Don't replace it with a plain `update`.
+  - **A completed occurrence lands strictly in the future, and the flag that says otherwise
+    has three decoders.** `RecurrenceEngine.dueDateAfterCompletion` walks the rule forward past
+    every occurrence at or before the completion day, so a daily task ticked off a month late is
+    due tomorrow rather than a month ago — or, worse, today, which is what stopping the walk at
+    `isBefore(completedOn)` used to hand back. `RecurrenceRule.keepMissed` turns the walk off for
+    a rule whose missed instances should keep nagging, and it defaults to *false*; so must every
+    place a rule is decoded from a shape that predates the flag — `RecurrenceCodec`'s missing
+    segment, `BackupCodec`'s absent key, `RemoteRecords`' absent column. All three defaulted to
+    `true`, which is why every rule created before the flag existed only ever stepped one
+    interval on.
   - **Reopening undoes both halves**: the row opens again and the occurrence that completion
     inserted is deleted (`TaskStore.openSuccessorsOf`), or the task would stand in the list twice.
     One that has itself been ticked off is left alone — the chain has moved on. `setCompleted`
@@ -399,6 +410,37 @@ than reaching for `!!`.
   the synced task list every 30 seconds and fires a system-tray balloon for whatever just came
   due — which only works while the app is running, same accepted trade-off ADR 0001 §8 names for
   a killed Android process.
+- **Home-screen widgets are Glance, live in `:app-android/widget/`, and are Android-only.** Glance
+  is the only widget toolkit still under development — `RemoteViews` is the legacy API it hides —
+  and it has no desktop counterpart, so nothing about widgets belongs in `:ui`. `AppContainer`
+  reconciles them on every `repository.tasks` emission exactly as reminders are reconciled, and
+  `WidgetUpdater` is the single list of what exists; `updatePeriodMillis` in each provider-info
+  XML is only the fallback for when no process is alive to run that collector. A widget never
+  re-derives what to show: `TaskListScope` is a `TaskView` and two strings, and the widget builds
+  a partial `CadenceUiState` (`widgetUiState()`) purely to call `taskList` on it, so the home
+  screen shows exactly what the screen it mirrors shows — the user's `showCompleted` and
+  `sortMode` included. Three rules cost real time to find, and two of them a compiler cannot
+  catch:
+  - **Two intents that differ only in their extras are the same intent.** `Intent.filterEquals` —
+    what `PendingIntent` matches on — ignores extras, and Glance builds `actionStartActivity` with
+    `FLAG_UPDATE_CURRENT`. A list of rows carrying nothing but a different `taskId` extra
+    therefore collapses onto *one* `PendingIntent` whose extras the last row composed overwrote:
+    every row opens the same task, and the widget reads as decorative. `WidgetIntents` gives each
+    destination a distinct `data` URI, which is the only thing keeping them apart.
+  - **A `LazyColumn` is a `ListView`, so its rows are RemoteViews collection items, and only
+    `actionStartActivity` reliably escapes one.** A collection item owns no `PendingIntent` — the
+    platform offers a single template on the list plus a per-item fill-in intent. A compound
+    button (`CheckBox`, `Switch`) wants `setOnCheckedChangeResponse`, which is not part of that
+    contract at all, so the completion circle is a clickable `Box` over two vector drawables.
+    `actionRunCallback` *is* supposed to work there, by way of Glance's own trampoline activity,
+    and on a real device it silently never arrived while `actionStartActivity` on the very same
+    rows opened the right task every time — a widget that renders perfectly and answers no tap.
+    Completing from a row therefore goes through `WidgetToggleActivity`, an invisible
+    `Theme.NoDisplay` activity that writes and finishes in `onCreate`. Reach for an activity
+    first for anything a widget row has to *do*.
+  - **A widget must visibly answer a tap.** Ticking a row honours the user's `showCompleted`
+    setting like every screen does, so the row strikes through and stays instead of vanishing —
+    a row that disappears reads as deleted, not completed.
 - **A fresh install starts empty.** There is no seeding: the first screen a new user sees is the
   empty state, not sample content. Anything that needs a populated app (screenshots, a demo) is
   built by importing a backup file, not by putting fixtures back into the app.

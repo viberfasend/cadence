@@ -24,6 +24,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import de.andi1984.cadence.ui.TaskView
+import de.andi1984.cadence.ui.taskList
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.unit.dp
@@ -41,7 +43,6 @@ import de.andi1984.cadence.ui.components.TaskRow
 import de.andi1984.cadence.ui.dnd.DropCaret
 import de.andi1984.cadence.ui.dnd.DropTarget
 import de.andi1984.cadence.ui.dnd.OrderedList
-import de.andi1984.cadence.ui.sortedFor
 import java.time.LocalDate
 
 @Composable
@@ -55,12 +56,10 @@ fun InboxScreen(
 ) {
     // Root tasks only: a subtask of an Inbox task is folded into its parent's row unless the
     // parent is expanded (see rows below).
-    val inbox = state.inboxTasks()
-        .filter { state.settings.showCompleted || !it.isDone }
-        .sortedFor(state.settings.sortMode)
-    val open = inbox.count { !it.isDone }
     var expandedIds by remember { mutableStateOf(emptySet<String>()) }
-    val rows = state.expandedRows(inbox, expandedIds)
+    val list = state.taskList(TaskView.Inbox, today, expandedIds)
+    val open = list.openCount
+    val rows = list.rows
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenHeader(
@@ -98,7 +97,7 @@ fun InboxScreen(
             }
         }
 
-        if (inbox.isEmpty()) {
+        if (list.isEmpty) {
             EmptyState(
                 title = stringResource(Res.string.inbox_empty_title),
                 supporting = stringResource(Res.string.inbox_empty_supporting),

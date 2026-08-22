@@ -19,6 +19,7 @@ import de.andi1984.cadence.data.db.SqlDelightTaskStore
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.data.settings.SharedPrefsSettingsStore
 import de.andi1984.cadence.reminders.AlarmReminderScheduler
+import de.andi1984.cadence.widget.WidgetUpdater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -56,8 +57,12 @@ class AppContainer(context: Context) {
     /**
      * Outlives every screen: the backup written as the user leaves the app starts while the
      * Activity is already being torn down, so it cannot hang off a ViewModel's scope.
+     *
+     * Public because a widget needs it for the same reason. `WidgetToggleActivity` finishes
+     * inside its own `onCreate` — it never shows a frame — so work started there would be
+     * cancelled before it reached the database if it hung off anything the Activity owns.
      */
-    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** On the application scope, not a ViewModel's: a round that starts as the user leaves the
      *  screen has to be allowed to finish, and the session it refreshes outlives every screen. */
@@ -70,6 +75,15 @@ class AppContainer(context: Context) {
         // Heals a leak left by a process killed mid-copy — cheap even at a few hundred files,
         // and cold start is the only time nothing else is racing the blob directory yet.
         applicationScope.launch { repository.sweepOrphanBlobs() }
+
+        // "Reminders reconcile on every task emission" (CLAUDE.md) — a home-screen widget is the
+        // same shape of problem: it has no view of `repository.tasks` of its own, so something
+        // has to push it a redraw whenever a local edit, an import or a sync merge changes what
+        // it should show. `updatePeriodMillis` in the widgets' provider info is only the fallback
+        // for whenever the process is not alive to run this collector at all.
+        applicationScope.launch {
+            repository.tasks.collect { WidgetUpdater.refreshAll(context) }
+        }
     }
 }
 

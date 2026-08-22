@@ -30,6 +30,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import de.andi1984.cadence.ui.BandHeading
+import de.andi1984.cadence.ui.TaskView
+import de.andi1984.cadence.ui.taskList
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.unit.dp
@@ -51,7 +54,6 @@ import de.andi1984.cadence.ui.dnd.OrderedList
 import de.andi1984.cadence.ui.format.formatDate
 import de.andi1984.cadence.ui.format.pluralTasks
 import de.andi1984.cadence.ui.settings.SortMode
-import de.andi1984.cadence.ui.sortedFor
 import de.andi1984.cadence.ui.theme.LocalCadenceColors
 import java.time.LocalDate
 
@@ -68,11 +70,10 @@ fun TodayScreen(
     syncControls: SyncControls = SyncControls(),
 ) {
     val sortMode = state.settings.sortMode
-    val overdue = state.overdue(today).sortedFor(sortMode)
-    val dueToday = state.tasks
-        .filter { it.isDueOn(today) && (state.settings.showCompleted || !it.isDone) }
-        .sortedFor(sortMode)
-    val openCount = overdue.size + dueToday.count { !it.isDone }
+    val list = state.taskList(TaskView.Today, today)
+    val overdue = list.band(BandHeading.Overdue)?.tasks.orEmpty()
+    val dueToday = list.band(BandHeading.None)?.tasks.orEmpty()
+    val openCount = list.openCount
 
     var sortMenuOpen by remember { mutableStateOf(false) }
     var overdueExpanded by remember { mutableStateOf(false) }
