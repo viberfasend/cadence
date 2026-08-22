@@ -51,6 +51,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import de.andi1984.cadence.ui.resources.Res
 import de.andi1984.cadence.ui.resources.*
+import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.SubtaskProgress
 import de.andi1984.cadence.domain.model.Task
@@ -59,6 +60,7 @@ import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
 import de.andi1984.cadence.ui.format.describeRecurrence
 import de.andi1984.cadence.ui.format.explanation
 import de.andi1984.cadence.ui.CadenceUiState
+import de.andi1984.cadence.ui.attachments.AttachmentCard
 import de.andi1984.cadence.ui.components.AppIcons
 import de.andi1984.cadence.ui.components.CadenceDatePickerDialog
 import de.andi1984.cadence.ui.components.CadenceTimePickerDialog
@@ -77,8 +79,11 @@ import de.andi1984.cadence.ui.format.formatDate
 import de.andi1984.cadence.ui.format.formatTime
 import de.andi1984.cadence.ui.format.overdueByDays
 import de.andi1984.cadence.ui.format.relativeDate
+import de.andi1984.cadence.ui.platform.AttachmentFilePicker
+import de.andi1984.cadence.ui.platform.PickedFile
 import de.andi1984.cadence.ui.recurrence.RecurrenceSheet
 import de.andi1984.cadence.ui.theme.LocalCadenceColors
+import java.io.File
 import java.time.LocalDate
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -98,6 +103,15 @@ fun TaskDetailScreen(
     onMoveToSection: (Task, String?) -> Unit,
     onToggleTag: (Task, String) -> Unit = { _, _ -> },
     onCreateTag: (name: String, colorHex: String) -> Unit = { _, _ -> },
+    /** The shell's file chooser, or null where it has none — the card then offers links only. */
+    attachmentPicker: AttachmentFilePicker? = null,
+    onAddFileAttachment: (Task, PickedFile) -> Unit = { _, _ -> },
+    onAddLinkAttachment: (Task, url: String, name: String) -> Unit = { _, _, _ -> },
+    onOpenAttachment: (Attachment) -> Unit = {},
+    onRelocateAttachment: (Attachment, PickedFile) -> Unit = { _, _ -> },
+    onRemoveAttachment: (Attachment) -> Unit = {},
+    /** Where a thumbnail gets its bytes; null for a blob that is not on this device. */
+    attachmentBlobFile: (String) -> File? = { null },
 ) {
     if (task == null) {
         EmptyState(
@@ -416,8 +430,23 @@ fun TaskDetailScreen(
                     onOpen = onOpenTask,
                     onDelete = onDelete,
                     onAdd = { text -> onAddSubtask(task, text) },
+                    attachmentCount = state::attachmentCount,
                 )
             }
+
+            // Between the checklist and the notes, and on a subtask too, unlike the checklist:
+            // nesting is what stops after one level, filing a receipt on a step is not.
+            AttachmentCard(
+                attachments = state.attachmentsOf(task.id),
+                isPresent = state::isPresent,
+                blobFile = attachmentBlobFile,
+                picker = attachmentPicker,
+                onAddFile = { picked -> onAddFileAttachment(task, picked) },
+                onAddLink = { url, name -> onAddLinkAttachment(task, url, name) },
+                onOpen = onOpenAttachment,
+                onRelocate = onRelocateAttachment,
+                onRemove = onRemoveAttachment,
+            )
 
             Column(
                 modifier = Modifier
@@ -605,6 +634,8 @@ private fun SubtaskCard(
     onOpen: (Task) -> Unit,
     onDelete: (Task) -> Unit,
     onAdd: (String) -> Unit,
+    /** A step can carry attachments of its own, so its row draws the same paperclip. */
+    attachmentCount: (String) -> Int,
 ) {
     val scheme = MaterialTheme.colorScheme
     val progress = SubtaskProgress(done = subtasks.count { it.isDone }, total = subtasks.size)
@@ -693,6 +724,7 @@ private fun SubtaskCard(
                         onToggle = { onToggle(subtask) },
                         onClick = { onOpen(subtask) },
                         showProject = false,
+                        attachmentCount = attachmentCount(subtask.id),
                         modifier = Modifier.weight(1f),
                     )
                     IconButton(onClick = { onDelete(subtask) }) {

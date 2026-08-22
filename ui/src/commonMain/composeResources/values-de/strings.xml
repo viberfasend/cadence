@@ -306,6 +306,28 @@
     <string name="subtasks_expand">Unteraufgaben anzeigen</string>
     <string name="subtasks_collapse">Unteraufgaben ausblenden</string>
 
+    <!-- ── Anhänge: Dateien und Links an einer Aufgabe ─────────────────────────────── -->
+    <string name="attachments_title">Anhänge</string>
+    <string name="attachments_supporting">Dateien und Links, die hier liegen, bleiben bei der Aufgabe.</string>
+    <string name="attachments_add_file">Datei hinzufügen</string>
+    <string name="attachments_add_link">Link hinzufügen</string>
+    <string name="attachments_remove">Anhang entfernen</string>
+    <!-- Eine Datei, deren Bytes nicht auf diesem Gerät liegen: aus einem Backup ohne sie
+         wiederhergestellt, oder von diesem Gerät nie gesehen. -->
+    <string name="attachments_missing">Nicht auf diesem Gerät</string>
+    <string name="attachments_locate">Datei suchen</string>
+    <string name="attachments_open">„%1$s“ öffnen</string>
+    <!-- Die Büroklammer an einer Zeile, und was eine Vorlesehilfe daraus macht. -->
+    <plurals name="attachments_count">
+        <item quantity="one">%1$d Anhang</item>
+        <item quantity="other">%1$d Anhänge</item>
+    </plurals>
+    <string name="attachments_link_title">Link hinzufügen</string>
+    <string name="attachments_link_url">Link</string>
+    <string name="attachments_link_url_placeholder">https://…</string>
+    <string name="attachments_link_name">Titel (optional)</string>
+    <string name="attachments_link_add">Hinzufügen</string>
+
     <!-- ── Suche ───────────────────────────────────────────────────────────────────── -->
     <string name="search_placeholder">Aufgaben durchsuchen</string>
     <string name="search_title">Suche</string>
@@ -510,4 +532,10 @@
     <string name="snackbar_tag_name_empty">Tag-Name darf nicht leer sein</string>
     <!-- %1$s ist der bereits vergebene Name. -->
     <string name="snackbar_tag_duplicate">Ein Tag namens „%1$s“ existiert bereits</string>
+    <!-- %1$d ist die Obergrenze in ganzen Megabyte. -->
+    <string name="snackbar_attachment_too_large">Die Datei ist größer als %1$d MB</string>
+    <string name="snackbar_attachment_limit">Eine Aufgabe fasst höchstens %1$d Anhänge</string>
+    <string name="snackbar_attachment_failed">Die Datei konnte nicht kopiert werden</string>
+    <string name="snackbar_attachment_invalid_link">Bitte einen Link eingeben</string>
+    <string name="snackbar_attachment_no_viewer">Auf diesem Gerät kann das nichts öffnen</string>
 </resources>

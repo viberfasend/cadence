@@ -183,6 +183,7 @@ fun TodayScreen(
                                 onClick = { onTaskClick(task) },
                                 parentTitle = state.parentOf(task)?.title,
                                 subtaskProgress = state.subtaskProgress(task.id),
+                                attachmentCount = state.attachmentCount(task.id),
                                 modifier = Modifier.animateItem(),
                             )
                         }
@@ -271,6 +272,7 @@ private fun OverdueBlock(
                 overdueStyle = true,
                 parentTitle = state.parentOf(task)?.title,
                 subtaskProgress = state.subtaskProgress(task.id),
+                attachmentCount = state.attachmentCount(task.id),
             )
         }
 

@@ -1,12 +1,17 @@
 package de.andi1984.cadence.ui
 
+import de.andi1984.cadence.data.AttachmentIndex
 import de.andi1984.cadence.data.CadenceRepository
+import de.andi1984.cadence.data.MAX_ATTACHMENTS_PER_TASK
+import de.andi1984.cadence.data.MAX_ATTACHMENT_BYTES
 import de.andi1984.cadence.data.RepositoryResult
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.data.sync.SignInResult
 import de.andi1984.cadence.data.sync.SyncFailure
 import de.andi1984.cadence.data.sync.SyncStatus
 import de.andi1984.cadence.domain.backup.BackupOutcome
+import de.andi1984.cadence.domain.model.Attachment
+import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceRule
@@ -19,7 +24,9 @@ import de.andi1984.cadence.domain.model.withoutSupersededOccurrences
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
 import de.andi1984.cadence.ui.dnd.DropIntent
 import de.andi1984.cadence.ui.platform.BackupGateway
+import de.andi1984.cadence.ui.platform.AttachmentOpener
 import de.andi1984.cadence.ui.platform.BackupTarget
+import de.andi1984.cadence.ui.platform.PickedFile
 import de.andi1984.cadence.ui.platform.ReminderScheduler
 import de.andi1984.cadence.ui.resources.Res
 import de.andi1984.cadence.ui.resources.*
@@ -30,6 +37,7 @@ import de.andi1984.cadence.ui.settings.SyncUiState
 import de.andi1984.cadence.ui.settings.SettingsStore
 import de.andi1984.cadence.ui.settings.SortMode
 import de.andi1984.cadence.ui.settings.ThemeChoice
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -46,6 +54,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.StringResource
+import java.io.File
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -129,6 +138,16 @@ data class CadenceUiState(
     val projects: List<Project> = emptyList(),
     val sections: List<Section> = emptyList(),
     val tags: List<Tag> = emptyList(),
+    /** Every attachment on every task — grouped per task by [attachmentsOf], never scanned per row. */
+    val attachments: List<Attachment> = emptyList(),
+    /**
+     * The hashes whose bytes are on this device, as of the last emission.
+     *
+     * Presence is a property of the disk, not of the row, so it travels beside the rows rather
+     * than on them — see `CadenceRepository.attachmentIndex`, which stats each distinct hash once
+     * per emission so no screen ever touches the filesystem while drawing.
+     */
+    val presentBlobs: Set<String> = emptySet(),
     val settings: CadenceSettings = CadenceSettings(),
     /** Result of the last export or import, shown once under the Settings buttons. */
     val backupOutcome: BackupOutcome? = null,
@@ -179,6 +198,18 @@ data class CadenceUiState(
             task.tagIds.forEach { id -> index.getOrPut(id) { mutableListOf() }.add(task) }
         }
         index
+    }
+
+    /**
+     * Every task's attachments, in the order they were filed, built in one pass.
+     *
+     * A list draws a paperclip count on each row, which is a lookup per row per frame; a scan of
+     * [attachments] per row would put the whole table under that loop.
+     */
+    private val attachmentsByTask: Map<String, List<Attachment>> by lazy {
+        attachments
+            .groupBy { it.taskId }
+            .mapValues { (_, rows) -> rows.sortedWith(compareBy({ it.sortOrder }, { it.id })) }
     }
 
     /** [rootTasks]'s answer, computed once — the superseded-occurrence set is the expensive half. */
@@ -329,6 +360,23 @@ data class CadenceUiState(
     /** The bands of a project's list, in the order they are drawn. */
     fun sectionsIn(projectId: String): List<Section> = sectionsByProject[projectId].orEmpty()
 
+    /** One task's attachments, oldest first — the order the card draws them in. */
+    fun attachmentsOf(taskId: String): List<Attachment> = attachmentsByTask[taskId].orEmpty()
+
+    /** How many the row's paperclip should say. Zero draws nothing. */
+    fun attachmentCount(taskId: String): Int = attachmentsByTask[taskId]?.size ?: 0
+
+    /**
+     * Whether this attachment can actually be opened right now.
+     *
+     * A LINK is always "present" — there are no bytes to be missing. A FILE is present while its
+     * blob is on this device; a backup restored without one, a second device that has never seen
+     * the file, or a process killed mid-copy all leave a row whose bytes are gone, and that is a
+     * state to *draw*, not an error to hide.
+     */
+    fun isPresent(attachment: Attachment): Boolean =
+        attachment.kind == AttachmentKind.LINK || attachment.sha256 in presentBlobs
+
     /**
      * One band of a project's list: [sectionId]'s tasks, or the ungrouped band for null.
      *
@@ -387,6 +435,9 @@ class CadenceViewModel(
     private val settingsStore: SettingsStore,
     private val reminderScheduler: ReminderScheduler,
     private val backupGateway: BackupGateway,
+    /** Where an attachment goes when it is tapped. A port for the same reason [backupGateway] is:
+     *  "open this with something else" is an intent on Android and `java.awt.Desktop` here. */
+    private val attachmentOpener: AttachmentOpener,
     private val syncEngine: CadenceSyncEngine,
     private val scope: CoroutineScope,
     /**
@@ -443,15 +494,20 @@ class CadenceViewModel(
     }
 
     /**
-     * The four record flows, folded into one for the same reason [Transient] exists: `combine`
+     * The five record flows, folded into one for the same reason [Transient] exists: `combine`
      * takes five flows at most, and sections would have been the sixth. They belong together
      * anyway — a section without its project, or a task without its section, is half a screen.
+     *
+     * Attachments arrive as an index rather than a list, because presence has to be read at the
+     * same instant the rows are (`CadenceRepository.attachmentIndex`), and they fill the fifth
+     * and last slot here — a sixth record flow needs its own pairing, exactly as this one did.
      */
     private data class Records(
         val tasks: List<Task>,
         val projects: List<Project>,
         val sections: List<Section>,
         val tags: List<Tag>,
+        val attachments: AttachmentIndex,
     )
 
     private val records = combine(
@@ -459,7 +515,10 @@ class CadenceViewModel(
         repository.projects,
         repository.sections,
         repository.tags,
-    ) { tasks, projects, sections, tags -> Records(tasks, projects, sections, tags) }
+        repository.attachmentIndex,
+    ) { tasks, projects, sections, tags, attachments ->
+        Records(tasks, projects, sections, tags, attachments)
+    }
 
     val state: StateFlow<CadenceUiState> = combine(
         records,
@@ -483,6 +542,16 @@ class CadenceViewModel(
             // Tags follow nothing: no delete in the app cascades to one, so there is no id in
             // `pendingDelete` a tag could ever match.
             tags = r.tags,
+            // Attachments follow their task, the way sections follow their project: a paperclip
+            // must not outlive the row it hangs off for the length of the undo window. The rows
+            // themselves are still in the database until the delete commits — this only hides
+            // them, and an undo brings both halves back together.
+            attachments = if (t.pendingDelete.isEmpty()) {
+                r.attachments.attachments
+            } else {
+                r.attachments.attachments.filter { it.taskId !in t.pendingDelete }
+            },
+            presentBlobs = r.attachments.presentBlobs,
             pendingDeleteIds = t.pendingDelete,
             settings = settings,
             backupOutcome = t.backup,
@@ -943,6 +1012,119 @@ class CadenceViewModel(
     fun reorderTags(orderedIds: List<String>) = scope.launch {
         repository.reorderTags(orderedIds)
         armSync()
+    }
+
+    // ── Attachments ──────────────────────────────────────────────────────────────────
+    //
+    // None of these arm the sync debounce, and that is not an oversight: an attachment is a local
+    // fact. Its row is not in the wire shape (`data/sync/RemoteRecords.kt`) and its bytes are not
+    // in the backup file either until the bundle export of phase 4, so there is nothing here for
+    // a round to push and no reason to wake the other device.
+
+    /**
+     * Copies a picked file into the blob store and files it on [task].
+     *
+     * [PickedFile.open] is called exactly once, here, and the stream is closed whatever happens —
+     * on Android the grant behind it dies with the Activity that asked for it, so a deferred read
+     * is a read that fails.
+     */
+    fun addFileAttachment(task: Task, picked: PickedFile) = scope.launch {
+        val result = try {
+            picked.open().use { stream ->
+                repository.addFileAttachment(
+                    taskId = task.id,
+                    source = stream,
+                    name = picked.name,
+                    mimeType = picked.mimeType,
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            // The picker can hand back a uri whose provider is already gone — a cloud file the
+            // user just signed out of, a device unmounted between the tap and the read.
+            CadenceRepository.AddAttachmentResult.Failed(t)
+        }
+        reportAttachmentResult(result)
+    }
+
+    /** Files a link on [task] — no bytes, so nothing can be too large and nothing is copied. */
+    fun addLinkAttachment(task: Task, url: String, name: String) = scope.launch {
+        reportAttachmentResult(repository.addLinkAttachment(task.id, url, name))
+    }
+
+    /**
+     * Points a row whose blob is gone at bytes the user found again.
+     *
+     * Deliberately not "add a second attachment and delete the first": the row is what carries
+     * the name, the order and the task, and healing it in place is what keeps a restored backup
+     * from turning one attachment into two.
+     */
+    fun relocateAttachment(attachment: Attachment, picked: PickedFile) = scope.launch {
+        val result = try {
+            picked.open().use { stream -> repository.relocateAttachment(attachment.id, stream) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            CadenceRepository.AddAttachmentResult.Failed(t)
+        }
+        reportAttachmentResult(result)
+    }
+
+    /** Removes one attachment; its blob goes with it unless another row still names it. */
+    fun deleteAttachment(attachment: Attachment) = scope.launch {
+        repository.deleteAttachment(attachment.id)
+    }
+
+    /**
+     * Hands an attachment to whatever the machine opens it with, and says so when nothing does.
+     *
+     * A missing blob is not passed on at all — the card draws that state and offers to find the
+     * file instead, so reaching a viewer with nothing to show it is not a case that arises.
+     */
+    fun openAttachment(attachment: Attachment) {
+        val opened = when (attachment.kind) {
+            AttachmentKind.LINK -> attachment.url?.let { attachmentOpener.openLink(it) } ?: false
+            AttachmentKind.FILE -> {
+                val file = attachment.sha256?.let { repository.blobFile(it) }
+                if (file == null) false else {
+                    attachmentOpener.openFile(file, attachment.name, attachment.mimeType)
+                }
+            }
+        }
+        if (!opened) showSnackbar(Res.string.snackbar_attachment_no_viewer)
+    }
+
+    /**
+     * The bytes behind a hash, for the thumbnail decoder — null when they are not on this device.
+     *
+     * A plain function rather than something in the state: an `ImageBitmap` per attachment does
+     * not belong in a value that is rebuilt on every emission, and the card loads its own
+     * thumbnails off the main thread from this.
+     */
+    fun blobFile(sha256: String): File? = repository.blobFile(sha256)
+
+    private fun reportAttachmentResult(result: CadenceRepository.AddAttachmentResult) {
+        when (result) {
+            is CadenceRepository.AddAttachmentResult.Success -> Unit
+            CadenceRepository.AddAttachmentResult.TooLarge ->
+                showSnackbar(
+                    Res.string.snackbar_attachment_too_large,
+                    listOf(MAX_ATTACHMENT_BYTES / (1024 * 1024)),
+                )
+
+            CadenceRepository.AddAttachmentResult.LimitReached ->
+                showSnackbar(
+                    Res.string.snackbar_attachment_limit,
+                    listOf(MAX_ATTACHMENTS_PER_TASK),
+                )
+
+            is CadenceRepository.AddAttachmentResult.Failed ->
+                showSnackbar(Res.string.snackbar_attachment_failed)
+
+            CadenceRepository.AddAttachmentResult.ValidationError ->
+                showSnackbar(Res.string.snackbar_attachment_invalid_link)
+        }
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────────────

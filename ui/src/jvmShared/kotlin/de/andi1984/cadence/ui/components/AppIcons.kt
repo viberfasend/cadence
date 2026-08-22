@@ -4,6 +4,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Sell
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.CalendarMonth
@@ -88,4 +92,13 @@ object AppIcons {
 
     /** A tag — the luggage-label shape, deliberately not `Folder`: a label is not a place. */
     val Tag: ImageVector = Icons.Rounded.Sell
+
+    /** Attachments: the paperclip on a row and the card's header. */
+    val Attachment: ImageVector = Icons.Rounded.AttachFile
+
+    /** The three looks an attachment row can have: a link, a picture, anything else. A row whose
+     *  bytes are missing borrows [Error] instead. */
+    val Link: ImageVector = Icons.Rounded.Link
+    val Image: ImageVector = Icons.Rounded.Image
+    val File: ImageVector = Icons.Rounded.Description
 }

@@ -105,6 +105,7 @@ fun TagDetailScreen(
                     onClick = { onTaskClick(task) },
                     parentTitle = state.parentOf(task)?.title,
                     subtaskProgress = state.subtaskProgress(task.id),
+                    attachmentCount = state.attachmentCount(task.id),
                     // Every other label the task carries, but not this list's own.
                     tags = state.tagsOf(task).filter { it.id != tag.id },
                 )
