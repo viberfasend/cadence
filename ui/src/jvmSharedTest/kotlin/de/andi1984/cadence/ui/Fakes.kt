@@ -16,6 +16,7 @@ import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
+import de.andi1984.cadence.ui.platform.AttachmentOpener
 import de.andi1984.cadence.ui.platform.BackupGateway
 import de.andi1984.cadence.ui.platform.BackupTarget
 import de.andi1984.cadence.ui.platform.ReminderScheduler
@@ -24,6 +25,7 @@ import de.andi1984.cadence.ui.settings.Density
 import de.andi1984.cadence.ui.settings.SettingsStore
 import de.andi1984.cadence.ui.settings.SortMode
 import de.andi1984.cadence.ui.settings.ThemeChoice
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -256,17 +258,54 @@ class FakeSectionStore : SectionStore {
         .maxOfOrNull { it.sortOrder }
 }
 
-/** Attachments are not what any of these tests are about; this only has to be a working no-op. */
+/**
+ * An in-memory [AttachmentStore], the same shape as the other fakes here.
+ *
+ * It was a no-op until the detail screen grew an attachments card; the ViewModel's add and remove
+ * paths now have to read back what they wrote, and the repository behind them reclaims blobs by
+ * asking this table which hashes are still named.
+ */
 class FakeAttachmentStore : AttachmentStore {
-    override fun observeAll(): Flow<List<Attachment>> = MutableStateFlow(emptyList<Attachment>())
-    override suspend fun byId(id: String): Attachment? = null
-    override suspend fun forTask(taskId: String): List<Attachment> = emptyList()
-    override suspend fun insert(attachment: Attachment) = Unit
-    override suspend fun delete(id: String) = Unit
-    override suspend fun deleteForTasks(taskIds: List<String>) = Unit
-    override suspend fun hashesForTasks(taskIds: List<String>): List<String> = emptyList()
-    override suspend fun stillReferenced(hashes: List<String>): List<String> = emptyList()
-    override suspend fun referencedHashes(): List<String> = emptyList()
+
+    private val table = MutableStateFlow<Map<String, Attachment>>(emptyMap())
+
+    fun rows(): List<Attachment> =
+        table.value.values.sortedWith(compareBy({ it.sortOrder }, { it.id }))
+
+    override fun observeAll(): Flow<List<Attachment>> = table.map { it.values.toList() }
+
+    override suspend fun byId(id: String): Attachment? = table.value[id]
+
+    override suspend fun forTask(taskId: String): List<Attachment> = table.value.values
+        .filter { it.taskId == taskId }
+        .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+
+    override suspend fun insert(attachment: Attachment) {
+        table.value = table.value + (attachment.id to attachment)
+    }
+
+    override suspend fun update(attachment: Attachment) = insert(attachment)
+
+    override suspend fun delete(id: String) {
+        table.value = table.value - id
+    }
+
+    override suspend fun deleteForTasks(taskIds: List<String>) {
+        table.value = table.value.filterValues { it.taskId !in taskIds }
+    }
+
+    override suspend fun hashesForTasks(taskIds: List<String>): List<String> = table.value.values
+        .filter { it.taskId in taskIds }
+        .mapNotNull { it.sha256 }
+        .distinct()
+
+    override suspend fun stillReferenced(hashes: List<String>): List<String> {
+        val named = table.value.values.mapNotNull { it.sha256 }.toSet()
+        return hashes.filter { it in named }
+    }
+
+    override suspend fun referencedHashes(): List<String> =
+        table.value.values.mapNotNull { it.sha256 }.distinct()
 }
 
 class FakeBackupStore : BackupStore {
@@ -348,6 +387,29 @@ class RecordingReminderScheduler : ReminderScheduler {
 
     override fun cancel(taskId: String) {
         cancelled += taskId
+    }
+}
+
+/**
+ * Records what was handed to a viewer, and can refuse to open — the state a phone with no PDF
+ * reader is in, which the ViewModel answers with a snackbar rather than silence.
+ */
+class RecordingAttachmentOpener : AttachmentOpener {
+
+    val openedFiles = mutableListOf<java.io.File>()
+    val openedLinks = mutableListOf<String>()
+
+    /** Set false to model a machine that has nothing for the type. */
+    var canOpen: Boolean = true
+
+    override fun openFile(file: java.io.File, name: String, mimeType: String): Boolean {
+        openedFiles += file
+        return canOpen
+    }
+
+    override fun openLink(url: String): Boolean {
+        openedLinks += url
+        return canOpen
     }
 }
 
@@ -447,15 +509,21 @@ fun repositoryOver(
     projectStore: FakeProjectStore,
     sectionStore: FakeSectionStore,
     tagStore: FakeTagStore = FakeTagStore(),
+    attachmentStore: FakeAttachmentStore = FakeAttachmentStore(),
 ): CadenceRepository = CadenceRepository(
     taskStore,
     projectStore,
     sectionStore,
     tagStore,
     FakeBackupStore(),
-    FakeAttachmentStore(),
+    attachmentStore,
     BlobStore(
         root = Files.createTempDirectory("cadence-ui-blobs").toFile(),
         tmp = Files.createTempDirectory("cadence-ui-blobs-tmp").toFile(),
     ),
+    // The blob store's own dispatcher, unconfined here for the same reason the SQLDelight stores
+    // take one: a real `Dispatchers.IO` inside `attachmentIndex`'s `flowOn` would put the state
+    // flow on a thread `runTest`'s virtual clock does not control, and every assertion after a
+    // write would race it.
+    Dispatchers.Unconfined,
 )
