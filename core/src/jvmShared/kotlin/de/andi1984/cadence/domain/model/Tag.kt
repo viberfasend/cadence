@@ -44,10 +44,18 @@ data class Tag(
  * The tag [typed] names, or null.
  *
  * Three passes, widening — exact name, name with its spaces removed, then a prefix — which is the
- * same ladder [de.andi1984.cadence.domain.parse.QuickAddParser] already walks for `#project`. All
- * three are case-insensitive: a tag is a label someone types quickly, not an identifier.
+ * same ladder [de.andi1984.cadence.domain.parse.QuickAddParser] walks for `#project`. All three
+ * are case-insensitive: a tag is a label someone types quickly, not an identifier.
+ *
+ * **The prefix pass answers only when exactly one tag matches**, which is where this deliberately
+ * stops mirroring `#project`. A handle that matches nothing *creates* a tag (ADR 0004, decision
+ * 4), so an ambiguous prefix is not a near-miss to be resolved generously: with `@workout` and
+ * `@workshop` both present, `@work` picking whichever sorts first labels the task wrongly and
+ * silently, and — worse — makes the tag actually called *work* unreachable from the quick-add
+ * line forever. Returning null hands the typed word back as a tag to create, which is what
+ * someone typing a name no tag holds exactly meant.
  */
 fun List<Tag>.matchingHandle(typed: String): Tag? =
     firstOrNull { it.name.equals(typed, ignoreCase = true) }
         ?: firstOrNull { it.handle.equals(typed, ignoreCase = true) }
-        ?: firstOrNull { it.handle.startsWith(typed, ignoreCase = true) }
+        ?: singleOrNull { it.handle.startsWith(typed, ignoreCase = true) }

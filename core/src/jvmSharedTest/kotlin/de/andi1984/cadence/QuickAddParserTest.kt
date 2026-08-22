@@ -342,6 +342,46 @@ class QuickAddParserTest {
         assertEquals(listOf("g2"), parsed.tagIds)
     }
 
+    /**
+     * A prefix answers only when one tag could have been meant.
+     *
+     * `@work` with `Workout` and `Workshop` both present used to apply whichever sorted first,
+     * silently and wrongly, and — worse — made a tag actually called *work* impossible to reach
+     * from this line at all. Ambiguity now falls through to "create it", which is what someone
+     * typing a name no tag holds exactly meant.
+     */
+    @Test
+    fun `an ambiguous prefix creates a tag instead of guessing one`() {
+        val ambiguous = listOf(
+            Tag(id = "g3", name = "Workout"),
+            Tag(id = "g4", name = "Workshop"),
+        )
+
+        val parsed = QuickAddParser.parse("Book the room @work", projects, ambiguous, today)
+
+        assertEquals(emptyList<String>(), parsed.tagIds)
+        assertEquals(listOf("work"), parsed.newTagNames)
+    }
+
+    @Test
+    fun `an unambiguous prefix still matches, and an exact name still beats it`() {
+        val overlapping = listOf(
+            Tag(id = "g3", name = "Workout"),
+            Tag(id = "g5", name = "Work"),
+        )
+
+        // One candidate: the prefix pass answers.
+        assertEquals(
+            listOf("g3"),
+            QuickAddParser.parse("Go @worko", projects, overlapping, today).tagIds,
+        )
+        // Two candidates, but one of them is the name typed — the exact pass runs first.
+        assertEquals(
+            listOf("g5"),
+            QuickAddParser.parse("Go @work", projects, overlapping, today).tagIds,
+        )
+    }
+
     /** The one token kind that repeats: a task is filed once and labelled as often as it likes. */
     @Test
     fun `several handles all land, deduplicated`() {
