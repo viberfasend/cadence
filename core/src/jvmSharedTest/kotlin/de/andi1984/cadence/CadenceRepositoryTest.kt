@@ -4,6 +4,7 @@ import de.andi1984.cadence.data.AttachmentStore
 import de.andi1984.cadence.data.BackupStore
 import de.andi1984.cadence.data.BlobStore
 import de.andi1984.cadence.data.CadenceRepository
+import de.andi1984.cadence.data.MAX_ATTACHMENTS_PER_TASK
 import de.andi1984.cadence.data.ProjectStore
 import de.andi1984.cadence.data.RepositoryResult
 import de.andi1984.cadence.data.SectionStore
@@ -19,8 +20,10 @@ import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -61,6 +64,8 @@ class CadenceRepositoryTest {
         FakeBackupStore(),
         attachmentStore,
         blobStore,
+        // Unconfined, so the blob work stays on the test's own scheduler — see `Fakes.kt`.
+        Dispatchers.Unconfined,
     )
 
     private fun store(task: Task): Task = taskStore.row(taskStore.put(task))
@@ -506,6 +511,90 @@ class CadenceRepositoryTest {
 
             assertEquals(1, attachmentStore.forTask(task.id).size)
             assertNotNull(blobStore.file(secondHash))
+        }
+
+    @Test
+    fun `the attachment index reports a blob on disk as present and a missing one as absent`() =
+        runTest {
+            val task = store(Task(title = "Send the invoice"))
+            val kept = attach(task.id, byteArrayOf(1))
+            val lost = attach(task.id, byteArrayOf(2))
+            // What a backup restored without its blobs, or a second device, leaves behind: the
+            // row is still there and the bytes are not.
+            blobStore.deleteAll(listOf(lost))
+
+            val index = repository.attachmentIndex.first()
+
+            assertEquals(2, index.attachments.size)
+            assertEquals(setOf(kept), index.presentBlobs)
+        }
+
+    @Test
+    fun `a link is in the index with no hash to be present or missing`() = runTest {
+        val task = store(Task(title = "Send the invoice"))
+        repository.addLinkAttachment(task.id, "https://example.org/receipt", "Receipt")
+
+        val index = repository.attachmentIndex.first()
+
+        assertEquals(AttachmentKind.LINK, index.attachments.single().kind)
+        assertTrue(index.presentBlobs.isEmpty())
+    }
+
+    @Test
+    fun `relocating heals the row in place and reclaims the hash it no longer names`() = runTest {
+        val task = store(Task(title = "Send the invoice"))
+        val original = attach(task.id, byteArrayOf(1))
+        val id = attachmentStore.forTask(task.id).single().id
+        blobStore.deleteAll(listOf(original))
+
+        // Different bytes on purpose: someone re-exporting the same invoice gets a different
+        // file with the same meaning, and refusing it would leave the row broken forever.
+        val result = repository.relocateAttachment(id, ByteArrayInputStream(byteArrayOf(9, 9)))
+
+        assertTrue(result is CadenceRepository.AddAttachmentResult.Success)
+        val healed = attachmentStore.forTask(task.id).single()
+        assertEquals(id, healed.id)
+        assertEquals("file.bin", healed.name)
+        assertEquals(2L, healed.sizeBytes)
+        assertNotNull(healed.sha256?.let { blobStore.file(it) })
+        assertNull(blobStore.file(original))
+    }
+
+    @Test
+    fun `relocating a blob another attachment still names leaves that blob alone`() = runTest {
+        val task = store(Task(title = "Send the invoice"))
+        val shared = attach(task.id, byteArrayOf(1))
+        attach(task.id, byteArrayOf(1))
+        val id = attachmentStore.forTask(task.id).first().id
+
+        repository.relocateAttachment(id, ByteArrayInputStream(byteArrayOf(9, 9)))
+
+        // The second row is the refcount, read back rather than trusted from a counter.
+        assertNotNull(blobStore.file(shared))
+    }
+
+    @Test
+    fun `relocating a link is refused rather than turning it into a file`() = runTest {
+        val task = store(Task(title = "Send the invoice"))
+        repository.addLinkAttachment(task.id, "https://example.org", "Receipt")
+        val id = attachmentStore.forTask(task.id).single().id
+
+        val result = repository.relocateAttachment(id, ByteArrayInputStream(byteArrayOf(1)))
+
+        assertEquals(CadenceRepository.AddAttachmentResult.ValidationError, result)
+        assertEquals(AttachmentKind.LINK, attachmentStore.forTask(task.id).single().kind)
+    }
+
+    @Test
+    fun `a task at the attachment limit refuses the next one rather than dropping an old one`() =
+        runTest {
+            val task = store(Task(title = "Send the invoice"))
+            repeat(MAX_ATTACHMENTS_PER_TASK) { index -> attach(task.id, byteArrayOf(index.toByte())) }
+
+            val result = repository.addLinkAttachment(task.id, "https://example.org", "One more")
+
+            assertEquals(CadenceRepository.AddAttachmentResult.LimitReached, result)
+            assertEquals(MAX_ATTACHMENTS_PER_TASK, attachmentStore.forTask(task.id).size)
         }
 
     // ── Manual order ───────────────────────────────────────────────────────────────
@@ -1075,6 +1164,10 @@ private class FakeAttachmentStore : AttachmentStore {
         .sortedWith(compareBy({ it.sortOrder }, { it.id }))
 
     override suspend fun insert(attachment: Attachment) {
+        put(attachment)
+    }
+
+    override suspend fun update(attachment: Attachment) {
         put(attachment)
     }
 
