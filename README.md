@@ -66,6 +66,10 @@ backlog one card at a time so you can set importance in a single pass.
 
 **Projects** — one level of subprojects, with open and overdue counts.
 
+**Tags** — cross-cutting labels beside projects. A task lives in one project and wears as many tags
+as you like, so `@waiting` or `@errand` can gather work from all over. Tapping a tag shows
+everything carrying it; the list is reached from Projects, and on the desktop from the sidebar.
+
 **Task detail** — importance as a four-way segmented control, due date, reminder, recurrence
 and notes.
 
@@ -77,14 +81,15 @@ backup first if you might want any of it back.
 **Quick add** — one line, parsed as you type:
 
 ```
-Pay rent every 1st !p2 #Home
+Pay rent every 1st !p2 #Home @bills
 Water the plants 3 days after done
 Call the dentist tomorrow at 17:00 !p1
 Take out recycling every 2 weeks on thu
 Steuer 24.12.
 ```
 
-Recognised: `!p1`–`!p4`, `#Project`, `today`/`tomorrow`/`next friday`/`in 3 days`/`24.12.`/
+Recognised: `!p1`–`!p4`, `#Project`, `@tag` (as many as you like — a name that does not exist yet
+is created), `today`/`tomorrow`/`next friday`/`in 3 days`/`24.12.`/
 `24 Dec`/`2026-12-24`, `at 17:00`/`9am`, and recurrence phrases (`daily`, `every 2 weeks on thu`,
 `every 1st`, `every last weekday`, `3 days after done`). Everything is optional; unrecognised
 words stay in the title, and every parsed chip can be corrected by tapping it.

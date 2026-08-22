@@ -8,6 +8,7 @@ import de.andi1984.cadence.data.ProjectStore
 import de.andi1984.cadence.data.RepositoryResult
 import de.andi1984.cadence.data.SectionStore
 import de.andi1984.cadence.data.StoreResult
+import de.andi1984.cadence.data.TagStore
 import de.andi1984.cadence.data.TaskStore
 import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.AttachmentKind
@@ -16,6 +17,7 @@ import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,10 +52,12 @@ class CadenceRepositoryTest {
     )
     private val projectStore = FakeProjectStore()
     private val sectionStore = FakeSectionStore(taskStore)
+    private val tagStore = FakeTagStore()
     private val repository = CadenceRepository(
         taskStore,
         projectStore,
         sectionStore,
+        tagStore,
         FakeBackupStore(),
         attachmentStore,
         blobStore,
@@ -442,6 +446,7 @@ class CadenceRepositoryTest {
             taskStore,
             projectStore,
             sectionStore,
+            tagStore,
             FakeBackupStore(),
             attachmentStore,
             blobStore,
@@ -461,6 +466,7 @@ class CadenceRepositoryTest {
             taskStore,
             projectStore,
             sectionStore,
+            tagStore,
             FakeBackupStore(),
             attachmentStore,
             blobStore,
@@ -615,6 +621,140 @@ class CadenceRepositoryTest {
 
         val id = (result as RepositoryResult.Success).data
         assertEquals(1, sectionStore.row(id).sortOrder)
+    }
+
+    // ── Tags ───────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `a new tag is minted an id and lands at the bottom of the list`() = runTest {
+        val first = repository.upsertTag(Tag(name = "Errand")) as RepositoryResult.Success
+        val second = repository.upsertTag(Tag(name = "Waiting")) as RepositoryResult.Success
+
+        assertTrue(first.data.isNotBlank())
+        assertEquals(0, tagStore.row(first.data).sortOrder)
+        assertEquals(1, tagStore.row(second.data).sortOrder)
+    }
+
+    /**
+     * The one validation a tag has beyond a name, and the reason it exists: `@home` in the
+     * quick-add line has to mean one thing.
+     */
+    @Test
+    fun `a second tag with the same name, in any case, is refused`() = runTest {
+        repository.upsertTag(Tag(name = "Errand"))
+
+        val clash = repository.upsertTag(Tag(name = "  errand  "))
+
+        assertTrue(clash is RepositoryResult.Error)
+        assertEquals(1, tagStore.rows().size)
+    }
+
+    /** Renaming is not a clash with itself. */
+    @Test
+    fun `recolouring a tag under its own name is allowed`() = runTest {
+        val id = (repository.upsertTag(Tag(name = "Errand")) as RepositoryResult.Success).data
+
+        val again = repository.upsertTag(tagStore.row(id).copy(colorHex = "#BA1A1A"))
+
+        assertTrue(again is RepositoryResult.Success)
+        assertEquals("#BA1A1A", tagStore.row(id).colorHex)
+    }
+
+    @Test
+    fun `a blank name is a validation error`() = runTest {
+        assertEquals(RepositoryResult.ValidationError, repository.upsertTag(Tag(name = "   ")))
+    }
+
+    /**
+     * The whole point of the packed column: deleting a tag is one row.
+     *
+     * If this ever starts failing because the tasks were rewritten, the "one row per delete"
+     * property is gone and a tag on two thousand tasks costs two thousand rows on the next push.
+     */
+    @Test
+    fun `deleting a tag writes one row and leaves every task alone`() = runTest {
+        val id = (repository.upsertTag(Tag(name = "Errand")) as RepositoryResult.Success).data
+        val task = store(Task(title = "Post the parcel", tagIds = listOf(id)))
+        val before = taskStore.row(task.id).updatedAt
+
+        repository.deleteTag(id)
+
+        assertTrue(tagStore.rows().isEmpty())
+        assertEquals(listOf(id), taskStore.row(task.id).tagIds)
+        assertEquals(before, taskStore.row(task.id).updatedAt)
+    }
+
+    @Test
+    fun `setTaskTags dedupes, drops blanks and does not write an unchanged list`() = runTest {
+        val task = store(Task(title = "Post the parcel", tagIds = listOf("a")))
+        val before = taskStore.row(task.id).updatedAt
+
+        repository.setTaskTags(taskStore.row(task.id), listOf("a"))
+        assertEquals(before, taskStore.row(task.id).updatedAt)
+
+        repository.setTaskTags(taskStore.row(task.id), listOf("a", "", "b", "a"))
+        assertEquals(listOf("a", "b"), taskStore.row(task.id).tagIds)
+    }
+
+    /**
+     * Kept, not pruned: a pull can deliver a task before the tag it names, and pruning on write
+     * would erase the label a moment before its tag arrived. Dropping a dangling id is the *read*
+     * side's job (`CadenceUiState.tagsOf`).
+     */
+    @Test
+    fun `setTaskTags keeps an id no tag answers to`() = runTest {
+        val task = store(Task(title = "Post the parcel"))
+
+        repository.setTaskTags(task, listOf("not-a-tag-yet"))
+
+        assertEquals(listOf("not-a-tag-yet"), taskStore.row(task.id).tagIds)
+    }
+
+    @Test
+    fun `toggling adds a tag the task lacks and removes one it has`() = runTest {
+        val task = store(Task(title = "Post the parcel"))
+
+        repository.toggleTaskTag(taskStore.row(task.id), "a")
+        assertEquals(listOf("a"), taskStore.row(task.id).tagIds)
+
+        repository.toggleTaskTag(taskStore.row(task.id), "a")
+        assertEquals(emptyList<String>(), taskStore.row(task.id).tagIds)
+    }
+
+    /** A label on the parent says nothing about its checklist — unlike a project or a section,
+     *  which the steps do follow. */
+    @Test
+    fun `tagging a parent leaves its subtasks untagged`() = runTest {
+        val parent = store(Task(title = "Move house"))
+        repository.addSubtask(parent, "Book the van")
+        val step = taskStore.rows().single { it.parentId == parent.id }
+
+        repository.setTaskTags(parent, listOf("a"))
+
+        assertEquals(emptyList<String>(), taskStore.row(step.id).tagIds)
+    }
+
+    /** A recurring task's labels are part of the work, so the next occurrence inherits them —
+     *  the same rule the checklist and the attachments follow. */
+    @Test
+    fun `the next occurrence of a recurring task keeps its tags`() = runTest {
+        val task = store(recurring().copy(tagIds = listOf("a", "b")))
+
+        repository.setCompleted(task, true, today)
+
+        val next = rowsTitled("Rat poison").single { !it.isDone }
+        assertEquals(listOf("a", "b"), next.tagIds)
+    }
+
+    /** The danger zone wipes tags too, as tombstones like everything else — a wipe that left the
+     *  labels behind would hand them straight back on the next pull. */
+    @Test
+    fun `the danger zone tombstones every tag`() = runTest {
+        repository.upsertTag(Tag(name = "Errand"))
+
+        repository.deleteEverything()
+
+        assertTrue(tagStore.rows().isEmpty())
     }
 }
 
@@ -798,9 +938,62 @@ private class FakeBackupStore : BackupStore {
     override suspend fun mergeAll(
         projects: List<Project>,
         sections: List<Section>,
+        tags: List<Tag>,
         tasks: List<Task>,
         revivedAt: Instant,
     ) = Unit
+}
+
+/**
+ * An in-memory [TagStore].
+ *
+ * Shorter than [FakeSectionStore] by exactly the thing that makes a tag a tag: `tombstone` writes
+ * one row and touches no task, because membership lives on the other side of the link.
+ */
+private class FakeTagStore : TagStore {
+
+    private val table = MutableStateFlow<Map<String, Tag>>(emptyMap())
+
+    fun row(id: String): Tag = table.value[id] ?: error("no tag with id $id")
+
+    fun rows(): List<Tag> = table.value.values.filter { it.deletedAt == null }
+
+    override fun observeAll(): Flow<List<Tag>> =
+        table.map { m -> m.values.filter { it.deletedAt == null }.sortedBy { it.sortOrder } }
+
+    override suspend fun getAll(): List<Tag> = rows().sortedBy { it.sortOrder }
+
+    override suspend fun insert(tag: Tag) {
+        table.value = table.value + (tag.id to tag)
+    }
+
+    override suspend fun update(tag: Tag) {
+        table.value = table.value + (tag.id to tag)
+    }
+
+    override suspend fun tombstone(id: String, at: Instant) {
+        val tag = table.value[id] ?: return
+        if (tag.deletedAt != null) return
+        table.value = table.value + (id to tag.copy(deletedAt = at, updatedAt = at))
+    }
+
+    override suspend fun tombstoneAll(at: Instant) {
+        table.value = table.value.mapValues { (_, tag) ->
+            if (tag.deletedAt == null) tag.copy(deletedAt = at, updatedAt = at) else tag
+        }
+    }
+
+    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant) {
+        var next = table.value
+        orders.forEach { (id, position) ->
+            val tag = next[id]?.takeIf { it.deletedAt == null } ?: return@forEach
+            if (tag.sortOrder == position) return@forEach
+            next = next + (id to tag.copy(sortOrder = position, updatedAt = at))
+        }
+        table.value = next
+    }
+
+    override suspend fun maxSortOrder(): Int? = rows().maxOfOrNull { it.sortOrder }
 }
 
 /**

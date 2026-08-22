@@ -53,7 +53,7 @@ import de.andi1984.cadence.ui.settings.ThemeChoice
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * `Ctrl`/`Cmd`+`K`: one field over every task, every project and every verb the shell has.
+ * `Ctrl`/`Cmd`+`K`: one field over every task, project and tag, and every verb the shell has.
  *
  * The ranking is `:ui`'s [CommandPalette], which is pure and tested. What lives here is the part
  * that cannot be: which commands exist (half of them are navigation, which only the shell knows),
@@ -94,9 +94,12 @@ fun CommandPaletteDialog(
         onGoTo = navigator::switchTo,
     )
 
-    val entries = remember(state.tasks, state.projects, commands) {
+    val entries = remember(state.tasks, state.projects, state.tags, commands) {
         commands.map { it.entry } +
             state.projects.map { PaletteEntry(it.id, it.name, PaletteKind.Project) } +
+                // Matched on "@errand", the spelling the chips and the quick-add line both use —
+                // typing the bare name works too, since the score is a subsequence match.
+                state.tags.map { PaletteEntry(it.id, "@" + it.handle, PaletteKind.Tag) } +
             state.openTasks().map { task ->
                 PaletteEntry(
                     id = task.id,
@@ -116,6 +119,7 @@ fun CommandPaletteDialog(
         when (entry.kind) {
             PaletteKind.Command -> commands.firstOrNull { it.entry.id == entry.id }?.run?.invoke()
             PaletteKind.Project -> navigator.go(Route.ProjectDetail(entry.id))
+            PaletteKind.Tag -> navigator.go(Route.TagDetail(entry.id))
             PaletteKind.Task -> navigator.go(Route.TaskDetail(entry.id))
         }
     }
@@ -217,6 +221,7 @@ private fun PaletteGroupHeader(kind: PaletteKind) {
     val label = when (kind) {
         PaletteKind.Command -> Res.string.palette_group_commands
         PaletteKind.Project -> Res.string.palette_group_projects
+        PaletteKind.Tag -> Res.string.tags_title
         PaletteKind.Task -> Res.string.palette_group_tasks
     }
     Column {
@@ -247,6 +252,7 @@ private fun PaletteRow(entry: PaletteEntry, selected: Boolean, onClick: () -> Un
             imageVector = when (entry.kind) {
                 PaletteKind.Command -> AppIcons.Tune
                 PaletteKind.Project -> AppIcons.Folder
+                PaletteKind.Tag -> AppIcons.Tag
                 PaletteKind.Task -> AppIcons.Checklist
             },
             contentDescription = null,

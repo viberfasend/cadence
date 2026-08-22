@@ -6,11 +6,13 @@ import de.andi1984.cadence.data.db.SqlDelightAttachmentStore
 import de.andi1984.cadence.data.db.SqlDelightBackupStore
 import de.andi1984.cadence.data.db.SqlDelightProjectStore
 import de.andi1984.cadence.data.db.SqlDelightSectionStore
+import de.andi1984.cadence.data.db.SqlDelightTagStore
 import de.andi1984.cadence.data.db.SqlDelightTaskStore
 import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -149,6 +151,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "Home", updatedAt = now)),
             sections = emptyList(),
+            tags = emptyList(),
             tasks =listOf(Task(id = "t1", title = "Fresh task", projectId = "p1", createdAt = now, updatedAt = now)),
             revivedAt = now,
         )
@@ -174,6 +177,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
+            tags = emptyList(),
             tasks =listOf(Task(id = "t1", title = "Stale", createdAt = now, updatedAt = now)),
             revivedAt = now,
         )
@@ -182,6 +186,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
+            tags = emptyList(),
             tasks =listOf(Task(id = "t1", title = "Newer", createdAt = now, updatedAt = later.plusSeconds(1))),
             revivedAt = now,
         )
@@ -201,6 +206,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
+            tags = emptyList(),
             tasks =listOf(Task(id = "t1", title = "Deleted there", createdAt = now, updatedAt = now, deletedAt = now)),
             revivedAt = now,
         )
@@ -211,6 +217,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
+            tags = emptyList(),
             tasks =listOf(
                 Task(id = "t1", title = "Deleted there", createdAt = now, updatedAt = deletedAt, deletedAt = deletedAt),
             ),
@@ -228,6 +235,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
+            tags = emptyList(),
             tasks =listOf(Task(id = "t1", title = "Gone", createdAt = now, updatedAt = now, deletedAt = now)),
             revivedAt = now,
         )
@@ -264,6 +272,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = listOf(Project(id = "p1", name = "Import", updatedAt = now)),
             sections = emptyList(),
+            tags = emptyList(),
             tasks =listOf(Task(id = "t1", title = "Back", projectId = "p1", createdAt = now, updatedAt = now)),
             revivedAt = importedAt,
         )
@@ -287,6 +296,7 @@ class SqlDelightStoreTest {
         backupStore.mergeAll(
             projects = emptyList(),
             sections = emptyList(),
+            tags = emptyList(),
             tasks =listOf(Task(id = "t1", title = "Also gone", createdAt = now, updatedAt = now, deletedAt = now)),
             revivedAt = deletedAt.plusSeconds(60),
         )
@@ -441,5 +451,85 @@ class SqlDelightStoreTest {
         assertNull(projectStore.maxSortOrder("child"))
         assertEquals(5, sectionStore.maxSortOrder("root"))
         assertNull(sectionStore.maxSortOrder("child"))
+    }
+
+    // ── Tags ───────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `a tag survives an insert and read back`() = runTest {
+        val database = newDatabase()
+        val tagStore = SqlDelightTagStore(database, Dispatchers.Unconfined)
+        val tag = Tag(id = "g1", name = "Errand", colorHex = "#BA1A1A", updatedAt = now)
+
+        tagStore.insert(tag)
+
+        assertEquals(listOf(tag), tagStore.getAll())
+    }
+
+    /**
+     * The packed column, through the real mapper.
+     *
+     * Worth a database test rather than only a codec one: `4.sqm` appends `tagIds` after
+     * `sectionId`, every query is a `SELECT *`, and a mapper whose parameters are one position out
+     * reads a task's tags out of its section id without failing anywhere.
+     */
+    @Test
+    fun `a task's tags survive the packed column`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        val task = Task(
+            id = "t1",
+            title = "Post the parcel",
+            sectionId = "s1",
+            tagIds = listOf("g2", "g1"),
+            createdAt = now,
+            updatedAt = now,
+        )
+
+        taskStore.insert(task)
+
+        val read = taskStore.byId("t1")!!
+        assertEquals(listOf("g2", "g1"), read.tagIds)
+        assertEquals("s1", read.sectionId)
+    }
+
+    @Test
+    fun `a task with no tags reads back as no tags, not as one blank one`() = runTest {
+        val database = newDatabase()
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        taskStore.insert(Task(id = "t1", title = "Post the parcel", createdAt = now, updatedAt = now))
+
+        assertEquals(emptyList<String>(), taskStore.byId("t1")?.tagIds)
+    }
+
+    /** Deleting a tag is one row, and the id stays on every task that wore it — see `Tag.sq`. */
+    @Test
+    fun `tombstoning a tag leaves the tasks that named it untouched`() = runTest {
+        val database = newDatabase()
+        val tagStore = SqlDelightTagStore(database, Dispatchers.Unconfined)
+        val taskStore = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        tagStore.insert(Tag(id = "g1", name = "Errand", updatedAt = now))
+        taskStore.insert(
+            Task(id = "t1", title = "Post", tagIds = listOf("g1"), createdAt = now, updatedAt = now),
+        )
+
+        tagStore.tombstone("g1", now.plusSeconds(1))
+
+        assertTrue(tagStore.getAll().isEmpty())
+        assertEquals(listOf("g1"), taskStore.byId("t1")?.tagIds)
+        assertEquals(now, taskStore.byId("t1")?.updatedAt)
+    }
+
+    @Test
+    fun `tombstoning a tag twice keeps the first timestamp`() = runTest {
+        val database = newDatabase()
+        val tagStore = SqlDelightTagStore(database, Dispatchers.Unconfined)
+        tagStore.insert(Tag(id = "g1", name = "Errand", updatedAt = now))
+
+        tagStore.tombstone("g1", now.plusSeconds(1))
+        tagStore.tombstone("g1", now.plusSeconds(60))
+
+        val row = database.tagQueries.selectByIdIncludingDeleted("g1").executeAsOne()
+        assertEquals(now.plusSeconds(1).toEpochMilli(), row.deletedAt)
     }
 }

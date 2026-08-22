@@ -43,7 +43,8 @@ carry the detail and the up-to-date checked/unchecked state.
 - [ ] Widgets (home screen: Today list, quick-add) — [#39](../../issues/39)
 - [ ] Bulk actions in Triage/Projects (multi-select complete/move/delete) —
       [#40](../../issues/40)
-- [ ] Tags in addition to Projects — [#41](../../issues/41)
+- [x] Tags in addition to Projects — [#41](../../issues/41), designed in
+      [ADR 0004](docs/adr/0004-tags.md)
 - [ ] Desktop backup file picker can't reach cloud storage — [#65](../../issues/65). Escape-hatch
       only now that sync no longer travels through a file.
 - [ ] **Attachments and the Android share sheet** — [#31](../../issues/31), designed in

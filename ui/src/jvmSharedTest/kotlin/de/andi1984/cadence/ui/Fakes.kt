@@ -6,6 +6,7 @@ import de.andi1984.cadence.data.BlobStore
 import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.data.ProjectStore
 import de.andi1984.cadence.data.SectionStore
+import de.andi1984.cadence.data.TagStore
 import de.andi1984.cadence.data.TaskStore
 import de.andi1984.cadence.data.sync.SyncState
 import de.andi1984.cadence.data.sync.SyncStore
@@ -13,6 +14,7 @@ import de.andi1984.cadence.domain.backup.BackupOutcome
 import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.platform.BackupGateway
 import de.andi1984.cadence.ui.platform.BackupTarget
@@ -271,9 +273,65 @@ class FakeBackupStore : BackupStore {
     override suspend fun mergeAll(
         projects: List<Project>,
         sections: List<Section>,
+        tags: List<Tag>,
         tasks: List<Task>,
         revivedAt: Instant,
     ) = Unit
+}
+
+/**
+ * An in-memory [TagStore]. Shorter than [FakeSectionStore] by the thing that makes a tag a tag:
+ * tombstoning one writes a single row and rewrites no task, because membership lives on the task.
+ */
+class FakeTagStore : TagStore {
+
+    private val table = MutableStateFlow<Map<String, Tag>>(emptyMap())
+
+    /** Puts a tag in directly, id and all — the shortcut a test setup wants. */
+    fun put(tag: Tag): Tag {
+        val stored = if (tag.id.isBlank()) tag.copy(id = "tag-${table.value.size + 1}") else tag
+        table.value = table.value + (stored.id to stored)
+        return stored
+    }
+
+    fun rows(): List<Tag> = table.value.values.filter { it.deletedAt == null }.sortedBy { it.sortOrder }
+
+    override fun observeAll(): Flow<List<Tag>> =
+        table.map { m -> m.values.filter { it.deletedAt == null }.sortedBy { it.sortOrder } }
+
+    override suspend fun getAll(): List<Tag> = rows()
+
+    override suspend fun insert(tag: Tag) {
+        table.value = table.value + (tag.id to tag)
+    }
+
+    override suspend fun update(tag: Tag) {
+        table.value = table.value + (tag.id to tag)
+    }
+
+    override suspend fun tombstone(id: String, at: Instant) {
+        val tag = table.value[id] ?: return
+        if (tag.deletedAt != null) return
+        table.value = table.value + (id to tag.copy(deletedAt = at, updatedAt = at))
+    }
+
+    override suspend fun tombstoneAll(at: Instant) {
+        table.value = table.value.mapValues { (_, tag) ->
+            if (tag.deletedAt == null) tag.copy(deletedAt = at, updatedAt = at) else tag
+        }
+    }
+
+    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant) {
+        var next = table.value
+        orders.forEach { (id, position) ->
+            val tag = next[id]?.takeIf { it.deletedAt == null } ?: return@forEach
+            if (tag.sortOrder == position) return@forEach
+            next = next + (id to tag.copy(sortOrder = position, updatedAt = at))
+        }
+        table.value = next
+    }
+
+    override suspend fun maxSortOrder(): Int? = rows().maxOfOrNull { it.sortOrder }
 }
 
 /** Records what the platform was asked to schedule or cancel, which is the whole assertion in
@@ -355,13 +413,17 @@ class FakeSyncStore : SyncStore {
 
     override suspend fun sectionsChangedSince(since: Instant): List<Section> = emptyList()
 
+    override suspend fun tagsChangedSince(since: Instant): List<Tag> = emptyList()
+
     override suspend fun mergeAndAdvance(
         projects: List<Project>,
         sections: List<Section>,
+        tags: List<Tag>,
         tasks: List<Task>,
         taskCursor: String?,
         projectCursor: String?,
         sectionCursor: String?,
+        tagCursor: String?,
     ) = Unit
 
     override suspend fun setPushWatermark(at: Instant) {
@@ -384,10 +446,12 @@ fun repositoryOver(
     taskStore: FakeTaskStore,
     projectStore: FakeProjectStore,
     sectionStore: FakeSectionStore,
+    tagStore: FakeTagStore = FakeTagStore(),
 ): CadenceRepository = CadenceRepository(
     taskStore,
     projectStore,
     sectionStore,
+    tagStore,
     FakeBackupStore(),
     FakeAttachmentStore(),
     BlobStore(

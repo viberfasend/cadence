@@ -378,8 +378,14 @@ fun ProjectMenu(
     }
 }
 
-/** The palette a project can be tinted with; the label is what a screen reader announces. */
-internal val PROJECT_COLORS = listOf(
+/**
+ * The palette a project can be tinted with; the label is what a screen reader announces.
+ *
+ * Tags share it (`ui/tags/TagDialogs.kt`) rather than declaring six colours of their own: two
+ * palettes drift, and a tag is told apart from a project by the `@` on its chip, never by which
+ * colours it may wear.
+ */
+val PROJECT_COLORS = listOf(
     "#006A60" to Res.string.projects_color_teal,
     "#3E6373" to Res.string.projects_color_slate,
     "#A1560A" to Res.string.projects_color_amber,

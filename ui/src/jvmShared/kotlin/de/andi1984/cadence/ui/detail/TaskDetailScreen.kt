@@ -65,8 +65,11 @@ import de.andi1984.cadence.ui.components.CadenceTimePickerDialog
 import de.andi1984.cadence.ui.components.CompletionCircle
 import de.andi1984.cadence.ui.components.EmptyState
 import de.andi1984.cadence.ui.components.ProjectPickerDialog
+import de.andi1984.cadence.ui.components.TagChip
 import de.andi1984.cadence.ui.components.ProjectSwatch
 import de.andi1984.cadence.ui.components.SectionPickerDialog
+import de.andi1984.cadence.ui.tags.TagEditorDialog
+import de.andi1984.cadence.ui.tags.TagPickerDialog
 import de.andi1984.cadence.ui.components.SegmentedRow
 import de.andi1984.cadence.ui.components.TaskRow
 import de.andi1984.cadence.ui.components.priorityColor
@@ -93,6 +96,8 @@ fun TaskDetailScreen(
     onAddSubtask: (Task, String) -> Unit,
     onMoveToProject: (Task, String?) -> Unit,
     onMoveToSection: (Task, String?) -> Unit,
+    onToggleTag: (Task, String) -> Unit = { _, _ -> },
+    onCreateTag: (name: String, colorHex: String) -> Unit = { _, _ -> },
 ) {
     if (task == null) {
         EmptyState(
@@ -112,6 +117,8 @@ fun TaskDetailScreen(
     var reminderPickerOpen by remember { mutableStateOf(false) }
     var projectPickerOpen by remember { mutableStateOf(false) }
     var sectionPickerOpen by remember { mutableStateOf(false) }
+    var tagPickerOpen by remember { mutableStateOf(false) }
+    var tagEditorOpen by remember { mutableStateOf(false) }
     var recurrenceOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -123,6 +130,7 @@ fun TaskDetailScreen(
     // The chip appears only where there is something to choose: a task in the Inbox has no bands
     // to sit in, and neither has a project nobody has added a heading to.
     val sections = task.projectId?.let { state.sectionsIn(it) }.orEmpty()
+    val tags = state.tagsOf(task)
 
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
         Row(
@@ -284,6 +292,48 @@ fun TaskDetailScreen(
                             modifier = Modifier.size(18.dp),
                         )
                     }
+                }
+
+                // Always shown, even with no tags on the task and none in the app: unlike the
+                // section chip — which is left out where there is nothing to choose — this is the
+                // only place in the app a tag can be put on a task with the mouse, so hiding it
+                // would hide the feature.
+                Row(
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(scheme.surfaceContainerHigh)
+                        .clickable { tagPickerOpen = true }
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = AppIcons.Tag,
+                        contentDescription = null,
+                        tint = scheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    if (tags.isEmpty()) {
+                        Text(
+                            text = stringResource(Res.string.tags_none_on_task),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = scheme.onSurfaceVariant,
+                        )
+                    } else {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            tags.forEach { tag -> TagChip(tag = tag) }
+                        }
+                    }
+                    Icon(
+                        imageVector = AppIcons.UnfoldMore,
+                        contentDescription = null,
+                        tint = scheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
 
@@ -494,6 +544,29 @@ fun TaskDetailScreen(
             onDismiss = { projectPickerOpen = false },
             // Not onSave: the subtasks follow their task into the new project.
             onPick = { onMoveToProject(task, it) },
+        )
+    }
+    if (tagPickerOpen) {
+        TagPickerDialog(
+            tags = state.tags,
+            selectedIds = task.tagIds,
+            onDismiss = { tagPickerOpen = false },
+            onToggle = { onToggleTag(task, it.id) },
+            onCreate = {
+                tagPickerOpen = false
+                tagEditorOpen = true
+            },
+        )
+    }
+    if (tagEditorOpen) {
+        // Creating from here only creates: the new tag is not put on the task, because the
+        // repository mints its id and this screen never learns it. Reopening the picker and
+        // ticking it is one tap, and inventing a round trip for that would be the only place in
+        // the app a write waits on an id coming back.
+        TagEditorDialog(
+            tag = null,
+            onDismiss = { tagEditorOpen = false },
+            onConfirm = onCreateTag,
         )
     }
     if (sectionPickerOpen) {

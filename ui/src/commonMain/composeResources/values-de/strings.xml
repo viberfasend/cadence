@@ -234,6 +234,34 @@
         <item quantity="other">Alle %1$d Aufgaben bleiben im Projekt, ohne Abschnitt.</item>
     </plurals>
 
+    <!-- ── Tags: übergreifende Labels, unabhängig von Projekten ────────────────────── -->
+    <string name="tags_title">Tags</string>
+    <string name="tags_subtitle">Labels quer über Projekte hinweg</string>
+    <string name="tags_new">Neues Tag</string>
+    <string name="tags_edit">Tag bearbeiten</string>
+    <string name="tags_delete">Tag löschen</string>
+    <string name="tags_dialog_name">Name des Tags</string>
+    <string name="tags_dialog_color">Farbe</string>
+    <!-- %1$s ist der Tag-Name. -->
+    <string name="tags_actions">Aktionen für %1$s</string>
+    <string name="tags_empty_title">Noch keine Tags</string>
+    <string name="tags_empty_body">Ein Tag beschriftet Arbeit, die in mehreren Projekten liegt — @besorgung, @wartet. Tippe @name in der Schnellerfassung, um eins anzulegen.</string>
+    <string name="tags_none_on_task">Keine Tags</string>
+    <string name="tags_add_to_task">Tag hinzufügen</string>
+    <string name="tags_picker_title">Tags</string>
+    <string name="tags_task_empty">Noch trägt nichts dieses Tag.</string>
+    <!-- Löschbestätigung; %1$s ist der Tag-Name. -->
+    <string name="tags_delete_confirm_title">„%1$s“ löschen?</string>
+    <plurals name="tags_delete_confirm_body">
+        <item quantity="one">Die Aufgabe behält alles andere und verliert nur dieses Label.</item>
+        <item quantity="other">Alle %1$d Aufgaben behalten alles andere und verlieren nur dieses Label.</item>
+    </plurals>
+    <string name="tags_delete_confirm_none">Keine Aufgabe trägt es.</string>
+    <plurals name="tags_task_count">
+        <item quantity="one">%1$d Aufgabe</item>
+        <item quantity="other">%1$d Aufgaben</item>
+    </plurals>
+
     <!-- ── Aufgabendetails ─────────────────────────────────────────────────────────── -->
     <string name="task_not_found_title">Aufgabe nicht gefunden</string>
     <string name="deleted_supporting">Sie wurde vermutlich gelöscht.</string>
@@ -477,4 +505,7 @@
     <string name="snackbar_subtask_invalid">Bitte gib einen gültigen Teilaufgaben-Titel ein</string>
     <string name="snackbar_project_name_empty">Der Projektname darf nicht leer sein</string>
     <string name="snackbar_section_name_empty">Der Abschnittsname darf nicht leer sein</string>
+    <string name="snackbar_tag_name_empty">Tag-Name darf nicht leer sein</string>
+    <!-- %1$s ist der bereits vergebene Name. -->
+    <string name="snackbar_tag_duplicate">Ein Tag namens „%1$s“ existiert bereits</string>
 </resources>

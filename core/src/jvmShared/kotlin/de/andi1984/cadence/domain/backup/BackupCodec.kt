@@ -8,6 +8,7 @@ import de.andi1984.cadence.domain.model.RecurrenceMode
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Section
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -20,6 +21,7 @@ import java.time.LocalTime
 data class BackupSnapshot(
     val projects: List<Project> = emptyList(),
     val sections: List<Section> = emptyList(),
+    val tags: List<Tag> = emptyList(),
     val tasks: List<Task> = emptyList(),
     val settings: BackupSettings? = null,
 )
@@ -80,6 +82,7 @@ object BackupCodec {
                 exportedAt = exportedAt.toString(),
                 projects = snapshot.projects.map { it.toBackup() },
                 sections = snapshot.sections.map { it.toBackup() },
+                tags = snapshot.tags.map { it.toBackup() },
                 tasks = snapshot.tasks.map { it.toBackup() },
                 settings = snapshot.settings,
             ),
@@ -109,6 +112,12 @@ object BackupCodec {
             .map { it.toDomain() }
             .filter { it.projectId in knownProjects }
         val sectionProjects = sections.associate { it.id to it.projectId }
+        // A tag is a flat label: nothing to repair on the tag itself, only a name to insist on.
+        // Tombstones are kept, like every other record — see the note above `projects`.
+        val tags = document.tags
+            .filter { it.id.isNotBlank() && it.name.isNotBlank() }
+            .map { it.toDomain() }
+        val knownTags = tags.mapTo(mutableSetOf()) { it.id }
         val decoded = document.tasks.filter { it.title.isNotBlank() }.map { it.toDomain() }
         val knownTasks = decoded.mapTo(mutableSetOf()) { it.id }
         val tasks = decoded
@@ -131,6 +140,20 @@ object BackupCodec {
                 if (section != task.sectionId) task.copy(sectionId = section) else task
             }
             .map { task ->
+                // Labels the file does not define at all are dropped rather than carried: a
+                // `tagIds` entry naming nothing would be invisible in this app and would travel
+                // to the other device as a phantom. Unlike a project there is no fallback to make
+                // — a task simply has one label fewer.
+                //
+                // A tag the file defines *as a tombstone* is kept, deliberately: the tombstone is
+                // a version of that record like any other, the merge decides whether it wins, and
+                // `CadenceUiState.tagsOf` is what stops a dead label from being drawn. Dropping
+                // the id here would instead make the deletion permanent on this device even when
+                // the merge revived the tag.
+                val kept = task.tagIds.filter { it in knownTags }
+                if (kept != task.tagIds) task.copy(tagIds = kept) else task
+            }
+            .map { task ->
                 // A recurrence link is only ever read as "does this row replace that one", so a
                 // link to an occurrence the file does not contain is simply dropped.
                 val replaces = task.spawnedFromId?.takeIf { it != task.id && it in knownTasks }
@@ -141,6 +164,7 @@ object BackupCodec {
             snapshot = BackupSnapshot(
                 projects = projects,
                 sections = sections,
+                tags = tags,
                 tasks = tasks,
                 settings = document.settings,
             ),
@@ -181,6 +205,9 @@ internal data class BackupDocument(
     /** Added without a [BackupCodec.VERSION] bump: an older reader ignores the key, and the tasks
      *  in the same file simply land in their project's ungrouped band. */
     val sections: List<BackupSection> = emptyList(),
+    /** Added without a [BackupCodec.VERSION] bump, the same way `sections` was: an older reader
+     *  ignores the key, and the `tagIds` on the tasks beside it with it. */
+    val tags: List<BackupTag> = emptyList(),
     val tasks: List<BackupTask> = emptyList(),
     val settings: BackupSettings? = null,
 )
@@ -212,6 +239,18 @@ internal data class BackupSection(
 )
 
 @Serializable
+internal data class BackupTag(
+    val id: String = "",
+    val name: String = "",
+    val colorHex: String = "#3E6373",
+    val sortOrder: Int = 0,
+    /** ISO instant, e.g. `2026-08-05T07:12:00Z`. */
+    val updatedAt: String? = null,
+    /** ISO instant, e.g. `2026-08-05T07:12:00Z`, or null for active records. */
+    val deletedAt: String? = null,
+)
+
+@Serializable
 internal data class BackupTask(
     val id: String = "",
     val title: String = "",
@@ -222,6 +261,9 @@ internal data class BackupTask(
     /** Id of the section of [projectId] this task is grouped under, or null for the ungrouped
      *  band. Optional and additive — see [BackupDocument.sections]. */
     val sectionId: String? = null,
+    /** Ids of the tags on this task — a real array, deliberately not the comma-packed column
+     *  `TagIdsCodec` writes. Optional and additive, like [sectionId]. */
+    val tagIds: List<String> = emptyList(),
     /** Id of the task this one is a subtask of, or null for a top-level task. */
     val parentId: String? = null,
     /** Id of the recurring occurrence this row replaces, or null. */
@@ -295,6 +337,24 @@ private fun BackupSection.toDomain() = Section(
     deletedAt = deletedAt.parseOrNull { Instant.parse(it) },
 )
 
+private fun Tag.toBackup() = BackupTag(
+    id = id,
+    name = name,
+    colorHex = colorHex,
+    sortOrder = sortOrder,
+    updatedAt = updatedAt.toString(),
+    deletedAt = deletedAt?.toString(),
+)
+
+private fun BackupTag.toDomain() = Tag(
+    id = id,
+    name = name,
+    colorHex = colorHex,
+    sortOrder = sortOrder,
+    updatedAt = updatedAt.parseOrNull { Instant.parse(it) } ?: Instant.EPOCH,
+    deletedAt = deletedAt.parseOrNull { Instant.parse(it) },
+)
+
 private fun Task.toBackup() = BackupTask(
     id = id,
     title = title,
@@ -302,6 +362,7 @@ private fun Task.toBackup() = BackupTask(
     priority = priority.level,
     projectId = projectId,
     sectionId = sectionId,
+    tagIds = tagIds,
     parentId = parentId,
     spawnedFromId = spawnedFromId,
     dueDate = dueDate?.toString(),
@@ -324,6 +385,7 @@ private fun BackupTask.toDomain() = Task(
     priority = Priority.fromLevel(priority),
     projectId = projectId?.takeIf { it.isNotBlank() },
     sectionId = sectionId?.takeIf { it.isNotBlank() },
+    tagIds = tagIds.filter { it.isNotBlank() }.distinct(),
     parentId = parentId?.takeIf { it.isNotBlank() },
     spawnedFromId = spawnedFromId?.takeIf { it.isNotBlank() },
     dueDate = dueDate.parseOrNull { LocalDate.parse(it) },

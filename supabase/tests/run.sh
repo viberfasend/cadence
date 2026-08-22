@@ -88,10 +88,10 @@ expect "the sweep sees tombstones and only tombstones" \
     "3" "select count(*) from public.tasks"
 expect "a live row is not deletable by the sweeping role" \
     "DELETE 0" "delete from public.tasks where deleted_at is null"
-expect "the sweep collects 2 tasks, 1 project and 1 section" \
-    "2|1|1" "select * from public.collect_tombstones()"
+expect "the sweep collects 2 tasks, 1 project, 1 section and 1 tag" \
+    "2|1|1|1" "select * from public.collect_tombstones()"
 expect "a second sweep collects nothing" \
-    "0|0|0" "select * from public.collect_tombstones()"
+    "0|0|0|0" "select * from public.collect_tombstones()"
 expect_error "a horizon shorter than the clients' is refused" \
     "shorter than the 90 days" "select * from public.collect_tombstones(interval '1 day')"
 expect_error "signed-in users cannot run the sweep" \
@@ -118,6 +118,26 @@ if [[ "$sections" == "live" ]]; then
     echo "  ok    the live section survives"
 else
     echo "  FAIL  sections: got '$sections'"
+    failures=$((failures + 1))
+fi
+
+tags="$(psql_as postgres -c "select string_agg(name, ', ' order by id) from public.tags")"
+if [[ "$tags" == "live" ]]; then
+    echo "  ok    the live tag survives"
+else
+    echo "  FAIL  tags: got '$tags'"
+    failures=$((failures + 1))
+fi
+
+# The trade the packed column makes, asserted rather than assumed: sweeping a tag does not touch
+# the tasks that wore it, so the live task still names both ids and the client is what drops the
+# one nothing answers to. If this ever starts returning 1, something has begun rewriting tasks
+# server-side and the "one row per delete" property is gone.
+dangling="$(psql_as postgres -c "select cardinality(tag_ids) from public.tasks where id = '00000000-0000-0000-0000-000000000001'")"
+if [[ "$dangling" == "2" ]]; then
+    echo "  ok    a swept tag leaves its id on the task, for the client to drop"
+else
+    echo "  FAIL  tag_ids after the sweep: expected '2', got '$dangling'"
     failures=$((failures + 1))
 fi
 

@@ -63,6 +63,7 @@ fun ProjectsScreen(
     onCreateProject: (String, String, String?) -> Unit,
     onEditProject: (Project, String, String, String?) -> Unit,
     onDeleteProject: (Project, Boolean) -> Unit,
+    onTags: () -> Unit = {},
     onSettings: () -> Unit,
     syncControls: SyncControls = SyncControls(),
 ) {
@@ -121,6 +122,18 @@ fun ProjectsScreen(
                         count = recurringCount,
                         highlighted = false,
                         onClick = {},
+                    )
+                }
+                // Tags live here rather than in the bottom bar: they are a way of finding work,
+                // not a place work lives, and this screen is already the one about how the
+                // library is organised.
+                item {
+                    QuickRow(
+                        icon = AppIcons.Tag,
+                        label = stringResource(Res.string.tags_title),
+                        count = state.tags.size,
+                        highlighted = false,
+                        onClick = onTags,
                     )
                 }
                 item {

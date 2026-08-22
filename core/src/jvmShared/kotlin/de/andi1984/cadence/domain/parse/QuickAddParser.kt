@@ -6,13 +6,15 @@ import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceMode
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.RecurrenceUnit
+import de.andi1984.cadence.domain.model.Tag
+import de.andi1984.cadence.domain.model.matchingHandle
 import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.TemporalAdjusters
 
-enum class TokenKind { DATE, TIME, RECURRENCE, PRIORITY, PROJECT }
+enum class TokenKind { DATE, TIME, RECURRENCE, PRIORITY, PROJECT, TAG }
 
 data class TokenSpan(val range: IntRange, val kind: TokenKind)
 
@@ -23,6 +25,17 @@ data class ParsedQuickAdd(
     val priority: Priority? = null,
     val projectId: String? = null,
     val projectName: String? = null,
+    /** Ids of the `@handle`s that matched an existing tag. */
+    val tagIds: List<String> = emptyList(),
+    /**
+     * The `@handle`s that matched nothing, in the spelling they were typed.
+     *
+     * Reported rather than dropped: a label people type is usually a label they mean to have, and
+     * the caller creates one per name before filing the task. That is deliberately unlike
+     * [projectName], which is only echoed back as a chip — a project is a place, and creating one
+     * by typo would leave a folder in the sidebar; a stray tag is one row in a flat list.
+     */
+    val newTagNames: List<String> = emptyList(),
     val recurrence: RecurrenceRule? = null,
     val spans: List<TokenSpan> = emptyList(),
 )
@@ -33,6 +46,8 @@ data class ParsedQuickAdd(
  * Recognised, in this order (so "every 1st" is a rule rather than a date):
  *  - `!p2` / `!2` — priority
  *  - `#Home` / `#Q3Launch` — project, matched against existing names
+ *  - `@errand` / `@deepwork` — tags, any number of them; a handle that matches nothing is
+ *    reported as a tag to create rather than left in the title
  *  - `every 2 weeks on thu`, `every 1st`, `every 2nd monday`, `every last friday`, `daily`,
  *    `3 days after done` — recurrence; counts may be spelled out (`every three days`)
  *  - `tomorrow`, `next friday`, `in 3 days`, `24.12.`, `24 Dec`, `2026-12-24` — due date
@@ -49,6 +64,7 @@ object QuickAddParser {
     fun parse(
         input: String,
         projects: List<Project> = emptyList(),
+        tags: List<Tag> = emptyList(),
         today: LocalDate = LocalDate.now(),
         lexicon: QuickAddLexicon = QuickAddLexicon.English,
     ): ParsedQuickAdd {
@@ -89,6 +105,31 @@ object QuickAddParser {
             claim(match.range, TokenKind.PROJECT)
         }
 
+        // ── Tags ───────────────────────────────────────────────────────────────────
+        //
+        // Every `@handle`, not just the first: a task is filed in one project and wears as many
+        // labels as it likes, so this is the one token kind that repeats.
+        //
+        // The `@` has to start a word, checked against the preceding character rather than with a
+        // lookbehind — ICU and `java.util.regex` disagree about those, and the tests run on the
+        // second while the device runs on the first (see [QuickAddPatterns]). Without the check
+        // "reply to mail@example.com" quietly grows an `@example` tag and loses the address out of
+        // the title.
+        val tagIds = mutableListOf<String>()
+        val newTagNames = mutableListOf<String>()
+        Regex("""@([\p{L}\p{N}_-]+)""").findAll(input)
+            .filter { free(it.range) && input.startsAWord(it.range.first) }
+            .forEach { match ->
+                val typed = match.groupValues[1]
+                val matched = tags.matchingHandle(typed)
+                if (matched != null) {
+                    if (matched.id !in tagIds) tagIds += matched.id
+                } else if (newTagNames.none { it.equals(typed, ignoreCase = true) }) {
+                    newTagNames += typed
+                }
+                claim(match.range, TokenKind.TAG)
+            }
+
         val find: (Regex) -> MatchResult? = { pattern -> firstMatch(pattern) }
         val take: (IntRange, TokenKind) -> Unit = { range, kind -> claim(range, kind) }
 
@@ -116,6 +157,8 @@ object QuickAddParser {
             priority = priority,
             projectId = projectId,
             projectName = projectName,
+            tagIds = tagIds,
+            newTagNames = newTagNames,
             recurrence = recurrence,
             spans = spans.sortedBy { it.range.first },
         )
@@ -361,6 +404,13 @@ object QuickAddParser {
             .trim()
             .trimEnd(',', '·', '-')
             .trim()
+    }
+
+    /** True when nothing, or a non-word character, sits directly before [index] — the word
+     *  boundary `\b` would express if the two regex engines agreed on `\b` (see the tag pass). */
+    private fun String.startsAWord(index: Int): Boolean {
+        val before = getOrNull(index - 1) ?: return true
+        return !before.isLetterOrDigit() && before != '_' && before != '-'
     }
 
     /** Named groups read as null when the group did not take part in the match. */

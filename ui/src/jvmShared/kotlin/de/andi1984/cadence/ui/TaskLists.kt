@@ -2,6 +2,7 @@ package de.andi1984.cadence.ui
 
 import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Task
+import de.andi1984.cadence.domain.model.withoutSupersededOccurrences
 import java.time.LocalDate
 
 /**
@@ -27,6 +28,16 @@ sealed interface TaskView {
 
     /** Title and notes, matched case-insensitively. A blank query matches nothing. */
     data class Search(val query: String) : TaskView
+
+    /**
+     * Everything wearing one tag, newest work first by the usual sort.
+     *
+     * Deliberately not banded and deliberately not scoped to a container: a tag cuts across
+     * projects, so there is no heading structure to inherit from. It behaves like [Search] in
+     * every other way, including showing subtasks in their own right — a step labelled `@errand`
+     * is an errand.
+     */
+    data class Tag(val tagId: String) : TaskView
 }
 
 /**
@@ -138,6 +149,7 @@ fun CadenceUiState.taskList(
     TaskView.Upcoming -> upcomingList(today)
     is TaskView.Project -> projectList(view.projectId, today, expandedIds)
     is TaskView.Search -> searchList(view.query)
+    is TaskView.Tag -> tagList(view.tagId)
 }
 
 /**
@@ -251,6 +263,22 @@ private fun CadenceUiState.searchList(query: String): TaskList {
         }
         .sortedFor(settings.sortMode)
     return TaskList(listOf(band(BandHeading.None, results, key = "s")))
+}
+
+/**
+ * Everything labelled [tagId], in one band.
+ *
+ * `showCompleted` applies, unlike [searchList] — a tag list is a place you work from, not a place
+ * you look things up, so a finished errand should leave it the way it leaves the Inbox. A
+ * superseded recurring occurrence is dropped for the same reason the container views drop one: a
+ * daily `@errand` would otherwise stack up a struck-through copy per day.
+ */
+private fun CadenceUiState.tagList(tagId: String): TaskList {
+    val tasks = tasksWithTag(tagId)
+        .withoutSupersededOccurrences()
+        .filter { settings.showCompleted || !it.isDone }
+        .sortedFor(settings.sortMode)
+    return TaskList(listOf(band(BandHeading.None, tasks, key = "tag-$tagId")))
 }
 
 private fun CadenceUiState.band(

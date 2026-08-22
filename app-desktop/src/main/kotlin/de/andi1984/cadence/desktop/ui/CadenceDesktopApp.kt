@@ -49,6 +49,8 @@ import de.andi1984.cadence.ui.quickadd.QuickAddSheet
 import de.andi1984.cadence.ui.resources.Res
 import de.andi1984.cadence.ui.resources.*
 import de.andi1984.cadence.ui.search.SearchScreen
+import de.andi1984.cadence.ui.tags.TagDetailScreen
+import de.andi1984.cadence.ui.tags.TagsScreen
 import de.andi1984.cadence.ui.settings.SettingsScreen
 import de.andi1984.cadence.ui.today.TodayScreen
 import de.andi1984.cadence.ui.upcoming.UpcomingScreen
@@ -163,6 +165,7 @@ fun CadenceDesktopApp(
                         current = navigator.current,
                         onSwitchTo = navigator::switchTo,
                         onOpenProject = { navigator.go(Route.ProjectDetail(it.id)) },
+                        onOpenTag = { navigator.go(Route.TagDetail(it.id)) },
                         onToggleProjectFold = workspaceStore::toggleProjectCollapsed,
                         onWidthChange = workspaceStore::setSidebarWidth,
                         onToggleCollapsed = {
@@ -250,6 +253,7 @@ fun CadenceDesktopApp(
     if (quickAddOpen) {
         QuickAddSheet(
             projects = state.projects,
+            tags = state.tags,
             today = today,
             defaultProjectId = quickAddProjectId,
             onDismiss = { quickAddOpen = false },
@@ -343,8 +347,27 @@ private fun RouteContent(
             onCreateProject = viewModel::addProject,
             onEditProject = viewModel::editProject,
             onDeleteProject = viewModel::deleteProject,
+            onTags = { navigator.go(Route.Tags) },
             onSettings = { navigator.go(Route.Settings) },
             syncControls = syncControls,
+        )
+
+        Route.Tags -> TagsScreen(
+            state = state,
+            onBack = navigator::back,
+            onTagClick = { navigator.go(Route.TagDetail(it.id)) },
+            onCreateTag = viewModel::addTag,
+            onEditTag = viewModel::editTag,
+            onDeleteTag = viewModel::deleteTag,
+        )
+
+        is Route.TagDetail -> TagDetailScreen(
+            tagId = route.tagId,
+            state = state,
+            today = today,
+            onBack = navigator::back,
+            onTaskClick = { navigator.go(Route.TaskDetail(it.id)) },
+            onToggle = viewModel::toggleTask,
         )
 
         Route.Search -> SearchScreen(
@@ -400,6 +423,8 @@ private fun RouteContent(
                 onAddSubtask = viewModel::addSubtask,
                 onMoveToProject = viewModel::setProject,
                 onMoveToSection = viewModel::setSection,
+                onToggleTag = viewModel::toggleTag,
+                onCreateTag = viewModel::addTag,
             )
         }
 
@@ -429,9 +454,11 @@ fun routeLabel(route: Route, state: CadenceUiState): String = when (route) {
     Route.Upcoming -> stringResource(Res.string.nav_upcoming)
     Route.Inbox -> stringResource(Res.string.nav_inbox)
     Route.Projects -> stringResource(Res.string.nav_projects)
+    Route.Tags -> stringResource(Res.string.tags_title)
     Route.Search -> stringResource(Res.string.search_title)
     Route.Settings -> stringResource(Res.string.settings_title)
     Route.Triage -> stringResource(Res.string.inbox_title)
     is Route.TaskDetail -> state.tasks.firstOrNull { it.id == route.taskId }?.title.orEmpty()
     is Route.ProjectDetail -> state.project(route.projectId)?.name.orEmpty()
+    is Route.TagDetail -> state.tag(route.tagId)?.let { "@" + it.handle }.orEmpty()
 }

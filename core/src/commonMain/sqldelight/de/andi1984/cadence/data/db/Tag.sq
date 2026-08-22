@@ -1,0 +1,93 @@
+-- Named tagRow, not tag, so the generated row class does not collide with the domain Tag. A tag
+-- is a cross-cutting label; see Tag.kt for why it is not a second project tree.
+--
+-- **This table holds a tag's identity only.** Which tasks wear it is `taskRow.tagIds`, a packed
+-- column on the other side of the link — there is no join table here, deliberately (see the note
+-- on `Task.tagIds`). That is what makes a rename one row on the wire and a delete one row too.
+CREATE TABLE tagRow (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    colorHex TEXT NOT NULL,
+    sortOrder INTEGER NOT NULL,
+    -- Last write, local or merged in. The merge engine resolves conflicts by this.
+    updatedAt INTEGER NOT NULL,
+    -- Tombstone — see taskRow.deletedAt. A tombstoned tag leaves its id behind in every
+    -- `taskRow.tagIds` that named it; the read side drops an id no live tag answers to, the same
+    -- way BackupCodec repairs a link to a record its file lacks. Rewriting every task instead
+    -- would turn one delete into a push of the whole library.
+    deletedAt INTEGER
+);
+
+CREATE INDEX idx_tag_sort ON tagRow(sortOrder);
+-- What the push reads: everything written since the watermark.
+CREATE INDEX idx_tag_updated ON tagRow(updatedAt);
+
+selectAll:
+SELECT * FROM tagRow WHERE deletedAt IS NULL ORDER BY sortOrder;
+
+selectById:
+SELECT * FROM tagRow WHERE id = :id AND deletedAt IS NULL;
+
+-- See taskRow.selectByIdIncludingDeleted: the merge must be able to see a local tombstone.
+selectByIdIncludingDeleted:
+SELECT * FROM tagRow WHERE id = :id;
+
+-- ── Writing a row ──────────────────────────────────────────────────────────────────
+--
+-- The same upsert pair as `Task.sq`, `Project.sq` and `Section.sq`, and for the same reasons:
+-- SQLite implements `INSERT OR REPLACE` as delete-then-insert, and SQLite before 3.24 (minSdk 26
+-- ships 3.19) has no `ON CONFLICT … DO UPDATE`. The store runs both statements in one transaction.
+
+updateRow:
+UPDATE tagRow SET name = :name, colorHex = :colorHex, sortOrder = :sortOrder,
+    updatedAt = :updatedAt, deletedAt = :deletedAt
+WHERE id = :id;
+
+-- The merge's half of the pair: last writer wins, decided in SQL. Ties keep what is stored.
+updateIfOlder:
+UPDATE tagRow SET name = :name, colorHex = :colorHex, sortOrder = :sortOrder,
+    updatedAt = :updatedAt, deletedAt = :deletedAt
+WHERE id = :id AND updatedAt < :updatedAt;
+
+-- Importing a file only — see the same query in `Task.sq`. Reviving a tag is unusually cheap
+-- here: the ids never left the tasks, so the label comes back on exactly the rows that had it.
+reviveIfDeleted:
+UPDATE tagRow SET name = :name, colorHex = :colorHex, sortOrder = :sortOrder,
+    updatedAt = :revivedAt, deletedAt = NULL
+WHERE id = :id AND deletedAt IS NOT NULL;
+
+insertIfAbsent:
+INSERT OR IGNORE INTO tagRow(id, name, colorHex, sortOrder, updatedAt, deletedAt)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- Deleting a tag. `deletedAt IS NULL` keeps it idempotent, the same way every other tombstone in
+-- this schema does: deleting twice must not restamp the row.
+--
+-- Note what is *not* here: no statement strips the id out of the tasks that wore it. See the
+-- comment on `deletedAt` above.
+tombstoneRow:
+UPDATE tagRow SET deletedAt = :at, updatedAt = :at WHERE id = :id AND deletedAt IS NULL;
+
+-- The Settings danger zone — see `taskRow.tombstoneAll`.
+tombstoneAllRows:
+UPDATE tagRow SET deletedAt = :at, updatedAt = :at WHERE deletedAt IS NULL;
+
+-- Sync's two views, and the only ones that see tombstones.
+selectChangedSince:
+SELECT * FROM tagRow WHERE updatedAt > :since ORDER BY updatedAt;
+
+selectAllIncludingDeleted:
+SELECT * FROM tagRow ORDER BY updatedAt;
+
+collectTombstones:
+DELETE FROM tagRow WHERE deletedAt IS NOT NULL AND deletedAt < :before;
+
+-- ── Manual order ───────────────────────────────────────────────────────────────────
+-- See the same pair in `Task.sq`. Tags are one flat list, so there is no bucket to filter by.
+updateSortOrder:
+UPDATE tagRow SET sortOrder = :sortOrder, updatedAt = :updatedAt
+WHERE id = :id AND deletedAt IS NULL AND sortOrder != :sortOrder;
+
+-- See `taskRow.maxSortOrderIn` for why this is COALESCEd to a NOT NULL -1.
+maxSortOrder:
+SELECT COALESCE(MAX(sortOrder), -1) FROM tagRow WHERE deletedAt IS NULL;

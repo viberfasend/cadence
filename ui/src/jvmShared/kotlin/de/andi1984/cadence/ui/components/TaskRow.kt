@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import de.andi1984.cadence.ui.resources.Res
 import de.andi1984.cadence.ui.resources.*
 import de.andi1984.cadence.domain.model.SubtaskProgress
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.dnd.DragPayload
 import de.andi1984.cadence.ui.dnd.cadenceDragSource
@@ -75,6 +76,7 @@ fun TaskRow(
     showProject: Boolean = true,
     parentTitle: String? = null,
     subtaskProgress: SubtaskProgress? = null,
+    tags: List<Tag> = emptyList(),
     expanded: Boolean = false,
     onExpandToggle: (() -> Unit)? = null,
 ) {
@@ -92,6 +94,7 @@ fun TaskRow(
             showProject = showProject,
             parentTitle = parentTitle,
             subtaskProgress = subtaskProgress,
+            tags = tags,
             expanded = expanded,
             onExpandToggle = onExpandToggle,
         )
@@ -130,11 +133,20 @@ fun TaskRow(
             showProject = showProject,
             parentTitle = parentTitle,
             subtaskProgress = subtaskProgress,
+            tags = tags,
             expanded = expanded,
             onExpandToggle = onExpandToggle,
         )
     }
 }
+
+/**
+ * How many tag chips a row draws before the rest become a "+n".
+ *
+ * Three fits beside a due date and a project on a phone in comfortable density, which is the
+ * narrowest place a row is drawn.
+ */
+private const val MAX_TAG_CHIPS_ON_ROW = 3
 
 /** What follows the cursor: the row's title, and nothing else worth carrying. */
 @Composable
@@ -168,6 +180,9 @@ private fun TaskRowContent(
     parentTitle: String? = null,
     /** "2/5" for a task with a checklist, null for one without. */
     subtaskProgress: SubtaskProgress? = null,
+    /** The task's live tags, resolved by the caller through `state.tagsOf(task)` — the row never
+     *  looks an id up itself, the same way it is handed `projectLabel` rather than a project. */
+    tags: List<Tag> = emptyList(),
     /** Whether this row's subtasks are currently shown inline below it. */
     expanded: Boolean = false,
     /** Set only where a row can reveal its subtasks inline — renders the expand toggle. */
@@ -292,6 +307,9 @@ private fun TaskRowContent(
                                     color = metaColor,
                                 )
                             }
+                            // Capped: the meta line is the row's whole second line, and a task
+                            // wearing eight labels would push the due date off it.
+                            TagChipRow(tags = tags, max = MAX_TAG_CHIPS_ON_ROW)
                         }
                     }
                 }
@@ -312,6 +330,21 @@ private fun TaskRowContent(
                     }
                     if (subtaskProgress != null) {
                         SubtaskChip(progress = subtaskProgress, tint = metaColor)
+                    }
+                    // Compact draws no meta line at all, so the labels shrink to their colours —
+                    // with the names in the content description, since colour alone never carries
+                    // meaning here.
+                    if (tags.isNotEmpty()) {
+                        val tagNames = tags.joinToString(", ") { "@" + it.handle }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.semantics { contentDescription = tagNames },
+                        ) {
+                            tags.take(MAX_TAG_CHIPS_ON_ROW).forEach { tag ->
+                                ProjectSwatch(colorHex = tag.colorHex, size = 7)
+                            }
+                        }
                     }
                     // "Belongs to a parent" — same icon and meaning as the pill on the task's own
                     // detail screen. Deliberately not AppIcons.Checklist: that icon already means

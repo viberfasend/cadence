@@ -245,6 +245,34 @@
         <item quantity="other">All %1$d tasks stay in the project, without a section.</item>
     </plurals>
 
+    <!-- ── Tags: cross-cutting labels, orthogonal to projects ──────────────────────── -->
+    <string name="tags_title">Tags</string>
+    <string name="tags_subtitle">Labels that cut across projects</string>
+    <string name="tags_new">New tag</string>
+    <string name="tags_edit">Edit tag</string>
+    <string name="tags_delete">Delete tag</string>
+    <string name="tags_dialog_name">Tag name</string>
+    <string name="tags_dialog_color">Colour</string>
+    <!-- %1$s is the tag name. -->
+    <string name="tags_actions">Actions for %1$s</string>
+    <string name="tags_empty_title">No tags yet</string>
+    <string name="tags_empty_body">A tag labels work that lives in more than one project — @errand, @waiting. Type @name in quick add to make one.</string>
+    <string name="tags_none_on_task">No tags</string>
+    <string name="tags_add_to_task">Add a tag</string>
+    <string name="tags_picker_title">Tags</string>
+    <string name="tags_task_empty">Nothing carries this tag yet.</string>
+    <!-- Delete confirmation; %1$s is the tag name. -->
+    <string name="tags_delete_confirm_title">Delete “%1$s”?</string>
+    <plurals name="tags_delete_confirm_body">
+        <item quantity="one">The task keeps everything else; it just loses this label.</item>
+        <item quantity="other">All %1$d tasks keep everything else; they just lose this label.</item>
+    </plurals>
+    <string name="tags_delete_confirm_none">No task carries it.</string>
+    <plurals name="tags_task_count">
+        <item quantity="one">%1$d task</item>
+        <item quantity="other">%1$d tasks</item>
+    </plurals>
+
     <!-- ── Task detail ─────────────────────────────────────────────────────────────── -->
     <string name="task_not_found_title">Task not found</string>
     <string name="deleted_supporting">It may have been deleted.</string>
@@ -492,4 +520,7 @@
     <string name="snackbar_subtask_invalid">Please enter a valid subtask title</string>
     <string name="snackbar_project_name_empty">Project name cannot be empty</string>
     <string name="snackbar_section_name_empty">Section name cannot be empty</string>
+    <string name="snackbar_tag_name_empty">Tag name cannot be empty</string>
+    <!-- %1$s is the name that already exists. -->
+    <string name="snackbar_tag_duplicate">A tag called “%1$s” already exists</string>
 </resources>

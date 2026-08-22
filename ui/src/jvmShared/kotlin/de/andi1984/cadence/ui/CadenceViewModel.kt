@@ -12,6 +12,7 @@ import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.RecurrenceRule
 import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.SubtaskProgress
+import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.model.projectPath
 import de.andi1984.cadence.domain.model.withoutSupersededOccurrences
@@ -127,6 +128,7 @@ data class CadenceUiState(
     val tasks: List<Task> = emptyList(),
     val projects: List<Project> = emptyList(),
     val sections: List<Section> = emptyList(),
+    val tags: List<Tag> = emptyList(),
     val settings: CadenceSettings = CadenceSettings(),
     /** Result of the last export or import, shown once under the Settings buttons. */
     val backupOutcome: BackupOutcome? = null,
@@ -161,6 +163,23 @@ data class CadenceUiState(
     private val projectById: Map<String, Project> by lazy { projects.associateBy { it.id } }
 
     private val sectionById: Map<String, Section> by lazy { sections.associateBy { it.id } }
+
+    private val tagById: Map<String, Tag> by lazy { tags.associateBy { it.id } }
+
+    /**
+     * Every task that wears each tag, built in one pass rather than a scan per chip.
+     *
+     * Over `tasks` and not [rootTaskList]: a tag on a subtask is a label on that step, and the
+     * filtered list a chip opens is a date-free *search*, not a container view — the same reason
+     * Search reads `tasks` directly.
+     */
+    private val tasksByTag: Map<String, List<Task>> by lazy {
+        val index = mutableMapOf<String, MutableList<Task>>()
+        tasks.forEach { task ->
+            task.tagIds.forEach { id -> index.getOrPut(id) { mutableListOf() }.add(task) }
+        }
+        index
+    }
 
     /** [rootTasks]'s answer, computed once — the superseded-occurrence set is the expensive half. */
     private val rootTaskList: List<Task> by lazy {
@@ -289,6 +308,24 @@ data class CadenceUiState(
 
     fun section(id: String?): Section? = id?.let { sectionById[it] }
 
+    fun tag(id: String?): Tag? = id?.let { tagById[it] }
+
+    /**
+     * The live tags on a task, in the order it lists them.
+     *
+     * Ids naming a tag that is gone are dropped here rather than in storage: deleting a tag is one
+     * row and leaves the ids behind on every task that wore it, so this is where the link is
+     * repaired — the same rule `BackupCodec` follows for a record its file lacks. It is also why
+     * reviving a tag brings it back on exactly the right tasks.
+     */
+    fun tagsOf(task: Task): List<Tag> = task.tagIds.mapNotNull { tagById[it] }
+
+    /** Every task wearing [tagId], completed ones included — see [tasksByTag]. */
+    fun tasksWithTag(tagId: String): List<Task> = tasksByTag[tagId].orEmpty()
+
+    /** How many open tasks wear [tagId] — the count beside a tag in the sidebar and the list. */
+    fun openCountForTag(tagId: String): Int = tasksWithTag(tagId).count { !it.isDone }
+
     /** The bands of a project's list, in the order they are drawn. */
     fun sectionsIn(projectId: String): List<Section> = sectionsByProject[projectId].orEmpty()
 
@@ -406,7 +443,7 @@ class CadenceViewModel(
     }
 
     /**
-     * The three record flows, folded into one for the same reason [Transient] exists: `combine`
+     * The four record flows, folded into one for the same reason [Transient] exists: `combine`
      * takes five flows at most, and sections would have been the sixth. They belong together
      * anyway — a section without its project, or a task without its section, is half a screen.
      */
@@ -414,13 +451,15 @@ class CadenceViewModel(
         val tasks: List<Task>,
         val projects: List<Project>,
         val sections: List<Section>,
+        val tags: List<Tag>,
     )
 
     private val records = combine(
         repository.tasks,
         repository.projects,
         repository.sections,
-    ) { tasks, projects, sections -> Records(tasks, projects, sections) }
+        repository.tags,
+    ) { tasks, projects, sections, tags -> Records(tasks, projects, sections, tags) }
 
     val state: StateFlow<CadenceUiState> = combine(
         records,
@@ -441,6 +480,9 @@ class CadenceViewModel(
             } else {
                 r.sections.filter { it.projectId !in t.pendingDelete }
             },
+            // Tags follow nothing: no delete in the app cascades to one, so there is no id in
+            // `pendingDelete` a tag could ever match.
+            tags = r.tags,
             pendingDeleteIds = t.pendingDelete,
             settings = settings,
             backupOutcome = t.backup,
@@ -554,6 +596,19 @@ class CadenceViewModel(
     /** Files a task under one of its project's sections, or under none. The steps follow it. */
     fun setSection(task: Task, sectionId: String?) = scope.launch {
         repository.moveToSection(task, sectionId)
+        armSync()
+    }
+
+    /** Replaces a task's labels. The steps deliberately do not follow — see
+     *  [CadenceRepository.setTaskTags]. */
+    fun setTags(task: Task, tagIds: List<String>) = scope.launch {
+        repository.setTaskTags(task, tagIds)
+        armSync()
+    }
+
+    /** Adds the tag if the task lacks it, removes it if it has it — what tapping a chip does. */
+    fun toggleTag(task: Task, tagId: String) = scope.launch {
+        repository.toggleTaskTag(task, tagId)
         armSync()
     }
 
@@ -679,15 +734,28 @@ class CadenceViewModel(
         armSync()
     }
 
-    /** Creates the task the quick-add sheet parsed out of the typed line. */
+    /**
+     * Creates the task the quick-add sheet parsed out of the typed line.
+     *
+     * A `@handle` that matched no tag creates one, before the task, so the task can name it. That
+     * is deliberately unlike `#project`, which only ever *selects*: a project is a place in the
+     * sidebar and creating one by typo is a mess to clean up, while a stray tag is one row in a
+     * flat list and one tap to remove. A name that fails to save — the duplicate check, most
+     * likely, if two handles differ only in case — is simply left off the task rather than
+     * failing the capture: the point of quick-add is that the task lands.
+     */
     fun addParsedTask(parsed: ParsedQuickAdd, fallbackProjectId: String? = null) =
         scope.launch {
             if (parsed.title.isBlank()) return@launch
+            val created = parsed.newTagNames.mapNotNull { name ->
+                (repository.upsertTag(Tag(name = name)) as? RepositoryResult.Success)?.data
+            }
             repository.upsertTask(
                 Task(
                     title = parsed.title,
                     priority = parsed.priority ?: Priority.DEFAULT,
                     projectId = parsed.projectId ?: fallbackProjectId,
+                    tagIds = (parsed.tagIds + created).distinct(),
                     dueDate = parsed.dueDate,
                     dueTime = parsed.dueTime,
                     recurrence = parsed.recurrence,
@@ -813,6 +881,47 @@ class CadenceViewModel(
      */
     fun deleteSection(section: Section) = scope.launch {
         repository.deleteSection(section.id)
+        armSync()
+    }
+
+    // ── Tags ─────────────────────────────────────────────────────────────────────────
+
+    fun addTag(name: String, colorHex: String) = scope.launch {
+        upsertTag(Tag(name = name, colorHex = colorHex))
+    }
+
+    fun editTag(tag: Tag, name: String, colorHex: String) = scope.launch {
+        upsertTag(tag.copy(name = name, colorHex = colorHex))
+    }
+
+    private suspend fun upsertTag(tag: Tag) {
+        if (tag.name.isBlank()) {
+            showSnackbar(Res.string.snackbar_tag_name_empty)
+            return
+        }
+        when (val result = repository.upsertTag(tag)) {
+            is RepositoryResult.Success -> armSync()
+            is RepositoryResult.Error -> showSnackbar(Res.string.snackbar_tag_duplicate, listOf(tag.name.trim()))
+            RepositoryResult.ValidationError -> showSnackbar(Res.string.snackbar_tag_name_empty)
+        }
+    }
+
+    /**
+     * Removes a tag from every task at once.
+     *
+     * Written straight through rather than deferred behind the undo window the three deletes above
+     * use, for the same reason [deleteSection] is: no work disappears. Every task the tag was on is
+     * still exactly where it was, one label lighter — there is nothing for an undo to give back
+     * that re-creating the tag would not, and re-creating it does bring it back on the same tasks,
+     * because their ids never changed.
+     */
+    fun deleteTag(tag: Tag) = scope.launch {
+        repository.deleteTag(tag.id)
+        armSync()
+    }
+
+    fun reorderTags(orderedIds: List<String>) = scope.launch {
+        repository.reorderTags(orderedIds)
         armSync()
     }
 

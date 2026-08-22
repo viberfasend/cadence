@@ -44,6 +44,8 @@ import de.andi1984.cadence.ui.projects.ProjectDetailScreen
 import de.andi1984.cadence.ui.projects.ProjectsScreen
 import de.andi1984.cadence.ui.quickadd.QuickAddSheet
 import de.andi1984.cadence.ui.search.SearchScreen
+import de.andi1984.cadence.ui.tags.TagDetailScreen
+import de.andi1984.cadence.ui.tags.TagsScreen
 import de.andi1984.cadence.ui.settings.SettingsScreen
 import de.andi1984.cadence.ui.today.TodayScreen
 import de.andi1984.cadence.ui.upcoming.UpcomingScreen
@@ -63,10 +65,14 @@ object Routes {
     const val TRIAGE = "triage"
     const val TASK = "task/{taskId}"
     const val PROJECT = "project/{projectId}"
+    const val TAGS = "tags"
+    const val TAG = "tag/{tagId}"
 
     fun task(id: String) = "task/$id"
 
     fun project(id: String) = "project/$id"
+
+    fun tag(id: String) = "tag/$id"
 }
 
 private data class BottomDestination(
@@ -236,8 +242,29 @@ fun CadenceApp(
                         onCreateProject = viewModel::addProject,
                         onEditProject = viewModel::editProject,
                         onDeleteProject = viewModel::deleteProject,
+                        onTags = { navController.navigate(Routes.TAGS) },
                         onSettings = { navController.navigate(Routes.SETTINGS) },
                         syncControls = syncControls,
+                    )
+                }
+                composable(Routes.TAGS) {
+                    TagsScreen(
+                        state = state,
+                        onBack = { navController.popBackStack() },
+                        onTagClick = { navController.navigate(Routes.tag(it.id)) },
+                        onCreateTag = viewModel::addTag,
+                        onEditTag = viewModel::editTag,
+                        onDeleteTag = viewModel::deleteTag,
+                    )
+                }
+                composable(Routes.TAG) { entry ->
+                    TagDetailScreen(
+                        tagId = entry.arguments?.getString("tagId"),
+                        state = state,
+                        today = today,
+                        onBack = { navController.popBackStack() },
+                        onTaskClick = { navController.navigate(Routes.task(it.id)) },
+                        onToggle = viewModel::toggleTask,
                     )
                 }
                 composable(Routes.SEARCH) {
@@ -298,6 +325,8 @@ fun CadenceApp(
                         onAddSubtask = viewModel::addSubtask,
                         onMoveToProject = viewModel::setProject,
                         onMoveToSection = viewModel::setSection,
+                        onToggleTag = viewModel::toggleTag,
+                        onCreateTag = viewModel::addTag,
                     )
                 }
                 composable(Routes.PROJECT) { entry ->
@@ -329,6 +358,7 @@ fun CadenceApp(
     if (quickAddOpen) {
         QuickAddSheet(
             projects = state.projects,
+            tags = state.tags,
             today = today,
             defaultProjectId = quickAddProjectId,
             onDismiss = {

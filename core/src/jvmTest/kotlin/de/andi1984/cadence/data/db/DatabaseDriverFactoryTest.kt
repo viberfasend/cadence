@@ -33,7 +33,7 @@ class DatabaseDriverFactoryTest {
         val first = DatabaseDriverFactory(folder.root).createDriver()
         CadenceDatabase(first).taskQueries.insertIfAbsent(
             id = "t1", title = "Survives", notes = null, priority = 2, projectId = null,
-            sectionId = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
+            sectionId = null, tagIds = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
             reminderTime = null, completedAt = null, createdAt = 0, sortOrder = 0,
             recurrence = null, updatedAt = 0, deletedAt = null,
         )
@@ -56,7 +56,7 @@ class DatabaseDriverFactoryTest {
         val setup = DatabaseDriverFactory(folder.root).createDriver()
         CadenceDatabase(setup).taskQueries.insertIfAbsent(
             id = "t1", title = "Older than sync", notes = null, priority = 2, projectId = null,
-            sectionId = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
+            sectionId = null, tagIds = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
             reminderTime = null, completedAt = null, createdAt = 0, sortOrder = 0,
             recurrence = null, updatedAt = 0, deletedAt = null,
         )
@@ -65,6 +65,7 @@ class DatabaseDriverFactoryTest {
         // `3.sqm` will `CREATE` outright has to be gone.
         setup.execute(null, "DROP TABLE syncStateRow", 0)
         setup.execute(null, "DROP TABLE sectionRow", 0)
+        setup.execute(null, "DROP TABLE tagRow", 0)
         setup.execute(null, "PRAGMA user_version = 0", 0)
         setup.close()
 
@@ -94,6 +95,7 @@ class DatabaseDriverFactoryTest {
         // Version 2 knew nothing of sections, and `3.sqm` creates the table and adds the column
         // outright — leaving either behind would make this file a version-4 one wearing a 2.
         setup.execute(null, "DROP TABLE sectionRow", 0)
+        setup.execute(null, "DROP TABLE tagRow", 0)
         setup.execute(null, "DROP TABLE syncStateRow", 0)
         VERSION_2_TABLES.forEach { setup.execute(null, it, 0) }
         VERSION_2_SYNC_STATE.forEach { setup.execute(null, it, 0) }
@@ -129,7 +131,7 @@ class DatabaseDriverFactoryTest {
         // The row a pull can now deliver before the project it names.
         database.taskQueries.insertIfAbsent(
             id = "t2", title = "Not pulled yet", notes = null, priority = 2, projectId = "ghost",
-            sectionId = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
+            sectionId = null, tagIds = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
             reminderTime = null, completedAt = null, createdAt = 0, sortOrder = 0,
             recurrence = null, updatedAt = 1, deletedAt = null,
         )
@@ -151,6 +153,8 @@ class DatabaseDriverFactoryTest {
         val setup = DatabaseDriverFactory(folder.root).createDriver()
         setup.execute(null, "DROP TABLE sectionRow", 0)
         setup.execute(null, "DROP TABLE taskRow", 0)
+        // Version 3 knew nothing of tags either, and `4.sqm` creates the table outright.
+        setup.execute(null, "DROP TABLE tagRow", 0)
         setup.execute(null, "DROP TABLE syncStateRow", 0)
         VERSION_3_TASK_TABLE.forEach { setup.execute(null, it, 0) }
         VERSION_2_SYNC_STATE.forEach { setup.execute(null, it, 0) }
@@ -176,6 +180,53 @@ class DatabaseDriverFactoryTest {
             deletedAt = null,
         )
         assertEquals(1, database.sectionQueries.selectAll(::toSection).executeAsList().size)
+        migrated.close()
+    }
+
+    /**
+     * The 4 → 5 migration: tags. A table, a column on `taskRow` and a cursor on `syncStateRow`.
+     *
+     * Same shape as the 3 → 4 case above and the same thing to get wrong — `tagIds` has to be the
+     * *last* column of `taskRow`, because `ALTER TABLE … ADD COLUMN` can only append and every
+     * read is a `SELECT *` mapped positionally. A version-4 row read back through the generated
+     * mapper is what proves a migrated file and a fresh one agree, `sectionId` included: the
+     * column added one migration earlier still has to land in its own slot.
+     */
+    @Test
+    fun `the 4 to 5 migration adds tags without disturbing the columns before them`() {
+        val setup = DatabaseDriverFactory(folder.root).createDriver()
+        setup.execute(null, "DROP TABLE taskRow", 0)
+        setup.execute(null, "DROP TABLE tagRow", 0)
+        setup.execute(null, "DROP TABLE syncStateRow", 0)
+        VERSION_4_TASK_TABLE.forEach { setup.execute(null, it, 0) }
+        VERSION_4_SYNC_STATE.forEach { setup.execute(null, it, 0) }
+        setup.execute(
+            null,
+            "INSERT INTO taskRow(id, title, priority, projectId, createdAt, sortOrder, updatedAt, sectionId) " +
+                "VALUES ('t1', 'Water the plants', 2, 'p1', 0, 0, 1, 's1')",
+            0,
+        )
+        setup.execute(null, "PRAGMA user_version = 4", 0)
+        setup.close()
+
+        val migrated = DatabaseDriverFactory(folder.root).createDriver()
+
+        val database = CadenceDatabase(migrated)
+        assertEquals(CadenceDatabase.Schema.version, migrated.userVersion())
+        val task = database.taskQueries.selectAll(::toTask).executeAsOne()
+        assertEquals("Water the plants", task.title)
+        // The column version 4 already had, still in its own slot after one more was appended.
+        assertEquals("s1", task.sectionId)
+        // And the one this migration appended: absent from the old row, which the mapper reads
+        // as a task wearing no labels rather than as a broken row.
+        assertEquals(emptyList<String>(), task.tagIds)
+        database.tagQueries.insertIfAbsent(
+            id = "g1", name = "Errand", colorHex = "#3E6373", sortOrder = 0, updatedAt = 1,
+            deletedAt = null,
+        )
+        assertEquals(1, database.tagQueries.selectAll(::toTag).executeAsList().size)
+        // The cursor the migration appended, on a device that had already synced the other three.
+        assertEquals(null, database.syncStateQueries.select().executeAsOne().tagCursor)
         migrated.close()
     }
 
@@ -298,5 +349,56 @@ class DatabaseDriverFactoryTest {
             "CREATE INDEX idx_task_sort ON taskRow(sortOrder)",
             "CREATE INDEX idx_task_updated ON taskRow(updatedAt)",
         )
+
+        /** `taskRow` and `syncStateRow` as version 4 declared them — `sectionId` appended to the
+         *  task table, `sectionCursor` to the sync row, and neither knowing about tags. */
+        val VERSION_4_TASK_TABLE = listOf(
+            """
+            CREATE TABLE taskRow (
+                id TEXT NOT NULL PRIMARY KEY,
+                title TEXT NOT NULL,
+                notes TEXT,
+                priority INTEGER NOT NULL,
+                projectId TEXT,
+                parentId TEXT,
+                spawnedFromId TEXT,
+                dueDate INTEGER,
+                dueTime INTEGER,
+                reminderTime INTEGER,
+                completedAt INTEGER,
+                createdAt INTEGER NOT NULL,
+                sortOrder INTEGER NOT NULL,
+                recurrence TEXT,
+                updatedAt INTEGER NOT NULL,
+                deletedAt INTEGER,
+                sectionId TEXT
+            )
+            """.trimIndent(),
+            "CREATE INDEX idx_task_project ON taskRow(projectId)",
+            "CREATE INDEX idx_task_parent ON taskRow(parentId)",
+            "CREATE INDEX idx_task_spawned_from ON taskRow(spawnedFromId)",
+            "CREATE INDEX idx_task_due ON taskRow(dueDate)",
+            "CREATE INDEX idx_task_completed ON taskRow(completedAt)",
+            "CREATE INDEX idx_task_sort ON taskRow(sortOrder)",
+            "CREATE INDEX idx_task_updated ON taskRow(updatedAt)",
+            "CREATE INDEX idx_task_section ON taskRow(sectionId)",
+        )
+
+        val VERSION_4_SYNC_STATE = listOf(
+            """
+            CREATE TABLE syncStateRow (
+                id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+                session TEXT,
+                taskCursor TEXT,
+                projectCursor TEXT,
+                pushWatermark INTEGER NOT NULL DEFAULT 0,
+                lastSyncedAt INTEGER,
+                lastSweepAt INTEGER,
+                sectionCursor TEXT
+            )
+            """.trimIndent(),
+            "INSERT INTO syncStateRow(id, pushWatermark) VALUES (1, 0)",
+        )
+
     }
 }
