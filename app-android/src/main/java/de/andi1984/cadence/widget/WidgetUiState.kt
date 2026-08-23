@@ -9,15 +9,13 @@ import de.andi1984.cadence.ui.taskList
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
 
 /**
  * Enough of a [CadenceUiState] for a widget to call [taskList] on, **as a flow**.
  *
- * A widget has no ViewModel, but it does have a composition, and that composition outlives the
- * render that started it — which is the whole reason this is a `Flow` rather than the single
- * `repository.tasks.first()` snapshot it used to be. Building a `CadenceUiState` by hand is what
- * lets a widget ask the app "what does Today show?" rather than working it out again and slowly
- * disagreeing.
+ * Building a `CadenceUiState` by hand is what lets a widget ask the app "what does Today show?"
+ * rather than working it out again and slowly disagreeing.
  *
  * Only `tasks` and `settings` are filled, because only those two are read by the views the
  * widgets name: `TaskView.Today` and `TaskView.Inbox` derive from the task list, the
@@ -31,26 +29,44 @@ internal fun AppContainer.widgetUiStateFlow(): Flow<CadenceUiState> =
     }
 
 /**
- * The state a widget draws, subscribed to from **inside** `provideContent`.
+ * The state a widget draws its **first** frame from, read once in `provideGlance` before
+ * `provideContent` — so the first RemoteViews a session publishes already carry the rows.
  *
- * **Reading the tasks before `provideContent` renders a widget exactly once, and this cost a
- * whole evening to see.** `GlanceAppWidget.provideGlance` runs when a session starts;
- * `updateAll` — what [WidgetUpdater] calls on every `repository.tasks` emission — does *not* run
- * it again, it recomposes the content the running session already has. A `val tasks =
- * repository.tasks.first()` captured above `provideContent` is therefore a constant for the
- * lifetime of that session: every later recomposition rebuilds the identical RemoteViews, and a
- * task ticked off from the widget writes to the database, redraws, and changes nothing on screen.
- * Collecting inside the composition instead makes the redraw carry new rows.
+ * **A widget's first frame has to be the real one, because it may be the only one.** Glance runs
+ * a widget's composition inside a *session* — a WorkManager job — that stays alive for about 45
+ * seconds after its first frame and is then closed, composition and all. Every later update
+ * starts a fresh session, which runs `provideGlance` again. That is most updates: the app writes
+ * a task minutes or hours apart, the system's `updatePeriodMillis` tick arrives with the process
+ * long dead, a reboot or an APK install hands the launcher nothing but `initialLayout` until the
+ * provider publishes. A composition that began with `null` — "not read yet" — published a
+ * header-only tile, or a blank one for the next-task widget, and only then the rows a second
+ * frame later. On a phone with the process cold that second frame rode on WorkManager starting
+ * the job, the database opening, the flow's first emission and the recomposer's next tick; when
+ * any of those was slow, or the process was taken before it, the launcher was left holding the
+ * empty frame, which is exactly "the widget shows nothing unless the app is running". Reading the
+ * snapshot here costs one query on a cold database, and makes frame one correct.
  *
- * It also fixes the other half of the same mistake: `first()` *suspends*, so a cold database put
- * a widget on the home screen with no content at all until it answered. A composition that starts
- * with `null` draws its frame immediately and fills in a moment later.
+ * `null` only when the widget has no container to read from, which the `as?` in each
+ * `provideGlance` treats as "render the empty state" rather than as a crash.
+ */
+internal suspend fun AppContainer?.widgetSnapshot(): CadenceUiState? =
+    this?.widgetUiStateFlow()?.first()
+
+/**
+ * The state a widget draws, collected from **inside** `provideContent`, starting from the
+ * [initial] snapshot `provideGlance` already read.
  *
- * `null` means "not read yet", which is deliberately not the same as "no tasks" — a widget that
- * flashed its empty state on every cold start would be telling the user something untrue.
+ * Both halves are needed, and each was once the whole fix for a bug the other causes. Reading
+ * only above `provideContent` froze the widget for the session's lifetime: `updateAll` within
+ * those 45 seconds recomposes what the running session has rather than running `provideGlance`
+ * again, so a task ticked off from the widget wrote to the database, redrew, and changed nothing
+ * on screen. Reading only inside, with `null` as the first value, published the empty frame
+ * described at [widgetSnapshot]. So the session starts from a real snapshot *and* keeps
+ * collecting: a write that lands while the session is open recomposes the rows in place, and one
+ * that lands after it is closed starts a new session whose first frame is already right.
  */
 @Composable
-internal fun widgetUiState(container: AppContainer?): CadenceUiState? {
+internal fun widgetUiState(container: AppContainer?, initial: CadenceUiState?): CadenceUiState? {
     val flow = remember(container) { container?.widgetUiStateFlow() ?: emptyFlow() }
-    return flow.collectAsState(initial = null).value
+    return flow.collectAsState(initial = initial).value
 }

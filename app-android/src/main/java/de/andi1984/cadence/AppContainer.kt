@@ -65,9 +65,8 @@ class AppContainer(context: Context) {
      * Outlives every screen: the backup written as the user leaves the app starts while the
      * Activity is already being torn down, so it cannot hang off a ViewModel's scope.
      *
-     * Public because a widget needs it for the same reason. `WidgetToggleActivity` finishes
-     * inside its own `onCreate` — it never shows a frame — so work started there would be
-     * cancelled before it reached the database if it hung off anything the Activity owns.
+     * Public because the widgets' `SyncWorker` and `ToggleTaskCallback` reach the engine and
+     * the repository through this container from a process a broadcast created.
      */
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -86,8 +85,9 @@ class AppContainer(context: Context) {
         // "Reminders reconcile on every task emission" (CLAUDE.md) — a home-screen widget is the
         // same shape of problem: it has no view of `repository.tasks` of its own, so something
         // has to push it a redraw whenever a local edit, an import or a sync merge changes what
-        // it should show. `updatePeriodMillis` in the widgets' provider info is only the fallback
-        // for whenever the process is not alive to run this collector at all.
+        // it should show. When the process is not alive to run this collector the widgets look
+        // after themselves: a tap redraws through `ToggleTaskCallback`, midnight through
+        // `WidgetMidnightRefresh`, and `updatePeriodMillis` is the half-hourly floor under both.
         applicationScope.launch {
             repository.tasks.collect { WidgetUpdater.refreshAll(context) }
         }
@@ -118,8 +118,9 @@ class CadenceApplication : Application() {
      * Both rounds are fire-and-forget on the container's application scope. `onStop` carries no
      * completion guarantee on Android anyway, and a push that misses its window ships on the next
      * start — the local database is the source of truth until then. There is deliberately no
-     * `WorkManager` and no background poll behind this: the phone is stale only while nobody is
-     * looking at it.
+     * periodic `WorkManager` job and no background poll behind this: the phone is stale only
+     * while nobody is looking at it. (A write made from a *widget* has no next start to ride on,
+     * so that one goes through `sync/SyncWorker`, a one-shot — the only WorkManager use here.)
      *
      * The change socket follows the same two events, and only these (ADR 0002, decision 12): a
      * websocket held open in the background is the wakelock `WorkManager` was rejected to avoid,

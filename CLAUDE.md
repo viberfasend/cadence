@@ -439,37 +439,50 @@ than reaching for `!!`.
   re-derives what to show: `TaskListScope` is a `TaskView` and two strings, and the widget builds
   a partial `CadenceUiState` (`widgetUiState()`) purely to call `taskList` on it, so the home
   screen shows exactly what the screen it mirrors shows — the user's `showCompleted` and
-  `sortMode` included. Three rules cost real time to find, and two of them a compiler cannot
-  catch:
+  `sortMode` included. The model to hold in mind is that **a widget is drawn by a *session* — a
+  WorkManager job Glance starts, keeps for about 45 seconds after the first frame, and closes,
+  composition and all** — and that the process is cold for most of them: a tap from the home
+  screen, a reboot, an APK install, the half-hourly system tick. Every rule below follows from
+  that, and each one cost real time to find:
+  - **Frame one is drawn from a snapshot read before `provideContent`, and every later frame from
+    the flow collected inside it — both, never one.** `updateAll` on an *open* session recomposes
+    what it has and does not run `provideGlance` again, so a `first()` captured above
+    `provideContent` alone froze the widget for 45 seconds — a task ticked off from it wrote,
+    redrew, and changed nothing. `updateAll` on a *closed* session starts a new one and runs
+    `provideGlance` again, so a `collectAsState(initial = null)` alone published a header-only
+    (or, for the next-task widget, blank) first frame on every cold update and filled it in a
+    frame later — when WorkManager, the database and the recomposer's next tick all got there
+    before the process was taken, which on a phone is "usually". `widgetSnapshot()` +
+    `widgetUiState(container, initial)` is the pair; keep it a pair.
+  - **The rows are a plain `Column` — as many as fit, then "N more" — not a `LazyColumn`.** A
+    Glance `LazyColumn` is a `ListView` in the launcher, and its rows are RemoteViews collection
+    items, which own no `PendingIntent`: a tap has to reach its target through a fill-in intent
+    and a trampoline activity, `actionRunCallback` from a row silently never arrived on a real
+    device, and the completion circle spent a while as an invisible `Theme.NoDisplay` activity
+    to get around that. Below Android 12 the items are also served from an in-memory store by a
+    `RemoteViewsService`, which dies with the process. Plain rows make the circle an
+    `actionRunCallback` to `ToggleTaskCallback` — a broadcast, no window, works cold — and the
+    whole tile one self-contained `RemoteViews` the launcher keeps. `SizeMode.Responsive` with one
+    size per row count (`TaskListWidget.ROW_LADDER`) is what lets the launcher pick the right
+    row count for a resize or a rotation without a process.
   - **Two intents that differ only in their extras are the same intent.** `Intent.filterEquals` —
     what `PendingIntent` matches on — ignores extras, and Glance builds `actionStartActivity` with
     `FLAG_UPDATE_CURRENT`. A list of rows carrying nothing but a different `taskId` extra
     therefore collapses onto *one* `PendingIntent` whose extras the last row composed overwrote:
     every row opens the same task, and the widget reads as decorative. `WidgetIntents` gives each
     destination a distinct `data` URI, which is the only thing keeping them apart.
-  - **A `LazyColumn` is a `ListView`, so its rows are RemoteViews collection items, and only
-    `actionStartActivity` reliably escapes one.** A collection item owns no `PendingIntent` — the
-    platform offers a single template on the list plus a per-item fill-in intent. A compound
-    button (`CheckBox`, `Switch`) wants `setOnCheckedChangeResponse`, which is not part of that
-    contract at all, so the completion circle is a clickable `Box` over two vector drawables.
-    `actionRunCallback` *is* supposed to work there, by way of Glance's own trampoline activity,
-    and on a real device it silently never arrived while `actionStartActivity` on the very same
-    rows opened the right task every time — a widget that renders perfectly and answers no tap.
-    Completing from a row therefore goes through `WidgetToggleActivity`, an invisible
-    `Theme.NoDisplay` activity that writes and finishes in `onCreate`. Reach for an activity
-    first for anything a widget row has to *do*.
   - **A widget must visibly answer a tap.** Ticking a row honours the user's `showCompleted`
     setting like every screen does, so the row strikes through and stays instead of vanishing —
     a row that disappears reads as deleted, not completed.
-  - **Read the data *inside* `provideContent`, never above it.** `provideGlance` runs once, when a
-    session starts; `updateAll` recomposes the content that session already has and does **not**
-    call it again. A `repository.tasks.first()` captured above `provideContent` is therefore
-    frozen for the session's lifetime: `WidgetUpdater` fires on every emission, the widget
-    redraws byte-identical RemoteViews, and completing a task from a row writes to the database
-    and changes nothing on screen. `widgetUiState(container)` collects inside the composition,
-    which is also why a cold start no longer shows an empty tile while `first()` suspends —
-    `null` (not read yet) draws the frame and fills in, and is deliberately distinct from an
-    empty list.
+  - **A write made from a widget does its own aftercare.** `ToggleTaskCallback` runs in a
+    broadcast on a process nothing keeps alive, so it calls `WidgetUpdater.refreshAll` itself and
+    hands the push to Supabase to `sync/SyncWorker` — a one-shot WorkManager job with a network
+    constraint, the single WorkManager use in the app and not the poll ADR 0002 rejected (it
+    never runs unprompted; it carries one write). In-app writes need neither: the container's
+    collector redraws and the ViewModel's debounce pushes.
+  - **Today turns over at midnight with nothing written**, so `WidgetMidnightRefresh` arms an
+    inexact alarm from every `provideGlance` and every `refreshAll` while a task widget exists —
+    the widget's version of the screen's midnight `LaunchedEffect` (#115).
 - **A tag is identity only; membership is a column on the task** (ADR 0004). `tagRow` carries a
   name, a colour and a position. Which tasks wear it is `taskRow.tagIds`, packed comma-separated by
   `TagIdsCodec` — **there is no join table, deliberately**, and the reasons are worth knowing before
@@ -637,8 +650,9 @@ than reaching for `!!`.
     pushed and pulled back returns strictly newer than its local copy and ping-pongs forever.
 - **Nobody presses anything to sync** (ADR 0002, decisions 11, 13 and 14). Rounds start on app
   start and every return to the foreground, two seconds after a write, fire-and-forget on stop
-  and window close, and — on the desktop only — every 15 minutes. There is no `WorkManager` and
-  no Android poll: the phone is stale only while nobody is looking at it. Three things to know
+  and window close, and — on the desktop only — every 15 minutes. There is no periodic
+  `WorkManager` job and no Android poll: the phone is stale only while nobody is looking at it
+  (the one `SyncWorker` is a one-shot push for a write made from a widget, see the widget notes). Three things to know
   before adding a trigger or a list:
   - **The debounce is armed by the mutation, not by the task flow.** `CadenceViewModel.armSync()`
     is called from each task and project mutation; a row merged *in* from a pull lands in

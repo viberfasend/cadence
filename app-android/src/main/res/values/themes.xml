@@ -5,14 +5,4 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
-
-    <!--
-        WidgetToggleActivity never draws: it ticks a task off and finishes inside onCreate.
-        Theme.NoDisplay is what keeps the launcher from dimming or animating a window on the way
-        through, and it is also a contract — an Activity carrying it must finish before onResume
-        or the framework throws.
-    -->
-    <style name="Theme.Cadence.Invisible" parent="android:Theme.NoDisplay">
-        <item name="android:windowAnimationStyle">@null</item>
-    </style>
 </resources>
