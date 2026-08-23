@@ -56,6 +56,8 @@ class CadenceNextTaskWidget : GlanceAppWidget() {
         // [widgetUiState] say why a widget needs both.
         val initial = container.widgetSnapshot()
         WidgetMidnightRefresh.schedule(context)
+        // Same stale-guarded round as [TaskListWidget] — a redraw is a look at the home screen.
+        container?.syncEngine?.syncInBackgroundIfStale(WIDGET_STALENESS)
 
         provideContent {
             val state = widgetUiState(container, initial)
