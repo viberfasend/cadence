@@ -80,7 +80,19 @@ class FakeTaskStore : TaskStore {
         rows.value = rows.value.map { if (it.id == task.id) task else it }
     }
 
+    /**
+     * Held open, a tombstone write parks here instead of finishing.
+     *
+     * The only hook of its kind in these fakes, and it earns that: `CadenceViewModel`'s undo
+     * window has a state — *this* delete is being written while *that* one can still be taken
+     * back — that a test cannot otherwise stand inside, because every fake here answers without
+     * suspending and `runCurrent()` therefore drains a settled delete to completion in the same
+     * breath as the one that settled it. Null by default, so no other test sees it.
+     */
+    var beforeTombstone: (suspend () -> Unit)? = null
+
     override suspend fun tombstoneWithSubtasks(id: String, at: Instant) {
+        beforeTombstone?.invoke()
         val doomed = rows.value.filter { it.id == id || it.parentId == id }.map { it.id }.toSet()
         rows.value = rows.value.map {
             if (it.id in doomed && it.deletedAt == null) it.copy(deletedAt = at, updatedAt = at) else it

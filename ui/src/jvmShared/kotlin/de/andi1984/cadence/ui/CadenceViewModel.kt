@@ -468,6 +468,20 @@ class CadenceViewModel(
      *  delete can commit it out of band rather than leave its rows filtered forever. */
     private var pendingDeleteAction: UndoAction? = null
 
+    /**
+     * An informational message that arrived while the snackbar was carrying a live **Undo**,
+     * shown once that undo resolves.
+     *
+     * The snackbar is one slot, and the two things competing for it are not equals: a validation
+     * message is repeatable feedback about a form the user is still looking at, while the undo is
+     * a five-second, one-time chance to take a delete back. Overwriting the undo took that chance
+     * away silently — the delete still committed, and its only visible cue was gone.
+     *
+     * Only ever one is held: a second informational message replaces it, because the newest is
+     * the one the user just caused.
+     */
+    private var queuedMessage: SnackbarMessage? = null
+
     /** What a sign-in attempt is doing, folded together with the engine's own status — the
      *  screen wants one value, and `combine` takes five flows at most. */
     private val signInState = MutableStateFlow(SyncUiState())
@@ -1313,32 +1327,59 @@ class CadenceViewModel(
         armSync()
         pendingDeleteIds.value = pendingDeleteIds.value - action.ids
         if (snackbarMessage.value?.undoAction === action) {
-            snackbarMessage.value = null
+            clearSnackbar()
         }
     }
 
     /**
-     * Undo. Cancels the deferred delete job and clears the pending ids — the rows were never
-     * written, so they reappear from the flow that was feeding them, and there is no database
-     * transaction at all. This is the whole point of offsetting the write by the undo window.
+     * Undo. Cancels the deferred delete job and unhides the rows it was holding back — they were
+     * never written, so they reappear from the flow that was feeding them, and there is no
+     * database transaction at all. This is the whole point of offsetting the write by the undo
+     * window.
+     *
+     * **Only this action's ids come back.** [offerUndo] settles a *prior* delete out of band when
+     * a second one arrives, and that commit is still in flight with its own ids in
+     * [pendingDeleteIds]; clearing the whole set would flash those rows back into every list
+     * until the write caught up and took them away again. Nothing rescues them — the user moved
+     * on, which is what settling them meant.
      */
     fun undo() {
+        val action = pendingDeleteAction
         pendingDeleteJob?.cancel()
         pendingDeleteJob = null
         pendingDeleteAction = null
-        pendingDeleteIds.value = emptySet()
-        snackbarMessage.value = null
+        pendingDeleteIds.value = pendingDeleteIds.value - action?.ids.orEmpty()
+        clearSnackbar()
     }
 
     /** Dismiss the current snackbar. Committing a pending delete is left to its own timer —
      *  dismissing the banner does not rush the write, it only stops showing it. */
     fun dismissSnackbar() {
-        snackbarMessage.value = null
+        clearSnackbar()
     }
 
     /** Show an informational snackbar with no undo action. */
     fun showSnackbar(text: StringResource, args: List<Any> = emptyList()) {
-        snackbarMessage.value = SnackbarMessage.Text(text = text, args = args)
+        show(SnackbarMessage.Text(text = text, args = args))
+    }
+
+    /**
+     * Raises [message], or holds it back while the slot carries an undo the user can still take
+     * (see [queuedMessage]). Every informational message goes through here; [offerUndo] writes
+     * the flow directly, because an undo is what this defers *to*.
+     */
+    private fun show(message: SnackbarMessage) {
+        if (snackbarMessage.value?.undoAction != null) {
+            queuedMessage = message
+        } else {
+            snackbarMessage.value = message
+        }
+    }
+
+    /** Empties the slot, and lets whatever was waiting for it through. */
+    private fun clearSnackbar() {
+        snackbarMessage.value = queuedMessage
+        queuedMessage = null
     }
 
     /** Stops everything this ViewModel started. The shell calls it when the screen it belongs
