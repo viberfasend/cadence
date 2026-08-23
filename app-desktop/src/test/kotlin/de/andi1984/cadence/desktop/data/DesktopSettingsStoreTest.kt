@@ -3,6 +3,9 @@ package de.andi1984.cadence.desktop.data
 import de.andi1984.cadence.ui.settings.Density
 import de.andi1984.cadence.ui.settings.SortMode
 import de.andi1984.cadence.ui.settings.ThemeChoice
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -57,6 +60,9 @@ class DesktopSettingsStoreTest {
             setSortMode(SortMode.MANUAL)
             setShowCompleted(false)
             setRemindersEnabled(true)
+            // The setters answer before the file does (#104), so anything reading the file back
+            // has to wait for it — which is the same call `main()` makes on the way out.
+            flush()
         }
 
         val reopened = DesktopSettingsStore(dir).state.value
@@ -74,6 +80,7 @@ class DesktopSettingsStoreTest {
 
         store.setTheme(ThemeChoice.LIGHT)
         store.setDensity(Density.COMPACT)
+        store.flush()
 
         assertEquals(ThemeChoice.LIGHT, store.state.value.theme)
         assertEquals(ThemeChoice.LIGHT, DesktopSettingsStore(dir).state.value.theme)
@@ -145,9 +152,64 @@ class DesktopSettingsStoreTest {
         val dir = tempDir()
         settingsFile(dir).writeText("not json at all")
 
-        DesktopSettingsStore(dir).setTheme(ThemeChoice.DARK)
+        DesktopSettingsStore(dir).apply {
+            setTheme(ThemeChoice.DARK)
+            flush()
+        }
 
         assertEquals(ThemeChoice.DARK, DesktopSettingsStore(dir).state.value.theme)
+    }
+
+    // ── The write is off the caller's thread, and lands whole (#104) ─────────────────
+
+    @Test
+    fun `a setter answers the state flow before the file is written`() {
+        val dir = tempDir()
+        // A dispatcher that runs nothing until told to: whatever the setter does synchronously
+        // has happened by the first assert, and whatever it handed off has not.
+        val scheduler = TestCoroutineScheduler()
+        val store = DesktopSettingsStore(dir, CoroutineScope(StandardTestDispatcher(scheduler)))
+
+        store.setTheme(ThemeChoice.DARK)
+
+        assertEquals(ThemeChoice.DARK, store.state.value.theme)
+        assertFalse(settingsFile(dir).exists())
+
+        scheduler.advanceUntilIdle()
+
+        assertTrue(settingsFile(dir).exists())
+        assertEquals(ThemeChoice.DARK, DesktopSettingsStore(dir).state.value.theme)
+    }
+
+    @Test
+    fun `the last value set is the one on disk, whichever write wins the race`() {
+        val dir = tempDir()
+        // The real dispatcher on purpose: writes launched in order do not reach the lock in
+        // order on a thread pool, and a write carrying the value that started it would then let
+        // an older one rename a stale file over a newer one. Each write reads the state instead,
+        // so the order stops mattering. Caught by the round-trip test above, once.
+        val store = DesktopSettingsStore(dir)
+
+        repeat(50) { store.setSortMode(if (it % 2 == 0) SortMode.DATE else SortMode.MANUAL) }
+        store.setSortMode(SortMode.IMPORTANCE)
+        store.flush()
+
+        assertEquals(SortMode.IMPORTANCE, DesktopSettingsStore(dir).state.value.sortMode)
+    }
+
+    @Test
+    fun `the temp file the write goes through is not left behind`() {
+        val dir = tempDir()
+
+        DesktopSettingsStore(dir).apply {
+            setTheme(ThemeChoice.DARK)
+            flush()
+        }
+
+        // Written elsewhere and renamed into place, so a crash mid-write cannot truncate the
+        // real file — and the staging file is gone once it has.
+        assertFalse(File(dir, "settings.json.tmp").exists())
+        assertTrue(settingsFile(dir).exists())
     }
 
     @Test
