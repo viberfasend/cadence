@@ -37,20 +37,6 @@
         </activity>
 
         <!--
-            The target of a widget row's completion circle. taskAffinity="" keeps it out of the
-            app's own back stack — ticking a task off a widget must not resume or reorder the
-            app — and the remaining three attributes keep an activity that never draws from
-            leaving any trace in Recents or in history.
-        -->
-        <activity
-            android:name=".widget.WidgetToggleActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Cadence.Invisible"
-            android:taskAffinity=""
-            android:excludeFromRecents="true"
-            android:noHistory="true" />
-
-        <!--
             Hands one attachment blob to a viewer as a content:// uri, since a file under filesDir
             is unreadable to every other app and a file:// uri throws since Android 7. Not
             exported: only this app may ask it for a uri, and the grant travels with the intent
@@ -68,6 +54,15 @@
 
         <receiver
             android:name=".reminders.ReminderReceiver"
+            android:exported="false" />
+
+        <!--
+            Fires a minute after midnight so the Today widget turns over without a write; armed
+            by the widgets themselves (widget/WidgetMidnightRefresh.kt). Not exported: only the
+            AlarmManager PendingIntent this app creates ever targets it.
+        -->
+        <receiver
+            android:name=".widget.WidgetMidnightRefresh"
             android:exported="false" />
 
         <receiver

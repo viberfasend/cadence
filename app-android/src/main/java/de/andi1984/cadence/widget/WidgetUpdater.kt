@@ -1,22 +1,26 @@
 package de.andi1984.cadence.widget
 
 import android.content.Context
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.updateAll
 
 /**
  * The one place that knows every widget Cadence ships. [de.andi1984.cadence.AppContainer] calls
  * this on every `repository.tasks` emission — the same "reconcile on every emission" shape
  * [de.andi1984.cadence.reminders.AlarmReminderScheduler] follows — so a new widget only has to be
- * added here once rather than at every call site that mutates a task.
+ * added here once rather than at every call site that mutates a task. [ToggleTaskCallback] and
+ * [WidgetMidnightRefresh] call it for the writes and the day change that happen with no screen
+ * open.
  *
  * `updateAll` is a no-op when a widget has no instance on any home screen, so this never has to
  * check what is actually pinned before calling it.
  *
- * **What it does not do is carry the new rows in.** `updateAll` recomposes a running session; it
- * does not run `provideGlance` again, so a widget that read its tasks there would redraw itself
- * unchanged. The content follows the flow each widget collects inside `provideContent`
- * ([widgetUiState]) — this call is what *starts* a session for a widget that has none, which is
- * the case after the process was killed and is why it still earns its keep.
+ * **What `updateAll` does depends on whether the widget's session is still open.** Glance keeps a
+ * composition alive for about 45 seconds after it first draws; inside that window `updateAll` is
+ * an event that recomposes it, and the flow each widget collects inside `provideContent` is what
+ * carries the new rows in. Past it, `updateAll` starts a new session, which runs `provideGlance`
+ * again and draws its first frame from a fresh snapshot ([widgetSnapshot]). Both paths end in the
+ * right rows; neither needs this caller to know which it took.
  *
  * [CadenceQuickAddWidget] is deliberately absent: it renders a button and reads no task, so a
  * task change has nothing to tell it.
@@ -26,5 +30,16 @@ object WidgetUpdater {
         CadenceTodayWidget().updateAll(context)
         CadenceInboxWidget().updateAll(context)
         CadenceNextTaskWidget().updateAll(context)
+        // Re-armed here as well as from `provideGlance`, because an update that lands on an open
+        // session recomposes it without running `provideGlance` — and only while a widget exists,
+        // so an alarm is never left chaining for a home screen with nothing on it.
+        if (hasTaskWidgets(context)) WidgetMidnightRefresh.schedule(context)
+    }
+
+    private suspend fun hasTaskWidgets(context: Context): Boolean {
+        val manager = GlanceAppWidgetManager(context)
+        return manager.getGlanceIds(CadenceTodayWidget::class.java).isNotEmpty() ||
+            manager.getGlanceIds(CadenceInboxWidget::class.java).isNotEmpty() ||
+            manager.getGlanceIds(CadenceNextTaskWidget::class.java).isNotEmpty()
     }
 }

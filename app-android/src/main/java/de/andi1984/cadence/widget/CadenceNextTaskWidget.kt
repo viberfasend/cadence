@@ -36,20 +36,27 @@ import java.time.LocalDate
  *
  * It draws from [TaskView.Today] rather than filtering for itself, so the task it names is always
  * the one the Today widget and the Today screen have at the top.
+ *
+ * [SizeMode.Single]: one row fills whatever size it is given, so there is nothing to recompose
+ * for on a resize — and a widget that never asks to be recomposed for its size never needs the
+ * process for it ([TaskListWidget] explains the same choice for the lists).
  */
 class CadenceNextTaskWidget : GlanceAppWidget() {
 
-    override val sizeMode = SizeMode.Exact
+    override val sizeMode = SizeMode.Single
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         // `as?` for the same reason [TaskListWidget] uses it: a crashed widget is a worse failure
         // than an empty one, and the empty state here still opens quick-add.
         val container = (context.applicationContext as? CadenceApplication)?.container
 
-        // Read inside the composition, never above it: this method runs once per session, and
-        // every later update is a recomposition of what it left behind — see [widgetUiState].
+        // Frame one from a snapshot, every later frame from the flow — [widgetSnapshot] and
+        // [widgetUiState] say why a widget needs both.
+        val initial = container.widgetSnapshot()
+        WidgetMidnightRefresh.schedule(context)
+
         provideContent {
-            val state = widgetUiState(container)
+            val state = widgetUiState(container, initial)
             val today = LocalDate.now()
             // The head of the same list [CadenceTodayWidget] draws, minus anything already ticked
             // off: "what's next" is a question a finished task cannot answer, and Today keeps a
@@ -69,7 +76,7 @@ class CadenceNextTaskWidget : GlanceAppWidget() {
                     contentAlignment = Alignment.Center,
                 ) {
                     when {
-                        // Nothing has been read yet — saying "all clear" here would be a guess.
+                        // No container to read from — saying "all clear" would be a guess.
                         state == null -> Spacer(GlanceModifier.fillMaxSize())
                         next == null -> EmptyContent(context)
                         else ->
