@@ -49,7 +49,14 @@ class AppContainer {
         blobStore = blobStore,
     )
 
-    val settingsStore = DesktopSettingsStore(dataDir)
+    /** Outlives every window: the same reasoning as the Android container's application-scoped
+     *  backup sync — the write that starts as the user quits must not hang off a scope that is
+     *  already being torn down. */
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** On [applicationScope] because its writes are, and declared after it for the same reason —
+     *  a field initialiser can only read what is already built. */
+    val settingsStore = DesktopSettingsStore(dataDir, applicationScope)
 
     val backupIo = DesktopBackupIo(repository, settingsStore)
 
@@ -58,11 +65,6 @@ class AppContainer {
     /** `java.awt.Desktop` where Android has an intent — the picker half lives in the composition,
      *  so only this one is a container singleton. */
     val attachmentOpener = DesktopAttachmentOpener()
-
-    /** Outlives every window: the same reasoning as the Android container's application-scoped
-     *  backup sync — the write that starts as the user quits must not hang off a scope that is
-     *  already being torn down. */
-    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Same shape as `:app-android`'s, because sync is not a platform difference (ADR 0002,
      *  decision 7): the same class over the same database, on the process-wide scope. */

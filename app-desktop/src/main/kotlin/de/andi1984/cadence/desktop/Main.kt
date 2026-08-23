@@ -144,6 +144,11 @@ fun main() = application {
             // this window ships on the next start (ADR 0002, decision 11).
             rememberWindowBounds()
             container.syncEngine.syncInBackground()
+            // Settings, unlike sync, are *not* fire-and-forget on the way out: their write runs
+            // on a daemon thread and `exitApplication()` would take it with it, losing the
+            // toggle someone flipped a second before quitting. A few hundred bytes, at the one
+            // moment where there is nothing left to hold up (#104).
+            container.settingsStore.flush()
             viewModel.close()
             exitApplication()
         },

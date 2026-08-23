@@ -90,7 +90,8 @@ Android unit-test JVM has no Android runtime behind supabase-kt. No screen is te
 would need the Compose test runtime, and none of the rules worth pinning live in one.
 
 `:app-desktop` is a plain JVM module, so its task is `:app-desktop:test`. It covers
-`DesktopSettingsStore` (the file round-trip and what a truncated one falls back to),
+`DesktopSettingsStore` (the file round-trip, what a truncated one falls back to, and that the
+write leaves the caller's thread and still lands the newest value),
 `DesktopWorkspaceStore` (the same, plus the clamps: a sidebar width outside its range, a window
 position from a monitor that is gone), `DesktopReminderScheduler` (fires once per due task, and
 forgets what the reconcile stops listing) and `DesktopNavigator` (the back/forward stacks, and
@@ -680,6 +681,21 @@ than reaching for `!!`.
   Android implementation of `:ui`'s `SettingsStore` port, exposed as a `StateFlow`. They stay
   per-device and out of sync — theme, density, language and reminders describe a screen or a
   machine, not a task list.
+- **`SettingsStore`'s setters are not `suspend`, so the desktop's writes go behind them** (#104).
+  `SharedPreferences` needs no such thing and `CadenceViewModel.setTheme` calls straight through,
+  which put a synchronous file write on the Compose UI thread every time someone flipped a
+  switch. `DesktopSettingsStore` now updates the flow on the spot and writes on the container's
+  application scope; the file goes through a temp file and a rename, because a crash inside the
+  old in-place `writeText` left a truncated `settings.json` that `load()` read as "no settings at
+  all". Two rules come with that:
+  - **A write puts down the state it finds, never the value that started it.** Coroutines
+    launched in order do not reach a lock in order, so an older write would otherwise rename a
+    stale file over a newer one.
+  - **`main()` calls `flush()` before `exitApplication()`.** The writes run on daemon threads and
+    would be taken with the process — the toggle someone flipped a second before quitting is
+    exactly the one to keep. Anything reading the file straight back (every test that does) has
+    to call it too. `load()` stays on the calling thread, alone: it runs once before any window
+    exists, and loading asynchronously would paint the defaults and swap them.
 
 ### UI conventions
 
