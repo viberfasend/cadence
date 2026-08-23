@@ -12,6 +12,12 @@ import androidx.glance.appwidget.updateAll
  * `updateAll` is a no-op when a widget has no instance on any home screen, so this never has to
  * check what is actually pinned before calling it.
  *
+ * **What it does not do is carry the new rows in.** `updateAll` recomposes a running session; it
+ * does not run `provideGlance` again, so a widget that read its tasks there would redraw itself
+ * unchanged. The content follows the flow each widget collects inside `provideContent`
+ * ([widgetUiState]) — this call is what *starts* a session for a widget that has none, which is
+ * the case after the process was killed and is why it still earns its keep.
+ *
  * [CadenceQuickAddWidget] is deliberately absent: it renders a button and reads no task, so a
  * task change has nothing to tell it.
  */

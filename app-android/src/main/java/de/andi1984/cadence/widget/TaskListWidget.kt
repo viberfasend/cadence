@@ -24,6 +24,7 @@ import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
+import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.padding
@@ -93,12 +94,14 @@ abstract class TaskListWidget(private val scope: TaskListScope) : GlanceAppWidge
         // crashed widget, so an impossible-in-practice failure degrades to the empty state —
         // which is still a working quick-add button — instead of a broken tile.
         val container = (context.applicationContext as? CadenceApplication)?.container
-        val today = LocalDate.now()
-        val tasks = container?.widgetUiState()?.taskList(scope.view, today)?.tasks.orEmpty()
 
+        // Everything the widget reads is read *inside* the composition, because this method runs
+        // once per session and a recomposition is all a later update gets — see [widgetUiState].
         provideContent {
+            val state = widgetUiState(container)
+            val today = LocalDate.now()
             GlanceTheme(colors = CadenceWidgetColors) {
-                TaskListContent(context, scope, tasks, today)
+                TaskListContent(context, scope, state?.taskList(scope.view, today)?.tasks, today)
             }
         }
     }
@@ -112,7 +115,8 @@ class CadenceInboxWidget : TaskListWidget(TaskListScope.INBOX)
 private fun TaskListContent(
     context: Context,
     scope: TaskListScope,
-    tasks: List<Task>,
+    /** `null` until the first emission arrives — "not read yet", not "nothing to do". */
+    tasks: List<Task>?,
     today: LocalDate,
 ) {
     Column(
@@ -123,7 +127,11 @@ private fun TaskListContent(
             .cornerRadius(16.dp),
     ) {
         Header(context, scope)
-        if (tasks.isEmpty()) {
+        if (tasks == null) {
+            // The header alone, for the frame or two before the database answers: the empty
+            // state below says something false, and a blank tile says nothing at all.
+            Spacer(GlanceModifier.fillMaxSize())
+        } else if (tasks.isEmpty()) {
             // The empty state is the invitation, so it opens quick-add rather than the app: a
             // widget showing "nothing due today" is exactly when someone wants to add something.
             Box(

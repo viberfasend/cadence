@@ -460,6 +460,15 @@ than reaching for `!!`.
   - **A widget must visibly answer a tap.** Ticking a row honours the user's `showCompleted`
     setting like every screen does, so the row strikes through and stays instead of vanishing —
     a row that disappears reads as deleted, not completed.
+  - **Read the data *inside* `provideContent`, never above it.** `provideGlance` runs once, when a
+    session starts; `updateAll` recomposes the content that session already has and does **not**
+    call it again. A `repository.tasks.first()` captured above `provideContent` is therefore
+    frozen for the session's lifetime: `WidgetUpdater` fires on every emission, the widget
+    redraws byte-identical RemoteViews, and completing a task from a row writes to the database
+    and changes nothing on screen. `widgetUiState(container)` collects inside the composition,
+    which is also why a cold start no longer shows an empty tile while `first()` suspends —
+    `null` (not read yet) draws the frame and fills in, and is deliberately distinct from an
+    empty list.
 - **A tag is identity only; membership is a column on the task** (ADR 0004). `tagRow` carries a
   name, a colour and a position. Which tasks wear it is `taskRow.tagIds`, packed comma-separated by
   `TagIdsCodec` — **there is no join table, deliberately**, and the reasons are worth knowing before
