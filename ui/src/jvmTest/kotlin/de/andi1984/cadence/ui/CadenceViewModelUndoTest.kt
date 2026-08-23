@@ -3,6 +3,7 @@ package de.andi1984.cadence.ui
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -196,6 +197,74 @@ class CadenceViewModelUndoTest {
         runCurrent()
 
         assertEquals(listOf("second"), liveTaskIds())
+    }
+
+    @Test
+    fun `undo leaves the settled delete hidden while its write is still in flight`() = runTest {
+        // #114. The test above drains the out-of-band commit before undoing, which is exactly
+        // what hid this: `undo()` used to clear the *whole* `pendingDeleteIds` flow, so the
+        // first delete's rows came back on screen and then vanished again a moment later, once
+        // the write it never rescued landed. The gate below is what makes that moment reachable.
+        taskStore.seed(listOf(task("first"), task("second")))
+        val viewModel = viewModel()
+
+        val reached = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        taskStore.beforeTombstone = {
+            // Only the settled delete waits; the rest of the test runs at full speed.
+            taskStore.beforeTombstone = null
+            reached.complete(Unit)
+            release.await()
+        }
+
+        viewModel.deleteTask(task("first"))
+        runCurrent()
+        viewModel.deleteTask(task("second"))
+        runCurrent()
+        assertTrue(reached.isCompleted)
+
+        viewModel.undo()
+        runCurrent()
+
+        // Only the second delete is taken back. The first is on its way to the database and
+        // nothing is rescuing it, so its row stays hidden rather than flashing back into
+        // every list.
+        assertEquals(setOf("first"), viewModel.state.value.pendingDeleteIds)
+        assertEquals(listOf("first", "second"), liveTaskIds())
+
+        release.complete(Unit)
+        advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() * 2)
+        runCurrent()
+
+        assertEquals(listOf("second"), liveTaskIds())
+        assertTrue(viewModel.state.value.pendingDeleteIds.isEmpty())
+    }
+
+    // ── The snackbar is one slot ─────────────────────────────────────────────────────
+
+    @Test
+    fun `a validation message waits for the undo rather than replacing it`() = runTest {
+        // #114. The two are not equals: a validation message is repeatable feedback about a form
+        // still on screen, and the undo is a five-second, one-time chance to take a delete back.
+        taskStore.seed(listOf(task("doomed")))
+        val viewModel = viewModel()
+
+        viewModel.deleteTask(task("doomed"))
+        runCurrent()
+        val undoMessage = viewModel.state.value.snackbarMessage
+        assertTrue(undoMessage is SnackbarMessage.Counted)
+
+        viewModel.addProject(name = "   ", colorHex = "#FF0000", parentId = null)
+        runCurrent()
+
+        assertEquals(undoMessage, viewModel.state.value.snackbarMessage)
+
+        viewModel.undo()
+        runCurrent()
+
+        // Not dropped either — it lands the moment the slot frees.
+        assertTrue(viewModel.state.value.snackbarMessage is SnackbarMessage.Text)
+        assertEquals(listOf("doomed"), liveTaskIds())
     }
 
     // ── Deleting a project ───────────────────────────────────────────────────────────

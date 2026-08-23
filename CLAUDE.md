@@ -564,6 +564,19 @@ than reaching for `!!`.
   **Undo** still catches it. Tasks are wiped before projects and the two are separate statements —
   a process killed between them leaves empty projects, never orphaned tasks — and both halves are
   idempotent, so running it again finishes the job.
+- **The undo window is a deferred write, and the snackbar is one slot two things want.** A delete
+  hides its rows at once (`CadenceUiState.pendingDeleteIds`) and writes nothing for
+  `UNDO_WINDOW`; undo cancels the job, so it costs no transaction at all. Two rules fall out of
+  there being *one* pending action but possibly more than one set of held ids (#114):
+  - **`undo()` subtracts its own action's ids, never the whole set.** A second delete settles the
+    first one out of band — the user moved on — and that commit is in flight with its ids still
+    in `pendingDeleteIds`. Clearing the flow flashed those rows back into every list until the
+    write landed and took them away again. Nothing rescues a settled delete; that is what
+    settling it meant.
+  - **An informational message never displaces a live undo — it queues** (`show`/`clearSnackbar`,
+    `queuedMessage`). The two are not equals: a validation message is repeatable feedback about a
+    form still on screen, while the undo is a five-second, one-time chance to take a delete back.
+    Overwriting it took that chance away silently, and the delete committed anyway.
 - **Projects nest exactly one level**, which the editor enforces rather than the model:
   `CadenceUiState.nestingCandidates` returns nothing for a project that already has subprojects,
   and the "Nest under" section is then left out of the dialog.
