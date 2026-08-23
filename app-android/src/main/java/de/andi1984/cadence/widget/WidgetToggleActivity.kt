@@ -22,7 +22,8 @@ import kotlinx.coroutines.launch
  *
  * `Theme.NoDisplay` obliges an Activity to finish before `onResume`, which is why [finish] is
  * called here in `onCreate` and why the write goes to the container's `applicationScope` rather
- * than to anything this Activity owns. The aftercare matches [ToggleTaskCallback]'s, for the
+ * than to anything this Activity owns — with the sync enqueue *inside* that coroutine, behind
+ * the write it exists to carry. The aftercare matches [ToggleTaskCallback]'s, for the
  * same reason it exists there: this write happens with no screen open, so it redraws the widgets
  * itself and hands the Supabase push to a [SyncWorker] that outlives the cached process.
  */
@@ -33,11 +34,18 @@ class WidgetToggleActivity : Activity() {
         val taskId = intent?.getStringExtra(WidgetIntents.EXTRA_TASK_ID)
         val container = (application as? CadenceApplication)?.container
         if (taskId != null && container != null) {
+            val appContext = applicationContext
             container.applicationScope.launch {
                 container.toggleTaskFromWidget(taskId)
-                WidgetUpdater.refreshAll(applicationContext)
+                WidgetUpdater.refreshAll(appContext)
+                // Enqueued *after* the write commits, and it has to be: WorkManager runs an
+                // enqueued job with satisfied constraints immediately, in-process — so an
+                // enqueue placed outside this coroutine raced the write, and whenever the
+                // round won it pushed everything above the watermark *before* the toggle was
+                // in it, then stopped. Nothing re-pushed until the next app open: a tick that
+                // reached the other devices sometimes in seconds and sometimes in days.
+                SyncWorker.enqueue(appContext)
             }
-            SyncWorker.enqueue(applicationContext)
         }
         finish()
     }
