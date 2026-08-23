@@ -23,9 +23,10 @@
     <!-- %1$s ist der Aufgabentitel. -->
     <string name="widget_mark_done">\"%1$s\" als erledigt markieren</string>
     <string name="widget_mark_open">\"%1$s\" als nicht erledigt markieren</string>
-    <!-- The last row of a list widget when more tasks wait than fit; tapping it opens the app. -->
-    <plurals name="widget_more_tasks">
-        <item quantity="one">%1$d weitere Aufgabe</item>
-        <item quantity="other">%1$d weitere Aufgaben</item>
+    <!-- The header's big line: how much of the list is still open. -->
+    <plurals name="widget_open_count">
+        <item quantity="one">%1$d Aufgabe offen</item>
+        <item quantity="other">%1$d Aufgaben offen</item>
     </plurals>
+    <string name="widget_all_done">Alles erledigt</string>
 </resources>

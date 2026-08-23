@@ -10,8 +10,11 @@ import de.andi1984.cadence.sync.SyncWorker
 import kotlinx.coroutines.flow.first
 
 /**
- * Ticks a task off from a widget row, or reopens it — the target of the completion circle's
- * `actionRunCallback`.
+ * Ticks a task off from the **next-task** widget's circle, or reopens it — the target of its
+ * `actionRunCallback`. Only that widget can use this route: its circle sits on a plain surface,
+ * while a list row is a RemoteViews collection item, from which `actionRunCallback` never
+ * arrived on a real device — the lists go through [WidgetToggleActivity] instead. Same write,
+ * same aftercare, different door.
  *
  * Runs inside Glance's `ActionCallbackBroadcastReceiver`, i.e. in a broadcast's `goAsync` window
  * of about ten seconds, which a read, a write and two enqueues spend a few milliseconds of. The
@@ -30,7 +33,7 @@ class ToggleTaskCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val taskId = parameters[TASK_ID] ?: return
         val container = (context.applicationContext as? CadenceApplication)?.container ?: return
-        container.toggleTask(taskId)
+        container.toggleTaskFromWidget(taskId)
         // The container's own collector does this on the emission the write just caused, too;
         // asking directly as well costs a no-op event on a running session and makes the redraw
         // not depend on that collector having started yet in a process this broadcast created.
@@ -43,7 +46,8 @@ class ToggleTaskCallback : ActionCallback {
     }
 }
 
-private suspend fun AppContainer.toggleTask(taskId: String) {
+/** The write both widget toggle routes share — [ToggleTaskCallback] and [WidgetToggleActivity]. */
+internal suspend fun AppContainer.toggleTaskFromWidget(taskId: String) {
     // Read the row back rather than trust what the widget was drawn from — the widget may have
     // been rendered before an edit, and it is the same reason `CadenceRepository.setCompleted`
     // itself re-reads before spawning a successor.
