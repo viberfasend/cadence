@@ -23,9 +23,10 @@
     <!-- %1$s is the task title; these describe what tapping the circle will do. -->
     <string name="widget_mark_done">Mark \"%1$s\" as done</string>
     <string name="widget_mark_open">Mark \"%1$s\" as not done</string>
-    <!-- The last row of a list widget when more tasks wait than fit; tapping it opens the app. -->
-    <plurals name="widget_more_tasks">
-        <item quantity="one">%1$d more task</item>
-        <item quantity="other">%1$d more tasks</item>
+    <!-- The header's big line: how much of the list is still open. -->
+    <plurals name="widget_open_count">
+        <item quantity="one">%1$d task open</item>
+        <item quantity="other">%1$d tasks open</item>
     </plurals>
+    <string name="widget_all_done">All done</string>
 </resources>

@@ -9,6 +9,8 @@ import androidx.glance.GlanceTheme
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.SizeMode
+import androidx.glance.action.actionParametersOf
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.appWidgetBackground
 import androidx.glance.appwidget.cornerRadius
@@ -80,7 +82,18 @@ class CadenceNextTaskWidget : GlanceAppWidget() {
                         state == null -> Spacer(GlanceModifier.fillMaxSize())
                         next == null -> EmptyContent(context)
                         else ->
-                            TaskWidgetRow(context, next, today, GlanceModifier.fillMaxSize())
+                            TaskWidgetRow(
+                                context,
+                                next,
+                                today,
+                                // A plain surface, not a collection item, so the circle can take
+                                // the broadcast route — no window, no activity start.
+                                toggleAction = actionRunCallback<ToggleTaskCallback>(
+                                    actionParametersOf(ToggleTaskCallback.TASK_ID to next.id),
+                                ),
+                                modifier = GlanceModifier.fillMaxSize(),
+                                card = false,
+                            )
                     }
                 }
             }

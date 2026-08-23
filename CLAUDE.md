@@ -454,17 +454,26 @@ than reaching for `!!`.
     frame later — when WorkManager, the database and the recomposer's next tick all got there
     before the process was taken, which on a phone is "usually". `widgetSnapshot()` +
     `widgetUiState(container, initial)` is the pair; keep it a pair.
-  - **The rows are a plain `Column` — as many as fit, then "N more" — not a `LazyColumn`.** A
-    Glance `LazyColumn` is a `ListView` in the launcher, and its rows are RemoteViews collection
-    items, which own no `PendingIntent`: a tap has to reach its target through a fill-in intent
-    and a trampoline activity, `actionRunCallback` from a row silently never arrived on a real
-    device, and the completion circle spent a while as an invisible `Theme.NoDisplay` activity
-    to get around that. Below Android 12 the items are also served from an in-memory store by a
-    `RemoteViewsService`, which dies with the process. Plain rows make the circle an
-    `actionRunCallback` to `ToggleTaskCallback` — a broadcast, no window, works cold — and the
-    whole tile one self-contained `RemoteViews` the launcher keeps. `SizeMode.Responsive` with one
-    size per row count (`TaskListWidget.ROW_LADDER`) is what lets the launcher pick the right
-    row count for a resize or a rotation without a process.
+  - **The list widgets scroll, and a scrolling widget is a `ListView` — its rows are RemoteViews
+    collection items, and only `actionStartActivity` reliably escapes one.** A collection item
+    owns no `PendingIntent`: the platform offers one template on the list plus a per-item fill-in
+    intent, the template starts an activity, and everything else — `actionRunCallback` included —
+    rides a trampoline that silently never arrived on a real device. Ticking a row off therefore
+    goes through `WidgetToggleActivity`, an invisible `Theme.NoDisplay` activity that writes and
+    finishes in `onCreate`. The next-task widget is *not* a collection, so its circle takes the
+    better route — an `actionRunCallback` broadcast to `ToggleTaskCallback`, no window at all;
+    both doors call the same `toggleTaskFromWidget`. Below Android 12 a collection's items are
+    served from an in-memory store that dies with the process, which is the second reason frame
+    one must already carry the list. Known, accepted cost: the scroll position resets when the
+    list content changes.
+  - **The design is bands and cards, derived — never invented — in the widget.** The rows come
+    from `taskList` with their bands, so the Overdue/Today labels are the Today screen's own
+    split made visible; the header counts open tasks and draws the day's progress (Today only —
+    the Inbox is a place, not a plan); rows are rounded cards, overdue ones tinted with the error
+    container, completion rings tinted by priority (`widgetPriorityColor`, from the same
+    `CadenceColors` the app's `LocalCadenceColors` carries). Colour never stands alone: `P1`…`P4`
+    is spelled out in the meta line and "Overdue" is written next to it. `cornerRadius` clips on
+    Android 12+ and quietly draws square below.
   - **Two intents that differ only in their extras are the same intent.** `Intent.filterEquals` —
     what `PendingIntent` matches on — ignores extras, and Glance builds `actionStartActivity` with
     `FLAG_UPDATE_CURRENT`. A list of rows carrying nothing but a different `taskId` extra
