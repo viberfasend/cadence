@@ -17,6 +17,8 @@ import de.andi1984.cadence.ui.settings.ThemeChoice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.time.Instant
 
 /**
@@ -53,8 +55,12 @@ class DesktopBackupIo(
             // a half-written file where a good backup used to be.
             val tmp = File(file.parentFile ?: file.absoluteFile.parentFile, "${file.name}.tmp")
             tmp.writeText(json, Charsets.UTF_8)
-            tmp.copyTo(file, overwrite = true)
-            tmp.delete()
+            Files.move(
+                tmp.toPath(),
+                file.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
         }.fold(
             onSuccess = {
                 BackupOutcome.Exported(
