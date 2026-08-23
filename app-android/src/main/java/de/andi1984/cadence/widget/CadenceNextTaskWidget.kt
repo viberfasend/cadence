@@ -16,6 +16,7 @@ import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
+import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.padding
 import androidx.glance.text.FontWeight
@@ -44,16 +45,20 @@ class CadenceNextTaskWidget : GlanceAppWidget() {
         // `as?` for the same reason [TaskListWidget] uses it: a crashed widget is a worse failure
         // than an empty one, and the empty state here still opens quick-add.
         val container = (context.applicationContext as? CadenceApplication)?.container
-        val today = LocalDate.now()
-        // The head of the same list [CadenceTodayWidget] draws, minus anything already ticked
-        // off: "what's next" is a question a finished task cannot answer, and Today keeps a
-        // completed task on screen for the rest of the day when `showCompleted` is on.
-        val next = container?.widgetUiState()
-            ?.taskList(TaskView.Today, today)
-            ?.tasks
-            ?.firstOrNull { !it.isDone }
 
+        // Read inside the composition, never above it: this method runs once per session, and
+        // every later update is a recomposition of what it left behind — see [widgetUiState].
         provideContent {
+            val state = widgetUiState(container)
+            val today = LocalDate.now()
+            // The head of the same list [CadenceTodayWidget] draws, minus anything already ticked
+            // off: "what's next" is a question a finished task cannot answer, and Today keeps a
+            // completed task on screen for the rest of the day when `showCompleted` is on.
+            val next = state
+                ?.taskList(TaskView.Today, today)
+                ?.tasks
+                ?.firstOrNull { !it.isDone }
+
             GlanceTheme(colors = CadenceWidgetColors) {
                 Box(
                     modifier = GlanceModifier
@@ -63,10 +68,12 @@ class CadenceNextTaskWidget : GlanceAppWidget() {
                         .cornerRadius(16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (next == null) {
-                        EmptyContent(context)
-                    } else {
-                        TaskWidgetRow(context, next, today, modifier = GlanceModifier.fillMaxSize())
+                    when {
+                        // Nothing has been read yet — saying "all clear" here would be a guess.
+                        state == null -> Spacer(GlanceModifier.fillMaxSize())
+                        next == null -> EmptyContent(context)
+                        else ->
+                            TaskWidgetRow(context, next, today, GlanceModifier.fillMaxSize())
                     }
                 }
             }
