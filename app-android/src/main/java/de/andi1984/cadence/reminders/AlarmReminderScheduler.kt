@@ -48,11 +48,20 @@ class AlarmReminderScheduler(private val context: Context) : ReminderScheduler {
     }
 
     override fun cancel(taskId: String) {
-        val intent = pendingIntent(taskId, title = "", create = false) ?: return
+        // No persisted code means this task was never scheduled — nothing to cancel, and
+        // looking one up must not assign one (see ReminderRequestCodes.existingCodeFor).
+        val requestCode = ReminderRequestCodes.existingCodeFor(context, taskId) ?: return
+        val intent = pendingIntent(taskId, title = "", requestCode = requestCode, create = false)
+            ?: return
         alarmManager?.cancel(intent)
     }
 
-    private fun pendingIntent(taskId: String, title: String, create: Boolean): PendingIntent? {
+    private fun pendingIntent(
+        taskId: String,
+        title: String,
+        requestCode: Int = ReminderRequestCodes.codeFor(context, taskId),
+        create: Boolean,
+    ): PendingIntent? {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ACTION_REMIND
             data = android.net.Uri.parse("cadence://task/$taskId")
@@ -61,10 +70,7 @@ class AlarmReminderScheduler(private val context: Context) : ReminderScheduler {
         }
         val extra = if (create) 0 else PendingIntent.FLAG_NO_CREATE
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE or extra
-        // requestCode must be an Int; String.hashCode() is a documented, JVM-stable algorithm
-        // (unlike Object.hashCode()), so the same task id always maps to the same request code
-        // across process restarts — a UUID has no int form of its own to reuse instead.
-        return PendingIntent.getBroadcast(context, requestCodeFor(taskId), intent, flags)
+        return PendingIntent.getBroadcast(context, requestCode, intent, flags)
     }
 
     companion object {
@@ -73,9 +79,6 @@ class AlarmReminderScheduler(private val context: Context) : ReminderScheduler {
         const val EXTRA_TASK_ID = "taskId"
         const val EXTRA_TITLE = "title"
         private const val WINDOW_MILLIS = 10 * 60 * 1000L
-
-        /** The `PendingIntent`/notification request code for a task id — see [pendingIntent]. */
-        fun requestCodeFor(taskId: String): Int = taskId.hashCode()
 
         fun createChannel(context: Context) {
             val manager = context.getSystemService(NotificationManager::class.java) ?: return

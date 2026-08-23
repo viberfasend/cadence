@@ -30,7 +30,7 @@ class ReminderReceiver : BroadcastReceiver() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(AlarmReminderScheduler.EXTRA_TASK_ID, taskId)
         }
-        val requestCode = AlarmReminderScheduler.requestCodeFor(taskId)
+        val requestCode = ReminderRequestCodes.codeFor(context, taskId)
         val contentIntent = PendingIntent.getActivity(
             context,
             requestCode,
