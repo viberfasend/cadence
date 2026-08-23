@@ -236,6 +236,29 @@ class CadenceSyncEngine(
         scope.launch { syncOnce() }
     }
 
+    /**
+     * [syncInBackground], but only when the last completed round is older than [maxAge] — for
+     * callers that fire often and mean "make sure this is not stale" rather than "something
+     * changed". The Android widgets are the caller: every widget redraw starts a Glance session,
+     * most redraws are caused by this app's own writes and refreshes, and an unguarded round per
+     * session would turn each of them into a request. Signed out the round still costs nothing —
+     * it returns before making one.
+     */
+    fun syncInBackgroundIfStale(maxAge: Duration) {
+        scope.launch {
+            val last = store.state().lastSyncedAt
+            if (last == null || Duration.between(last, Instant.now()) >= maxAge) syncOnce()
+        }
+    }
+
+    /**
+     * Whether a session is **stored** — the database's answer, not the auth library's. The
+     * library loads that same session asynchronously at start, so a cold process asking
+     * [status] right away reads `SignedOut` for a beat; background work gated on that beat
+     * would silently never be scheduled. The store is ready the moment the process is.
+     */
+    suspend fun isSignedIn(): Boolean = store.state().session != null
+
     // ── Realtime ───────────────────────────────────────────────────────────────────
 
     /**

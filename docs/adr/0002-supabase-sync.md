@@ -398,3 +398,29 @@ Recorded rather than silently assumed. None blocks phase 1.
 - Whether attachment *metadata* should sync ahead of the bytes, so the other device can at least
   say a file exists. The cost is that every attachment row grows a "do I have the blob" state and
   the orphan sweeper has to learn not to reclaim hashes it has never seen.
+
+## Amendment 1 (2026-08-23): a home-screen widget counts as somebody looking
+
+Decision 11's rule — no periodic job, no background poll, "the phone is stale only while nobody
+is looking at it" — assumed the app's screens were the only Cadence surface on the phone. The
+home-screen widgets ended that: a widget is on screen for as long as the launcher is, and a
+widget showing a task the desktop finished an hour ago is exactly the staleness the rule was
+meant to rule out, not accept.
+
+So the premise stays and its application widens, on the desktop's own precedent (the 15-minute
+poll while the window is open — decision 11 already treats "the surface is visible" as "somebody
+is looking"):
+
+- **While at least one task widget exists and a session is stored**, a `SyncWorker` periodic
+  runs a round every 15 minutes — the same interval as the desktop, network-constrained,
+  reconciled on every task emission and cancelled the moment either condition stops holding.
+- **Every widget session start runs a round if the last one is older than five minutes**
+  (`syncInBackgroundIfStale`). Redraws caused by our own writes and refreshes stay free; the
+  guard is what keeps a session from meaning a request.
+- The widgets' one-shot push after a widget-made write (already in place) is unchanged.
+
+What this deliberately still is not: a websocket held open in the background (the wakelock
+stands rejected), a poll on a phone with no widgets, or a push channel. Real sub-minute freshness
+with the process dead needs the server to wake the phone — FCM data messages, a Firebase project,
+a device-token table and an edge function — which is recorded as an open follow-up rather than
+smuggled in here.

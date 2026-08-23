@@ -483,6 +483,13 @@ than reaching for `!!`.
   - **A widget must visibly answer a tap.** Ticking a row honours the user's `showCompleted`
     setting like every screen does, so the row strikes through and stays instead of vanishing —
     a row that disappears reads as deleted, not completed.
+  - **A widget keeps itself fresh, both directions** (ADR 0002, amendment 1). Outbound is the
+    write aftercare below. Inbound: every widget session start runs `syncInBackgroundIfStale`
+    (five minutes — the guard keeps sessions our own refreshes start from becoming requests),
+    and while a task widget exists *and* a session is stored, `WidgetUpdater.refreshAll`
+    keeps a 15-minute `SyncWorker` periodic alive — the desktop's poll interval, applied to the
+    one surface that is always visible — and cancels it when either condition ends. Rows a round
+    merges reach the widget through the container's collector like any other write.
   - **A write made from a widget does its own aftercare.** `ToggleTaskCallback` runs in a
     broadcast on a process nothing keeps alive, so it calls `WidgetUpdater.refreshAll` itself and
     hands the push to Supabase to `sync/SyncWorker` — a one-shot WorkManager job with a network
@@ -661,7 +668,9 @@ than reaching for `!!`.
   start and every return to the foreground, two seconds after a write, fire-and-forget on stop
   and window close, and — on the desktop only — every 15 minutes. There is no periodic
   `WorkManager` job and no Android poll: the phone is stale only while nobody is looking at it
-  (the one `SyncWorker` is a one-shot push for a write made from a widget, see the widget notes). Three things to know
+  — with one carve-out: a home-screen widget counts as somebody looking, so while a task widget
+  exists and a session is stored, `SyncWorker` also runs a 15-minute periodic pull beside its
+  one-shot post-write push (ADR 0002, amendment 1; see the widget notes). Three things to know
   before adding a trigger or a list:
   - **The debounce is armed by the mutation, not by the task flow.** `CadenceViewModel.armSync()`
     is called from each task and project mutation; a row merged *in* from a pull lands in

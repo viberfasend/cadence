@@ -121,6 +121,12 @@ abstract class TaskListWidget(private val scope: TaskListScope) : GlanceAppWidge
         // here is what redraws it then while the process is not around to notice.
         WidgetMidnightRefresh.schedule(context)
 
+        // A widget being drawn is the moment to ask the server what the other devices did (ADR
+        // 0002, amendment 1) — stale-guarded, because most sessions are started by this app's own
+        // writes and refreshes, and each of those would otherwise become a request. Fire-and-
+        // forget: whatever a round merges lands in the flow this composition collects.
+        container?.syncEngine?.syncInBackgroundIfStale(WIDGET_STALENESS)
+
         provideContent {
             val state = widgetUiState(container, initial)
             val today = LocalDate.now()
@@ -130,6 +136,9 @@ abstract class TaskListWidget(private val scope: TaskListScope) : GlanceAppWidge
         }
     }
 }
+
+/** How old the last round may be before a widget redraw asks the server again. */
+internal val WIDGET_STALENESS: java.time.Duration = java.time.Duration.ofMinutes(5)
 
 class CadenceTodayWidget : TaskListWidget(TaskListScope.TODAY)
 
