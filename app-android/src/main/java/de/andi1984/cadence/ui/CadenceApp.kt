@@ -52,9 +52,12 @@ import de.andi1984.cadence.ui.today.TodayScreen
 import de.andi1984.cadence.ui.upcoming.UpcomingScreen
 import de.andi1984.cadence.ui.resources.Res
 import de.andi1984.cadence.ui.resources.*
+import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
+import java.time.Duration
 import java.time.LocalDate
+import java.time.LocalDateTime
 
 object Routes {
     const val TODAY = "today"
@@ -105,7 +108,20 @@ fun CadenceApp(
     val snackbarHostState = remember { SnackbarHostState() }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val today = remember { LocalDate.now() }
+    // Recomputed at midnight rather than captured once (#115): this was `remember { LocalDate.now() }`
+    // and never changed again, so an app left open (or merely backgrounded with the process
+    // alive — no Activity recreation) past midnight kept drawing yesterday.
+    var today by remember { mutableStateOf(LocalDate.now()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = LocalDateTime.now()
+            val nextMidnight = now.toLocalDate().plusDays(1).atStartOfDay()
+            // A second past midnight, not exactly on it: `LocalDate.now()` a hair early would
+            // return the day that is ending and the loop would spin until the clock caught up.
+            delay(Duration.between(now, nextMidnight).toMillis().coerceAtLeast(1_000L) + 1_000L)
+            today = LocalDate.now()
+        }
+    }
 
     var quickAddOpen by remember { mutableStateOf(openQuickAdd || voiceQuickAddText != null) }
     var quickAddProjectId by remember { mutableStateOf<String?>(null) }
