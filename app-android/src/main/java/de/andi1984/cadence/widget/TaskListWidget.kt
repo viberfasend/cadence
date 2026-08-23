@@ -190,12 +190,19 @@ private fun TaskListContent(
                 LazyColumn(modifier = GlanceModifier.fillMaxSize().padding(bottom = 8.dp)) {
                     itemsIndexed(
                         entries,
-                        // Stable ids keep an update from re-animating every row: a card keeps its
-                        // task's id, a heading a slot of its own below any hash's reach.
+                        // Stable ids keep an update from re-animating every row: a card keeps
+                        // its task's id — an Int hash, so always within ±2^31 — and a heading
+                        // takes a positive slot shifted past the whole Int range, where no card's
+                        // hash can collide with it. Nothing here may go below -2^62: Glance
+                        // reserves everything beneath that for its own implicit ids and rejects
+                        // it with a `require`, and a throwing composition is not a broken row but
+                        // a whole tile showing the launcher's "cannot display content" layout.
+                        // (`Long.MIN_VALUE + index` sat in that range — every widget with an
+                        // Overdue heading rendered as exactly that error.)
                         itemId = { index, entry ->
                             when (entry) {
                                 is ListEntry.Card -> entry.task.id.hashCode().toLong()
-                                is ListEntry.Heading -> Long.MIN_VALUE + index
+                                is ListEntry.Heading -> (index + 1L) shl 32
                             }
                         },
                     ) { _, entry ->
