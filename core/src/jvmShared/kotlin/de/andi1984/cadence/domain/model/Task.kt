@@ -64,10 +64,10 @@ data class Task(
     val createdAt: Instant = Instant.EPOCH,
     val sortOrder: Int = 0,
     val recurrence: RecurrenceRule? = null,
-    /** Last write, local or merged in. The phase-6 merge engine resolves conflicts by this. */
+    /** Last write, local or merged in. Sync (ADR 0002) resolves conflicts by this. */
     val updatedAt: Instant = Instant.EPOCH,
-    /** Tombstone: set instead of a hard delete once sync (phase 6) needs one device's delete to
-     *  reach another's. Unused until then — every delete today is still a real `DELETE`. */
+    /** Tombstone: set instead of a hard delete, so sync (ADR 0002) can carry one device's delete
+     *  to another's. Every delete is a stamp here, never a real `DELETE`. */
     val deletedAt: Instant? = null,
 ) {
     val isDone: Boolean get() = completedAt != null
