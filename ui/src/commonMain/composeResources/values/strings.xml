@@ -444,7 +444,7 @@
 
     <!-- ── Sync ────────────────────────────────────────────────────────────────────── -->
     <string name="settings_sync">Sync</string>
-    <string name="settings_sync_supporting">Signing in keeps this device and your others in step through your own Supabase project. Cadence works signed out, and nothing leaves the device until you sign in.</string>
+    <string name="settings_sync_supporting">Signing in keeps this device and your others in step through your own Neon project. Cadence works signed out, and nothing leaves the device until you sign in.</string>
     <string name="settings_sync_email">Email</string>
     <string name="settings_sync_password">Password</string>
     <string name="settings_sync_sign_in">Sign in</string>
@@ -461,7 +461,6 @@
     <string name="settings_sync_error_offline">No connection. Cadence will keep working offline.</string>
     <string name="settings_sync_error_server">The server could not be reached. Try again later.</string>
     <string name="settings_sync_failed_offline">Last sync failed: no connection.</string>
-    <string name="settings_sync_failed_asleep">Last sync failed: the Supabase project is paused. Resume it in the Supabase dashboard.</string>
     <string name="settings_sync_failed_session">Last sync failed: the session expired. Sign in again.</string>
     <string name="settings_sync_failed_server">Last sync failed: the server returned an error.</string>
 

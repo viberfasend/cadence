@@ -31,10 +31,10 @@ import java.time.LocalTime
  * wait and is cancelled for us — which also stands in for the `close()` the shell would call.
  *
  * **`jvmTest`, not `jvmSharedTest`**, unlike the two state tests beside it. The ViewModel takes a
- * concrete `CadenceSyncEngine`, and constructing one builds a real supabase-kt client — harmless
- * here, since signed out it makes no request at all, but the Android unit-test JVM has no Android
- * runtime behind it for that library to find. The rules under test are the ViewModel's own and
- * are identical on both targets, so running them on the desktop compilation is the whole value.
+ * concrete `CadenceSyncEngine`, and constructing one builds a real Ktor HTTP client — harmless
+ * here, since signed out it makes no request at all. The rules under test are the ViewModel's own
+ * and are identical on both targets, so running them on the desktop compilation is the whole
+ * value.
  */
 class CadenceViewModelUndoTest {
 

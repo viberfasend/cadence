@@ -8,8 +8,8 @@
 CREATE TABLE syncStateRow (
     -- One row, forever. The CHECK is the schema saying so rather than the code remembering to.
     id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
-    -- supabase-kt's serialised session, or null when signed out. Persisted here instead of in
-    -- java.util.prefs, which is where its default JVM storage would put it.
+    -- The sync engine's serialised session (a StackSession since ADR 0005), or null when signed
+    -- out. Persisted beside the cursors it has to stay consistent with.
     session TEXT,
     -- The server's clock, as ISO-8601, not ours: `server_updated_at` of the newest row pulled.
     -- Kept as text so no precision is lost against Postgres's microseconds.

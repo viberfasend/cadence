@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.first
  * It does exactly what [de.andi1984.cadence.ui.CadenceViewModel.toggleTask] does, bar the
  * debounce — that method arms the ViewModel's two-second sync timer, and there is no ViewModel
  * here to hold one — and then does the two things a write made *outside* the app has to do for
- * itself: push the widgets a redraw, and hand the push to Supabase to a [SyncWorker] rather than
+ * itself: push the widgets a redraw, and hand the push to the server to a [SyncWorker] rather than
  * to a coroutine on a process nothing is keeping alive.
  */
 class ToggleTaskCallback : ActionCallback {

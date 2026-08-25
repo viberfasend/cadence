@@ -7,7 +7,8 @@ completion".
 Kotlin · Compose Multiplatform · Material 3 · SQLDelight. Local-first and no analytics: the
 database on each device is the source of truth, and the app is fully usable signed out and
 offline. Syncing your own devices is one optional sign-in in Settings
-([ADR 0002](docs/adr/0002-supabase-sync.md)); nothing leaves the device until you do.
+([ADR 0002](docs/adr/0002-supabase-sync.md), on Neon since
+[ADR 0005](docs/adr/0005-neon-sync.md)); nothing leaves the device until you do.
 
 ## Getting the APK on your phone
 

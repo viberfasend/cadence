@@ -1,6 +1,10 @@
 # ADR 0002 — Sync through Supabase instead of a synced folder
 
-**Status:** accepted
+**Status:** accepted; superseded in part by [ADR 0005](0005-neon-sync.md) (2026-08-25), which
+moves the backend to Neon: decision 6 (supabase-kt) and decision 12 (realtime) are replaced, the
+server sweep of the GC phase is client-driven now, and decision 2's account lives in Neon Auth.
+The protocol — cursors, watermark, stale-write trigger, tombstones, RLS, every trigger in
+decision 11 — stands unchanged.
 **Date:** 2026-08-09
 **Supersedes:** ADR 0001 decision 6 entirely, decision 10, and the file half of decision 5; extends
 decision 7; replaces phases 6 and 6b.
