@@ -82,6 +82,7 @@ docker cp "$HERE/stub.sql" "$CONTAINER:/tmp/stub.sql" >/dev/null
 docker cp "$HERE/seed.sql" "$CONTAINER:/tmp/seed.sql" >/dev/null
 docker cp "$MIGRATIONS" "$CONTAINER:/tmp/migrations" >/dev/null
 docker cp "$HERE/../migrate.sh" "$CONTAINER:/tmp/migrate.sh" >/dev/null
+docker cp "$HERE/../db.sh" "$CONTAINER:/tmp/db.sh" >/dev/null
 psql_as postgres -f /tmp/stub.sql >/dev/null
 
 # First application goes through migrate.sh itself — the script is part of what is under test
@@ -178,6 +179,18 @@ expect_error "signed out, nothing is readable" \
     "permission denied" "set role anonymous; select count(*) from public.tasks"
 expect_error "the bookkeeping table is not in the Data API" \
     "permission denied" "set role authenticated; select count(*) from public.schema_migrations"
+expect_error "…and cannot be written either" \
+    "permission denied" \
+    "set role authenticated; insert into public.schema_migrations (filename) values ('forged.sql')"
+expect "RLS is on the bookkeeping table too, so a returned grant still denies" "t" \
+    "select relrowsecurity from pg_class where oid = 'public.schema_migrations'::regclass"
+
+# The landmine 0002 defuses: with Neon's default privileges in place, a table created after this
+# point would otherwise be granted to `authenticated` the moment it exists.
+psql_as owner_role -c "create table if not exists public.later_table (id int)" >/dev/null
+expect "a table added later is not granted away by default" "f" \
+    "select has_table_privilege('authenticated', 'public.later_table', 'select')"
+psql_as postgres -c "drop table if exists public.later_table" >/dev/null
 
 # Cleanup of the rows the checks above created, so the sweep fixtures below are exactly the seed.
 psql_as postgres -c "delete from public.tasks where title in ('defaulted', 'clocked', 'fresh in batch')" >/dev/null
@@ -231,6 +244,46 @@ expect "the live tag survives" "live" \
 expect "a swept tag leaves its id on the task, for the client to drop" "2" \
     "select cardinality(tag_ids) from public.tasks
      where id = '00000000-0000-0000-0000-000000000001'"
+
+# ── neon/db.sh, the maintenance CLI ────────────────────────────────────────────────
+#
+# Run as `postgres` here rather than `owner_role`: on Neon the CLI connects as `neondb_owner`,
+# which carries BYPASSRLS, and reaching *every* account's rows is the whole reason the CLI exists
+# beside the client's own per-account sweep. `owner_role` is deliberately nobypassrls, so it
+# would see nothing and the checks below would pass while proving nothing.
+readonly CLI_URL="postgresql://postgres:pg@127.0.0.1/postgres"
+
+echo "neon/db.sh"
+
+# What is left at this point: user B's aged tombstone (task 4), which user A's sweep above could
+# not touch — exactly the row a client can never collect.
+cli_out="$(docker exec -e CADENCE_NEON_DB_URL="$CLI_URL" "$CONTAINER" bash /tmp/db.sh sweep 2>&1)"
+if [[ "$cli_out" == *"Nothing was deleted"* ]]; then
+    echo "  ok    a bare sweep is a dry run"
+else
+    echo "  FAIL  dry run: got '$cli_out'"
+    failures=$((failures + 1))
+fi
+# Four, not five: user A's own sweep above already took its aged tombstone.
+expect "…and it really deleted nothing" "4" "select count(*) from public.tasks"
+
+cli_out="$(docker exec -e CADENCE_NEON_DB_URL="$CLI_URL" "$CONTAINER" bash /tmp/db.sh sweep --horizon 1 2>&1 || true)"
+if [[ "$cli_out" == *"Refusing a horizon of 1 days"* ]]; then
+    echo "  ok    a horizon below the clients' floor is refused"
+else
+    echo "  FAIL  horizon floor: got '$cli_out'"
+    failures=$((failures + 1))
+fi
+
+docker exec -e CADENCE_NEON_DB_URL="$CLI_URL" "$CONTAINER" bash /tmp/db.sh sweep --yes >/dev/null
+expect "the CLI collects the other account's aged tombstone, which no client could" \
+    "live, fresh tombstone, other account, old and live" \
+    "select string_agg(title, ', ' order by id) from public.tasks"
+
+docker exec -e CADENCE_NEON_DB_URL="$CLI_URL" "$CONTAINER" bash /tmp/db.sh status >/dev/null
+echo "  ok    status runs"
+docker exec -e CADENCE_NEON_DB_URL="$CLI_URL" "$CONTAINER" bash /tmp/db.sh vacuum >/dev/null
+echo "  ok    vacuum runs"
 
 if (( failures > 0 )); then
     echo "$failures check(s) failed"

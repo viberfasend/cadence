@@ -30,10 +30,29 @@ run_psql() {
     psql "$CADENCE_NEON_DB_URL" -v ON_ERROR_STOP=1 -q "$@"
 }
 
+# The bookkeeping table, locked down in the same breath that creates it.
+#
+# Enabling the Data API leaves a default-privilege entry granting `authenticated` every new table
+# the owner creates in `public`, so a bare `create table` here hands the migration history to any
+# signed-in account over HTTP — read *and* write (see 0002_lock_bookkeeping.sql, which repairs
+# projects created before this). Doing it here as well as there means a fresh project is never
+# exposed, not even between this statement and that migration.
 run_psql -c "create table if not exists public.schema_migrations (
     filename text primary key,
     applied_at timestamptz not null default now()
-);"
+);" \
+    -c "do \$\$
+        begin
+            revoke all on public.schema_migrations from public;
+            if exists (select 1 from pg_roles where rolname = 'authenticated') then
+                revoke all on public.schema_migrations from authenticated;
+            end if;
+            if exists (select 1 from pg_roles where rolname = 'anonymous') then
+                revoke all on public.schema_migrations from anonymous;
+            end if;
+        end
+        \$\$;" \
+    -c "alter table public.schema_migrations enable row level security;"
 
 for migration in "$MIGRATIONS"/*.sql; do
     name="$(basename "$migration")"

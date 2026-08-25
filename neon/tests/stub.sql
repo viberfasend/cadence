@@ -20,6 +20,14 @@ create function auth.user_id() returns text language sql stable
 as $$ select nullif(current_setting('cadence.test_user_id', true), '') $$;
 
 grant usage on schema auth to owner_role, anonymous, authenticated;
+
+-- What enabling the Data API actually leaves behind on Neon, reproduced here because its absence
+-- is why this harness once passed while the live project handed `schema_migrations` to every
+-- signed-in account: a default-privilege entry granting the owner's *future* tables to
+-- `authenticated`. Without these three lines the lock-down in 0002 asserts nothing.
+alter default privileges for role owner_role in schema public grant all on tables to authenticated;
+alter default privileges for role owner_role in schema public grant all on sequences to authenticated;
+alter default privileges for role owner_role in schema public grant all on functions to authenticated;
 -- `with grant option`, because the baseline migration itself grants schema usage to
 -- `authenticated` and owner_role is not the schema's owner here.
 grant usage, create on schema public to owner_role with grant option;
