@@ -49,30 +49,56 @@ class CadenceSyncEngineTest {
     @Test
     fun `sign-in stores the session and reports idle`() = runTest {
         val store = InMemorySyncStore()
+        val minted = jwt(FAR_FUTURE)
         val http = RecordingHttp { request ->
-            assertEquals("/api/v1/auth/password/sign-in", request.url.encodedPath)
-            assertEquals("client", request.headers["X-Stack-Access-Type"])
-            assertEquals("project-id", request.headers["X-Stack-Project-Id"])
-            assertEquals("publishable-key", request.headers["X-Stack-Publishable-Client-Key"])
-            val body = (request.body as TextContent).text
-            assertTrue(body.contains("\"email\":\"me@example.org\""))
-            respondJson("""{"access_token":"${jwt(FAR_FUTURE)}","refresh_token":"refresh-1"}""")
+            when (request.url.encodedPath) {
+                "/sign-in/email" -> {
+                    val body = (request.body as TextContent).text
+                    assertTrue(body.contains("\"email\":\"me@example.org\""))
+                    // The session travels only in Set-Cookie (signed form); the body's raw
+                    // token is deliberately not usable — the live endpoint proved it.
+                    respond(
+                        content = """{"redirect":false,"token":"raw-unusable",
+                           "user":{"id":"u1","email":"me@example.org"}}""",
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(
+                            HttpHeaders.ContentType to listOf("application/json"),
+                            HttpHeaders.SetCookie to listOf(
+                                "__Secure-neon-auth.session_token=session-1.sig%3D; Path=/; HttpOnly",
+                            ),
+                        ),
+                    )
+                }
+                "/token" -> {
+                    // The Data API JWT is minted right away, with the cookie replayed verbatim.
+                    assertEquals(
+                        "__Secure-neon-auth.session_token=session-1.sig%3D",
+                        request.headers[HttpHeaders.Cookie],
+                    )
+                    respondJson("""{"token":"$minted"}""")
+                }
+                else -> unexpected(request)
+            }
         }
         val engine = engine(store, http)
 
         val result = engine.signIn("  me@example.org  ", "pw")
 
         assertEquals(SignInResult.Ok, result)
-        val session = StackSession.decodeOrNull(store.stateValue.session)
-        assertEquals("refresh-1", session?.refreshToken)
+        val session = NeonSession.decodeOrNull(store.stateValue.session)
+        assertEquals(
+            "__Secure-neon-auth.session_token=session-1.sig%3D",
+            session?.sessionCookie,
+        )
+        assertEquals(minted, session?.accessToken)
         assertEquals("me@example.org", session?.email)
         assertEquals(SyncStatus.Idle("me@example.org", null), engine.status.value)
     }
 
     @Test
-    fun `sign-in maps a 400 to wrong credentials`() = runTest {
+    fun `sign-in maps a credential error to wrong credentials`() = runTest {
         val http = RecordingHttp {
-            respondJson("""{"code":"EMAIL_PASSWORD_MISMATCH"}""", HttpStatusCode.BadRequest)
+            respondJson("""{"code":"INVALID_EMAIL_OR_PASSWORD"}""", HttpStatusCode.Unauthorized)
         }
         assertEquals(SignInResult.WrongCredentials, engine(InMemorySyncStore(), http).signIn("a", "b"))
     }
@@ -189,9 +215,10 @@ class CadenceSyncEngineTest {
         var deniedOnce = false
         val http = RecordingHttp { request ->
             when {
-                request.url.encodedPath == "/api/v1/auth/sessions/current/refresh" -> {
-                    assertEquals("refresh-1", request.headers["X-Stack-Refresh-Token"])
-                    respondJson("""{"access_token":"$secondToken"}""")
+                request.url.encodedPath == "/token" -> {
+                    // The mint rides the session cookie, not the dead JWT.
+                    assertEquals("cookie-1", request.headers[HttpHeaders.Cookie])
+                    respondJson("""{"token":"$secondToken"}""")
                 }
                 request.headers[HttpHeaders.Authorization] == "Bearer $firstToken" -> {
                     deniedOnce = true
@@ -206,20 +233,20 @@ class CadenceSyncEngineTest {
 
         assertTrue(deniedOnce)
         assertTrue(outcome is SyncOutcome.Ok)
-        val session = StackSession.decodeOrNull(store.stateValue.session)
+        val session = NeonSession.decodeOrNull(store.stateValue.session)
         assertEquals(secondToken, session?.accessToken)
-        // Stack answered without a rotated refresh token, so the stored one survives.
-        assertEquals("refresh-1", session?.refreshToken)
+        // The session cookie itself never rotates on a mint.
+        assertEquals("cookie-1", session?.sessionCookie)
     }
 
     @Test
-    fun `a refresh the server refuses reads as session expired`() = runTest {
+    fun `a mint the server refuses reads as session expired`() = runTest {
         val store = InMemorySyncStore()
-        store.stateValue = signedInState(accessToken = jwt(0)) // long expired: refresh up front
+        store.stateValue = signedInState(accessToken = jwt(0)) // long expired: mint up front
         val http = RecordingHttp { request ->
             when (request.url.encodedPath) {
-                "/api/v1/auth/sessions/current/refresh" ->
-                    respondJson("""{"code":"REFRESH_TOKEN_NOT_FOUND"}""", HttpStatusCode.Unauthorized)
+                "/token" ->
+                    respondJson("""{"code":"UNAUTHORIZED"}""", HttpStatusCode.Unauthorized)
                 else -> unexpected(request)
             }
         }
@@ -237,8 +264,8 @@ class CadenceSyncEngineTest {
         val renewed = jwt(FAR_FUTURE)
         val http = RecordingHttp { request ->
             when (request.url.encodedPath) {
-                "/api/v1/auth/sessions/current/refresh" ->
-                    respondJson("""{"access_token":"$renewed"}""")
+                "/token" ->
+                    respondJson("""{"token":"$renewed"}""")
                 else -> {
                     assertEquals("Bearer $renewed", request.headers[HttpHeaders.Authorization])
                     respondJson("[]")
@@ -286,17 +313,15 @@ class CadenceSyncEngineTest {
         scope = backgroundScope,
         httpClient = HttpClient(http.engine),
         dataApiUrl = "https://data.example",
-        stackApiUrl = "https://stack.example",
-        stackProjectId = "project-id",
-        stackPublishableClientKey = "publishable-key",
+        authUrl = "https://auth.example",
     )
 
     private fun signedInState(accessToken: String = jwt(FAR_FUTURE)) = SyncState(
-        session = StackSession(accessToken, "refresh-1", "me@example.org").encode(),
+        session = NeonSession(accessToken, "cookie-1", "me@example.org").encode(),
     )
 
     private fun InMemorySyncStore.accessToken(): String =
-        StackSession.decodeOrNull(stateValue.session)!!.accessToken
+        NeonSession.decodeOrNull(stateValue.session)!!.accessToken
 
     private companion object {
         /** Far enough that the 30-second refresh margin never triggers in a test. */

@@ -6,28 +6,28 @@ import org.junit.Test
 import java.time.Instant
 import java.util.Base64
 
-class StackSessionTest {
+class NeonSessionTest {
 
     @Test
     fun `a session round-trips`() {
-        val session = StackSession("access", "refresh", "me@example.org")
-        assertEquals(session, StackSession.decodeOrNull(session.encode()))
+        val session = NeonSession("access", "session", "me@example.org")
+        assertEquals(session, NeonSession.decodeOrNull(session.encode()))
     }
 
     @Test
     fun `absent and unreadable sessions read as signed out`() {
-        assertNull(StackSession.decodeOrNull(null))
-        assertNull(StackSession.decodeOrNull("not json"))
-        assertNull(StackSession.decodeOrNull("""{"accessToken":"","refreshToken":""}"""))
+        assertNull(NeonSession.decodeOrNull(null))
+        assertNull(NeonSession.decodeOrNull("not json"))
+        assertNull(NeonSession.decodeOrNull("""{"accessToken":"","sessionCookie":""}"""))
     }
 
     /** The exact upgrade case ADR 0005 documents: a stored supabase-kt `UserSession` must decode
-     *  to "signed out", never crash — its keys are different, so the fields stay blank. */
+     *  to "signed out", never crash — its keys are different, so decoding fails cleanly. */
     @Test
     fun `a stored supabase session reads as signed out`() {
         val supabaseShape = """{"access_token":"a","refresh_token":"r","token_type":"bearer",
             "user":{"id":"u","email":"me@example.org"}}"""
-        assertNull(StackSession.decodeOrNull(supabaseShape))
+        assertNull(NeonSession.decodeOrNull(supabaseShape))
     }
 
     @Test

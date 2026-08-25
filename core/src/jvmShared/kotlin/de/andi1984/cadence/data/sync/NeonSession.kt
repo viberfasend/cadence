@@ -11,17 +11,19 @@ import java.util.Base64
 /**
  * The signed-in state this device keeps, serialised into `syncStateRow.session`.
  *
- * Our own shape, not Stack Auth's: the access token is a short-lived JWT the [CadenceSyncEngine]
- * refreshes as needed, the refresh token is what buys the next one, and the email is only ever
- * shown in Settings. A stored value that does not decode — including the supabase-kt
- * `UserSession` every install carried before ADR 0005 — counts as signed out, which after the
- * migration is exactly the forced re-sign-in the cutover wants: fresh session, cleared cursors,
- * full push.
+ * Our own shape, not Better Auth's: [accessToken] is the short-lived JWT the Data API wants as
+ * Bearer, minted from `GET /token` and re-minted by [CadenceSyncEngine] as needed;
+ * [sessionCookie] is Better Auth's long-lived session credential — the signed cookie pair
+ * exactly as `Set-Cookie` handed it over, replayed verbatim on every `/token` call. The refresh
+ * token of this pair, in ADR 0002's vocabulary. The email is only ever shown
+ * in Settings. A stored value that does not decode — including the supabase-kt `UserSession`
+ * every install carried before ADR 0005 — counts as signed out, which after the migration is
+ * exactly the forced re-sign-in the cutover wants: fresh session, cleared cursors, full push.
  */
 @Serializable
-internal data class StackSession(
+internal data class NeonSession(
     val accessToken: String,
-    val refreshToken: String,
+    val sessionCookie: String,
     val email: String? = null,
 ) {
     fun encode(): String = SessionJson.encodeToString(serializer(), this)
@@ -29,11 +31,11 @@ internal data class StackSession(
     companion object {
         private val SessionJson = Json { ignoreUnknownKeys = true }
 
-        fun decodeOrNull(stored: String?): StackSession? = stored?.let {
+        fun decodeOrNull(stored: String?): NeonSession? = stored?.let {
             runCatching { SessionJson.decodeFromString(serializer(), it) }.getOrNull()
                 // The old library's session also decodes only by accident, never usefully; a
                 // session without both tokens is no session.
-                ?.takeIf { s -> s.accessToken.isNotBlank() && s.refreshToken.isNotBlank() }
+                ?.takeIf { s -> s.accessToken.isNotBlank() && s.sessionCookie.isNotBlank() }
         }
     }
 }

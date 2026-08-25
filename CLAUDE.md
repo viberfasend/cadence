@@ -145,11 +145,11 @@ No Gradle task will tell you any of it is wrong, so it has a test of its own:
 `migrate.sh` once, then directly a second time for idempotence) with `auth.user_id()` and the
 Data API roles stubbed, and checks the trigger semantics, the RLS isolation and the client-shaped
 sweep statement. Needs docker and nothing else. Run it after editing anything under `neon/`.
-`NeonConfig` reads `CADENCE_NEON_DATA_API_URL`, `CADENCE_STACK_API_URL`,
-`CADENCE_STACK_PROJECT_ID` and `CADENCE_STACK_PUBLISHABLE_CLIENT_KEY` from the environment when
-set, so pointing a build at another project edits no Kotlin. The publishable key is committed on
-purpose: RLS is what protects the rows. The account itself is created in the Neon console's Auth
-tab — the app has sign-in only, no sign-up.
+`NeonConfig` reads `CADENCE_NEON_DATA_API_URL` and `CADENCE_NEON_AUTH_URL` from the environment
+when set, so pointing a build at another project edits no Kotlin. Both URLs are committed on
+purpose — there is no API key in this design; the credential is the account, and RLS is what
+protects the rows. The account itself is created in the Neon console's Auth tab — the app has
+sign-in only, no sign-up.
 
 ```bash
 ./gradlew connectedDebugAndroidTest   # needs a device; CI has no emulator
@@ -208,7 +208,7 @@ of ADR 0001 decision 9 is still outstanding.
                           Android imports; this is what the JVM unit tests exercise. Keep it that way.
               data/       CadenceRepository, the TaskStore/ProjectStore/BackupStore/SyncStore ports it
                           needs, and the SQLDelight-backed implementations of those ports (data/db/)
-              data/sync/  CadenceSyncEngine (hand-rolled Ktor: Stack Auth sign-in + refresh,
+              data/sync/  CadenceSyncEngine (hand-rolled Ktor: Neon Auth sign-in + JWT mint,
                           PostgREST pull/merge/push against the Neon Data API — ADR 0005), the
                           wire DTOs and NeonConfig — a plain class, not a port (ADR 0002, dec. 7)
 :ui           ui/         theme, shared components, ui/format/, one package per screen, CadenceViewModel
@@ -655,9 +655,10 @@ than reaching for `!!`.
   - **The new watermark is the newest `updatedAt` actually sent**, never "now": a row written
     while the push was in flight stands above it and waits for the next round rather than being
     skipped by a clock that ran ahead of the data.
-  - **The session lives in `syncStateRow`, not in the settings file** — a `StackSession` (access
-    JWT + refresh token) the engine refreshes itself: preemptively near the token's `exp`, once
-    more on a 401, under its own mutex so four parallel pulls produce one refresh. It has to stay
+  - **The session lives in `syncStateRow`, not in the settings file** — a `NeonSession` (Data
+    API JWT + Better Auth session token) the engine keeps fresh itself: the JWT is re-minted via
+    `GET /token` preemptively near its `exp`, once more on a 401, under its own mutex so four
+    parallel pulls produce one mint. It has to stay
     consistent with the cursors beside it. A stored value that does not decode — the supabase-kt
     session every pre-0005 install carries — counts as signed out, which is the upgrade path: one
     re-sign-in, cleared cursors, full push. Signing out clears session, cursors and watermark and

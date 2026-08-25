@@ -68,8 +68,8 @@ sealed interface SyncOutcome {
 }
 
 /**
- * One sync round, and the session it needs — against Neon since ADR 0005: Stack Auth REST for the
- * session, the Data API (PostgREST) for the rows. The protocol is still ADR 0002's; only the
+ * One sync round, and the session it needs — against Neon since ADR 0005: Neon Auth's (Better
+ * Auth) REST for the session, the Data API (PostgREST) for the rows. The protocol is still ADR 0002's; only the
  * transport moved.
  *
  * A plain class in `:core`, not a port (ADR 0002, decision 7): `ui/platform/Ports.kt` exists for
@@ -98,18 +98,16 @@ class CadenceSyncEngine(
     private val scope: CoroutineScope,
     httpClient: HttpClient? = null,
     dataApiUrl: String = NeonConfig.dataApiUrl,
-    stackApiUrl: String = NeonConfig.stackApiUrl,
-    stackProjectId: String = NeonConfig.stackProjectId,
-    stackPublishableClientKey: String = NeonConfig.stackPublishableClientKey,
+    authUrl: String = NeonConfig.authUrl,
 ) {
 
     private val http: HttpClient = httpClient ?: defaultHttpClient()
 
-    private val stackAuth = StackAuthClient(http, stackApiUrl, stackProjectId, stackPublishableClientKey)
+    private val authClient = NeonAuthClient(http, authUrl)
 
     private val postgrest = PostgrestHttp(http, dataApiUrl)
 
-    private val tokens = SessionTokens(store, stackAuth)
+    private val tokens = SessionTokens(store, authClient)
 
     private val mutex = Mutex()
 
@@ -154,21 +152,21 @@ class CadenceSyncEngine(
      */
     suspend fun signIn(email: String, password: String): SignInResult = try {
         val trimmed = email.trim()
-        val answer = stackAuth.signIn(trimmed, password)
-        val refreshToken = answer.refreshToken
-        if (refreshToken.isNullOrBlank()) {
-            SignInResult.Failed("sign-in answered without a refresh token")
-        } else {
-            val session = StackSession(answer.accessToken, refreshToken, trimmed)
-            store.setSession(session.encode())
-            _status.value = SyncStatus.Idle(trimmed, store.state().lastSyncedAt)
-            SignInResult.Ok
-        }
-    } catch (e: StackAuthException) {
-        // 400/401 is the ordinary "wrong password" (Stack answers EMAIL_PASSWORD_MISMATCH with
-        // 400); anything else from the auth API is worth showing rather than flattening.
+        // Two requests, deliberately: sign-in yields the long-lived session cookie, and the Data
+        // API wants a JWT, which only `GET /token` mints. Doing the mint here means a session is
+        // never stored without a usable access token beside it.
+        val signedIn = authClient.signIn(trimmed, password)
+        val jwt = authClient.mintJwt(signedIn.sessionCookie)
+        val session = NeonSession(jwt.token, signedIn.sessionCookie, signedIn.email ?: trimmed)
+        store.setSession(session.encode())
+        _status.value = SyncStatus.Idle(session.email, store.state().lastSyncedAt)
+        SignInResult.Ok
+    } catch (e: NeonAuthException) {
+        // 400/401 is the ordinary "wrong password" (Better Auth answers
+        // INVALID_EMAIL_OR_PASSWORD with 401); anything else is worth showing rather than
+        // flattening.
         if (e.status == 400 || e.status == 401) SignInResult.WrongCredentials
-        else SignInResult.Failed(e.body.ifBlank { "Stack Auth error ${e.status}" })
+        else SignInResult.Failed(e.body.ifBlank { "Neon Auth error ${e.status}" })
     } catch (e: IOException) {
         SignInResult.Offline
     }
@@ -184,7 +182,7 @@ class CadenceSyncEngine(
      */
     suspend fun signOut() {
         tokens.current()?.let { session ->
-            runCatching { stackAuth.signOut(session.refreshToken) }
+            runCatching { authClient.signOut(session.sessionCookie) }
         }
         store.clear()
         _status.value = SyncStatus.SignedOut
@@ -473,7 +471,7 @@ class CadenceSyncEngine(
         this is SessionExpiredException -> SyncFailure.SESSION_EXPIRED
         this is SyncHttpException && status == 401 -> SyncFailure.SESSION_EXPIRED
         this is SyncHttpException -> SyncFailure.SERVER
-        this is StackAuthException -> SyncFailure.SERVER
+        this is NeonAuthException -> SyncFailure.SERVER
         this is IOException -> SyncFailure.OFFLINE
         else -> SyncFailure.SERVER
     }
@@ -524,29 +522,28 @@ class CadenceSyncEngine(
 internal class SessionExpiredException : Exception("session expired")
 
 /**
- * The engine's view of the stored [StackSession], and the refresh state machine
+ * The engine's view of the stored [NeonSession], and the refresh state machine
  * (ADR 0002 decision 6's worry, hand-rolled now that no library carries it: silent token refresh
  * is where a client is most likely to be subtly wrong, so all of it lives in this one class).
  *
- * [withAccessToken] hands the block a token it believes in: refreshed preemptively when the JWT
- * is within [EXPIRY_MARGIN] of its `exp` (or unreadable), refreshed once more and retried when
- * the server answers 401 anyway. A refresh that fails with a 4xx — revoked, expired, deleted —
- * throws [SessionExpiredException]; network trouble propagates as IOException and reads as
- * offline, because an expired wifi login must not log the user out.
+ * [withAccessToken] hands the block a JWT it believes in: re-minted preemptively when it is
+ * within [EXPIRY_MARGIN] of its `exp` (or unreadable), re-minted once more and retried when the
+ * server answers 401 anyway. A mint the auth server refuses with a 4xx — the session is expired,
+ * revoked or deleted — throws [SessionExpiredException]; network trouble propagates as
+ * IOException and reads as offline, because an expired wifi login must not log the user out.
  *
- * The refresh runs under its own mutex: the pull fans out four requests at once, and four
- * near-expired tokens must produce one refresh, not four (Stack Auth may rotate the refresh
- * token, and the second spend of a rotated token is a revocation). Whoever waits on the lock
- * re-reads the store first and takes the session a faster caller already renewed.
+ * The mint runs under its own mutex: the pull fans out four requests at once, and four expired
+ * JWTs must produce one `GET /token`, not four. Whoever waits on the lock re-reads the store
+ * first and takes the JWT a faster caller already minted.
  */
 private class SessionTokens(
     private val store: SyncStore,
-    private val stackAuth: StackAuthClient,
+    private val authClient: NeonAuthClient,
 ) {
 
     private val refreshMutex = Mutex()
 
-    suspend fun current(): StackSession? = StackSession.decodeOrNull(store.state().session)
+    suspend fun current(): NeonSession? = NeonSession.decodeOrNull(store.state().session)
 
     suspend fun <T> withAccessToken(block: suspend (String) -> T): T {
         var session = current() ?: throw SessionExpiredException()
@@ -567,19 +564,16 @@ private class SessionTokens(
         }
     }
 
-    private suspend fun refreshFrom(stale: StackSession): StackSession = refreshMutex.withLock {
+    private suspend fun refreshFrom(stale: NeonSession): NeonSession = refreshMutex.withLock {
         val stored = current() ?: throw SessionExpiredException()
-        // A caller that waited on the lock finds the session someone faster already renewed.
+        // A caller that waited on the lock finds the JWT someone faster already minted.
         if (stored.accessToken != stale.accessToken) return stored
         val answer = try {
-            stackAuth.refresh(stored.refreshToken)
-        } catch (e: StackAuthException) {
+            authClient.mintJwt(stored.sessionCookie)
+        } catch (e: NeonAuthException) {
             if (e.status in 400..499) throw SessionExpiredException() else throw e
         }
-        val renewed = stored.copy(
-            accessToken = answer.accessToken,
-            refreshToken = answer.refreshToken?.takeIf { it.isNotBlank() } ?: stored.refreshToken,
-        )
+        val renewed = stored.copy(accessToken = answer.token)
         store.setSession(renewed.encode())
         renewed
     }
