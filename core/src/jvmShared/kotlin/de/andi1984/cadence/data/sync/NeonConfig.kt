@@ -16,7 +16,8 @@ package de.andi1984.cadence.data.sync
 object NeonConfig {
 
     /** The branch's Data API endpoint — PostgREST, spoken to directly by [CadenceSyncEngine]. */
-    private const val DEFAULT_DATA_API_URL = ""
+    private const val DEFAULT_DATA_API_URL =
+        "https://ep-patient-tree-b2vb7u61.apirest.c-6.eu-central-1.aws.neon.tech/neondb/rest/v1"
 
     /** Stack Auth's hosted API; Neon Auth projects live there. */
     private const val DEFAULT_STACK_API_URL = "https://api.stack-auth.com"
