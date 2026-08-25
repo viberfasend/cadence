@@ -95,6 +95,43 @@ class CadenceSyncEngineTest {
         assertEquals(SyncStatus.Idle("me@example.org", null), engine.status.value)
     }
 
+    /** The Supabase→Neon upgrade in one test: undecodable old session, stale cursors, stale
+     *  watermark — signing in must reset all of it, or the push withholds every row older than
+     *  the last Supabase sync (the bug that shipped an empty first push). */
+    @Test
+    fun `sign-in starts from a clean slate`() = runTest {
+        val store = InMemorySyncStore()
+        store.stateValue = SyncState(
+            session = """{"access_token":"supabase-era","refresh_token":"r"}""",
+            taskCursor = "2026-08-20T00:00:00Z",
+            projectCursor = "2026-08-20T00:00:00Z",
+            pushWatermark = Instant.parse("2026-08-20T00:00:00Z"),
+        )
+        val minted = jwt(FAR_FUTURE)
+        val http = RecordingHttp { request ->
+            when (request.url.encodedPath) {
+                "/sign-in/email" -> respond(
+                    content = """{"token":"raw","user":{"email":"me@example.org"}}""",
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(
+                        HttpHeaders.ContentType to listOf("application/json"),
+                        HttpHeaders.SetCookie to listOf("neon-auth.session_token=s.sig; Path=/"),
+                    ),
+                )
+                "/token" -> respondJson("""{"token":"$minted"}""")
+                else -> unexpected(request)
+            }
+        }
+        val engine = engine(store, http)
+
+        assertEquals(SignInResult.Ok, engine.signIn("me@example.org", "pw"))
+
+        assertNull(store.stateValue.taskCursor)
+        assertNull(store.stateValue.projectCursor)
+        assertEquals(Instant.EPOCH, store.stateValue.pushWatermark)
+        assertEquals(minted, NeonSession.decodeOrNull(store.stateValue.session)?.accessToken)
+    }
+
     @Test
     fun `sign-in maps a credential error to wrong credentials`() = runTest {
         val http = RecordingHttp {

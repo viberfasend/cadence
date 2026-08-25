@@ -158,6 +158,13 @@ class CadenceSyncEngine(
         val signedIn = authClient.signIn(trimmed, password)
         val jwt = authClient.mintJwt(signedIn.sessionCookie)
         val session = NeonSession(jwt.token, signedIn.sessionCookie, signedIn.email ?: trimmed)
+        // Signing in always starts from the beginning. Whatever cursors and watermark are stored
+        // belong to the previous session's view of a server — possibly another backend entirely:
+        // the Supabase→Neon upgrade lands exactly here, with a session that failed to decode and
+        // sync state that signOut never cleared, and a stale watermark silently withholds every
+        // row older than the last Supabase push. Clearing costs one harmless full round: the
+        // pull re-reads what the merge already has, the push re-sends what the trigger drops.
+        store.clear()
         store.setSession(session.encode())
         _status.value = SyncStatus.Idle(session.email, store.state().lastSyncedAt)
         SignInResult.Ok
