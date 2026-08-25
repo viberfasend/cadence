@@ -113,3 +113,31 @@ up — the ordinary full-push path that null cursors and an EPOCH watermark alre
   `CADENCE_NEON_DB_URL` for `migrate.sh` only.
 - The `supabase/` tree, the supabase CLI devDependency (and with it `package.json`), and the
   realtime/pg_cron migrations are deleted. ADR 0002 remains the protocol's record.
+
+## Amendment 1 — the bookkeeping table was in the Data API (2026-08-25)
+
+Found by Neon's advisor hours after the cutover, and worth writing down because the mechanism
+surprises: **enabling the Data API leaves a default-privilege entry** granting `authenticated`
+every table the owner creates in `public` afterwards. Decision 7's `schema_migrations` is
+created by `migrate.sh`, not by a migration, so it inherited that and was readable — and
+insertable — over HTTP by any signed-in account. No task data was exposed (the four app tables
+carry RLS with an owner policy, which is exactly what that is for), but a forged row in the
+migration history would have made the next `migrate.sh` skip a migration.
+
+`0002_lock_bookkeeping.sql` does three overlapping things: revokes the grants, enables RLS with
+no policy at all so a returned grant still denies, and revokes the default privilege itself so
+the next table is not handed away either. `migrate.sh` now creates the table locked in the same
+breath, so a fresh project is never exposed even briefly. The harness stubs Neon's default
+privileges from now on — its *absence* is why the tests passed while the live project did not.
+
+The rule this leaves: **a table is not private because nothing granted it.** State the grants.
+
+## Amendment 2 — `neon/db.sh`, maintenance from a laptop (2026-08-25)
+
+Decision 5 put the tombstone sweep in the client, which covers the ordinary case and cannot
+cover anything outside one signed-in account: rows belonging to an account that no longer signs
+in are unreachable from every device. `neon/db.sh` is the missing half — `status`, `sweep`
+(dry-run unless `--yes`, 90-day floor unless `--force`), `vacuum` — over the direct connection,
+which on Neon carries BYPASSRLS. That is what lets it reach every account's rows, and why it
+defaults to showing rather than doing, and why its predicate can only ever match rows that are
+already tombstones.

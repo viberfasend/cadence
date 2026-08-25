@@ -140,11 +140,35 @@ API for the branch before migrating**: it provisions `auth.user_id()` (pg_sessio
 `authenticated`/`anonymous` roles the migration leans on, and the baseline refuses with a clear
 message when they are missing.
 
+**Enabling the Data API grants every future table away, and that has already bitten once.** It
+leaves a default-privilege entry behind — `neondb_owner | public | r | authenticated=arwd` — so a
+table the owner creates in `public` from then on is readable *and writable* by any signed-in
+account the moment it exists, with nobody granting anything. `schema_migrations`, created by
+`migrate.sh` rather than by a migration, picked that up and was served over HTTP until Neon's own
+advisor pointed at it; a forged row in it would have made the next `migrate.sh` skip a migration.
+`0002_lock_bookkeeping.sql` revokes it, puts RLS on the table with no policy at all, and revokes
+the default itself, so **a new table is not in the Data API until a migration grants it** — which
+is how `0001` already works. The rule to keep: state grants outright, and never assume a table is
+private because nothing granted it.
+
+Maintenance from a laptop is `bash neon/db.sh` (same `CADENCE_NEON_DB_URL`, same never-stored
+rule): `status` shows live rows, tombstones, how many are collectable and how the rows split
+across accounts; `sweep` prints what it would collect and changes nothing until `--yes`;
+`vacuum` hands the space back. It exists *beside* the client's own sweep rather than instead of
+it — the client collects only the account it is signed in as, so rows belonging to an account
+that no longer signs in (an old test login) are unreachable from any device. The connection it
+uses carries BYPASSRLS on Neon, which is the point and also the danger, hence the dry-run
+default, the tombstone-only predicate and the 90-day floor (`--force` to go below, with the
+reason printed: a device offline longer than the horizon puts back what the others deleted).
+
 No Gradle task will tell you any of it is wrong, so it has a test of its own:
 `bash neon/tests/run.sh` applies every migration to a throwaway `postgres:16` container (through
-`migrate.sh` once, then directly a second time for idempotence) with `auth.user_id()` and the
-Data API roles stubbed, and checks the trigger semantics, the RLS isolation and the client-shaped
-sweep statement. Needs docker and nothing else. Run it after editing anything under `neon/`.
+`migrate.sh` once, then directly a second time for idempotence) with `auth.user_id()`, the Data
+API roles **and Neon's default privileges** stubbed — that last one is not decoration: without it
+the harness passed while the live project was handing `schema_migrations` to every signed-in
+account. It checks the trigger semantics, the RLS isolation, the client-shaped sweep statement,
+the bookkeeping lock-down and `db.sh` itself. Needs docker and nothing else. Run it after editing
+anything under `neon/`.
 `NeonConfig` reads `CADENCE_NEON_DATA_API_URL` and `CADENCE_NEON_AUTH_URL` from the environment
 when set, so pointing a build at another project edits no Kotlin. Both URLs are committed on
 purpose — there is no API key in this design; the credential is the account, and RLS is what
