@@ -4,34 +4,12 @@ import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
-import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.auth.Auth
-import io.github.jan.supabase.auth.SessionManager
-import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.auth.exception.AuthRestException
-import io.github.jan.supabase.auth.exception.NoSessionFoundException
-import io.github.jan.supabase.auth.providers.builtin.Email
-import io.github.jan.supabase.auth.status.SessionStatus
-import io.github.jan.supabase.auth.user.UserSession
-import io.github.jan.supabase.createSupabaseClient
-import io.github.jan.supabase.exceptions.HttpRequestException
-import io.github.jan.supabase.exceptions.RestException
-import io.github.jan.supabase.exceptions.UnauthorizedRestException
-import io.github.jan.supabase.postgrest.Postgrest
-import io.github.jan.supabase.postgrest.from
-import io.github.jan.supabase.postgrest.query.Order
-import io.github.jan.supabase.postgrest.query.filter.FilterOperator
-import io.github.jan.supabase.realtime.HasRecord
-import io.github.jan.supabase.realtime.PostgresAction
-import io.github.jan.supabase.realtime.Realtime
-import io.github.jan.supabase.realtime.channel
-import io.github.jan.supabase.realtime.postgresChangeFlow
-import io.github.jan.supabase.realtime.realtime
-import io.github.jan.supabase.serializer.KotlinXSerializer
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpTimeout
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.coroutineScope
@@ -42,15 +20,10 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.builtins.ListSerializer
 import java.io.IOException
 import java.time.Duration
 import java.time.Instant
@@ -75,14 +48,11 @@ sealed interface SyncStatus {
 }
 
 /**
- * Why a round did not finish, at the granularity the user can act on.
- *
- * [PROJECT_ASLEEP] is worth telling apart from [OFFLINE]: a Supabase free-tier project pauses
- * after about a week of no requests and answers Supabase's own **HTTP 540** — it still resolves
- * DNS and completes TLS, so the app can say "the server is asleep, resume it in the dashboard"
- * rather than blaming the network for something no amount of waiting will fix.
+ * Why a round did not finish, at the granularity the user can act on. Neon's scale-to-zero cold
+ * start is deliberately *not* a case here: it presents as a slow first request, which the HTTP
+ * timeouts absorb, not as an error a person could act on.
  */
-enum class SyncFailure { OFFLINE, PROJECT_ASLEEP, SESSION_EXPIRED, SERVER }
+enum class SyncFailure { OFFLINE, SESSION_EXPIRED, SERVER }
 
 sealed interface SignInResult {
     data object Ok : SignInResult
@@ -98,19 +68,25 @@ sealed interface SyncOutcome {
 }
 
 /**
- * One sync round, and the session it needs.
+ * One sync round, and the session it needs — against Neon since ADR 0005: Neon Auth's (Better
+ * Auth) REST for the session, the Data API (PostgREST) for the rows. The protocol is still ADR 0002's; only the
+ * transport moved.
  *
  * A plain class in `:core`, not a port (ADR 0002, decision 7): `ui/platform/Ports.kt` exists for
  * what the *machine* does differently — alarms, a file picker, a SAF uri — and HTTPS is not that.
  * Both shells construct one in their `AppContainer` on the application scope and hand it to the
- * ViewModel, the same way they already hand over the concrete `CadenceRepository`.
+ * ViewModel, the same way they already hand over the concrete `CadenceRepository`. Construction
+ * makes no request and touches nothing: a test can build one against a fake HTTP engine, and the
+ * ViewModel tests build one that never speaks at all.
  *
  * The round, under [mutex] so two of them cannot interleave, every step idempotent so any failure
  * means "stop, try again later":
  *
  * 1. Pull rows at or after the stored cursor, in pages, and merge each page as it arrives.
  * 2. Push local rows written since the watermark, tombstones included, as an upsert.
- * 3. Collect tombstones past the horizon, at most once a day, and only after a round that pushed.
+ * 3. Collect tombstones past the horizon — on the server first, then locally — at most once a
+ *    day, and only after a round that pushed. Client-driven since ADR 0005: pg_cron on a compute
+ *    that scales to zero only fires while something else keeps it awake.
  *
  * The push sends everything above the watermark rather than tracking which rows are dirty,
  * because the server can tell: its trigger drops a write whose `updated_at` is not strictly
@@ -120,27 +96,18 @@ sealed interface SyncOutcome {
 class CadenceSyncEngine(
     private val store: SyncStore,
     private val scope: CoroutineScope,
-    url: String = SupabaseConfig.url,
-    anonKey: String = SupabaseConfig.anonKey,
+    httpClient: HttpClient? = null,
+    dataApiUrl: String = NeonConfig.dataApiUrl,
+    authUrl: String = NeonConfig.authUrl,
 ) {
 
-    private val client: SupabaseClient = createSupabaseClient(url, anonKey) {
-        // Both halves of the wire contract — unknown keys ignored on the way in, defaults still
-        // written on the way out — live with the records themselves; see [SyncJson].
-        defaultSerializer = KotlinXSerializer(SyncJson)
-        install(Auth) {
-            // The session belongs next to the cursor it has to stay consistent with, not in
-            // `java.util.prefs`, which is where this library's JVM default would put it.
-            sessionManager = DatabaseSessionManager(store)
-            alwaysAutoRefresh = true
-            autoLoadFromStorage = true
-        }
-        install(Postgrest)
-        // Realtime is an accelerant beside the round, never in place of it (ADR 0002, decision
-        // 12): it carries a change over in about a second, and everything it can drop is picked
-        // up by the next pull.
-        install(Realtime)
-    }
+    private val http: HttpClient = httpClient ?: defaultHttpClient()
+
+    private val authClient = NeonAuthClient(http, authUrl)
+
+    private val postgrest = PostgrestHttp(http, dataApiUrl)
+
+    private val tokens = SessionTokens(store, authClient)
 
     private val mutex = Mutex()
 
@@ -163,50 +130,45 @@ class CadenceSyncEngine(
      */
     val failures: SharedFlow<SyncFailure> = _failures.asSharedFlow()
 
-    /** The socket's whole lifetime, held so the shell can end it — see [startRealtime]. */
-    private var realtimeJob: Job? = null
+    /** The foreground poll's lifetime, held so the shell can end it — see [startForegroundPoll]. */
+    private var pollJob: Job? = null
 
     init {
-        // The signed-in/out half of the status comes from the library — it loads the stored
-        // session at start and drops it when a refresh finally fails — while the "when did this
-        // last work" half is ours. Whichever moves last wins, which is why a running round
-        // republishes its own state rather than being overwritten by a session event.
+        // Seed the signed-in/out half of the status from the store — there is no auth library
+        // loading sessions under us any more, so the stored session *is* the answer. Everything
+        // after this beat is moved by signIn/signOut/syncOnce themselves.
         scope.launch {
-            client.auth.sessionStatus.collect { sessionStatus ->
-                _status.value = when (sessionStatus) {
-                    is SessionStatus.Authenticated ->
-                        SyncStatus.Idle(sessionStatus.email(), store.state().lastSyncedAt)
-                    is SessionStatus.RefreshFailure ->
-                        SyncStatus.Failed(SyncFailure.OFFLINE, null, store.state().lastSyncedAt)
-                    is SessionStatus.NotAuthenticated -> SyncStatus.SignedOut
-                    is SessionStatus.Initializing -> _status.value
-                }
+            val session = tokens.current()
+            if (_status.value is SyncStatus.SignedOut && session != null) {
+                _status.value = SyncStatus.Idle(session.email, store.state().lastSyncedAt)
             }
         }
     }
 
     /**
-     * Signs in with the one account this project has. There is no sign-up here on purpose:
-     * sign-ups are disabled in the dashboard and the account is created there (ADR 0002,
-     * decision 2), so a registration form would only ever produce an error.
+     * Signs in with the one account this project has. There is no sign-up here on purpose: the
+     * account is created in the Neon console (ADR 0002 decision 2, unchanged by ADR 0005), so a
+     * registration form would only ever produce an error.
      */
     suspend fun signIn(email: String, password: String): SignInResult = try {
-        client.auth.signInWith(Email) {
-            this.email = email.trim()
-            this.password = password
-        }
+        val trimmed = email.trim()
+        // Two requests, deliberately: sign-in yields the long-lived session cookie, and the Data
+        // API wants a JWT, which only `GET /token` mints. Doing the mint here means a session is
+        // never stored without a usable access token beside it.
+        val signedIn = authClient.signIn(trimmed, password)
+        val jwt = authClient.mintJwt(signedIn.sessionCookie)
+        val session = NeonSession(jwt.token, signedIn.sessionCookie, signedIn.email ?: trimmed)
+        store.setSession(session.encode())
+        _status.value = SyncStatus.Idle(session.email, store.state().lastSyncedAt)
         SignInResult.Ok
-    } catch (e: AuthRestException) {
-        // 400 with `invalid_credentials` is the ordinary "wrong password"; anything else from
-        // the auth API is worth showing verbatim rather than flattening into the same message.
-        if (e.statusCode == 400) SignInResult.WrongCredentials
-        else SignInResult.Failed(e.errorDescription?.ifBlank { null } ?: e.error)
-    } catch (e: HttpRequestException) {
-        SignInResult.Offline
+    } catch (e: NeonAuthException) {
+        // 400/401 is the ordinary "wrong password" (Better Auth answers
+        // INVALID_EMAIL_OR_PASSWORD with 401); anything else is worth showing rather than
+        // flattening.
+        if (e.status == 400 || e.status == 401) SignInResult.WrongCredentials
+        else SignInResult.Failed(e.body.ifBlank { "Neon Auth error ${e.status}" })
     } catch (e: IOException) {
         SignInResult.Offline
-    } catch (e: RestException) {
-        SignInResult.Failed(e.description?.ifBlank { null } ?: e.error)
     }
 
     /**
@@ -215,9 +177,13 @@ class CadenceSyncEngine(
      * It deliberately deletes nothing: the local database is the source of truth and signing out
      * is not a delete. Clearing the cursors is what makes signing back in start from the
      * beginning — which is right, because this device has no idea what the server did meanwhile.
+     * The server-side revocation is best-effort for the same reason the old one was: signing out
+     * must work on a plane.
      */
     suspend fun signOut() {
-        runCatching { client.auth.signOut() }
+        tokens.current()?.let { session ->
+            runCatching { authClient.signOut(session.sessionCookie) }
+        }
         store.clear()
         _status.value = SyncStatus.SignedOut
     }
@@ -252,226 +218,50 @@ class CadenceSyncEngine(
     }
 
     /**
-     * Whether a session is **stored** — the database's answer, not the auth library's. The
-     * library loads that same session asynchronously at start, so a cold process asking
-     * [status] right away reads `SignedOut` for a beat; background work gated on that beat
-     * would silently never be scheduled. The store is ready the moment the process is.
+     * Whether a session is **stored** — the database's answer, which is ready the moment the
+     * process is. [status] is seeded from the same store asynchronously, so a cold process asking
+     * it right away could still read `SignedOut` for a beat; background work gates on this
+     * instead.
      */
-    suspend fun isSignedIn(): Boolean = store.state().session != null
+    suspend fun isSignedIn(): Boolean = tokens.current() != null
 
-    // ── Realtime ───────────────────────────────────────────────────────────────────
+    // ── Foreground poll ────────────────────────────────────────────────────────────
 
     /**
-     * Opens the change socket, and keeps re-opening it (ADR 0002, decision 12).
+     * Polls a round every [interval] until [stopForegroundPoll] — what stands where the realtime
+     * socket used to (ADR 0005): Neon has no change feed, so "the other device sees it in about a
+     * minute" is a timer, not a websocket.
      *
-     * The shell decides how long that lasts, because the answer differs: `:app-android` starts
-     * this in the foreground and [stopRealtime]s on the way out — a background websocket is the
-     * wakelock `WorkManager` was rejected to avoid — while `:app-desktop` starts it once and
-     * leaves it open for the process, minimised included. A desktop that drops the socket on
-     * alt-tab drops it exactly when the phone is in use, which is the one case this exists for.
+     * The shell decides how long it runs, exactly as it decided the socket's lifetime:
+     * `:app-android` starts it in the foreground and stops it on the way out — a background poll
+     * is the battery drain WorkManager was rejected to avoid — while `:app-desktop` starts it
+     * once and leaves it for the process, minimised included. A desktop that stops polling on
+     * alt-tab goes stale exactly when the phone is in use, which is the one case this exists for.
      *
-     * Calling it twice is a no-op, and signed out it costs nothing: the loop waits for a session
-     * rather than connecting to be told it has none.
+     * Calling it twice is a no-op, and signed out it costs nothing: a poll tick's round returns
+     * before making a request.
      */
     @Synchronized
-    fun startRealtime() {
-        if (realtimeJob?.isActive == true) return
-        realtimeJob = scope.launch { realtimeLoop() }
-    }
-
-    /** Closes the socket and stops re-opening it. The pull is what covers the gap afterwards. */
-    @Synchronized
-    fun stopRealtime() {
-        realtimeJob?.cancel()
-        realtimeJob = null
-        // Guarded because this is also the signed-out path: an app that goes to the background
-        // without ever having connected must not be the one call that throws in `onStop`.
-        if (client.realtime.status.value != Realtime.Status.DISCONNECTED) {
-            client.realtime.disconnect()
-        }
-    }
-
-    /**
-     * Subscribe, listen, and on any failure wait and subscribe again — 1s, doubling to 30s.
-     *
-     * The backoff is ours rather than the library's because what follows a reconnect is ours too:
-     * every successful subscribe runs a full [syncOnce], since the socket's downtime is exactly
-     * the gap the cursor already covers. That round is also what makes the unavoidable race here
-     * harmless — a change committed between the join and the first delivered event is simply
-     * pulled.
-     */
-    private suspend fun realtimeLoop() {
-        var backoff = REALTIME_MIN_BACKOFF
-        while (true) {
-            val session = client.auth.sessionStatus
-                .first { it is SessionStatus.Authenticated } as SessionStatus.Authenticated
-            val userId = session.session.user?.id
-            if (userId == null) {
-                // No user on an authenticated session is not a thing to retry in a tight loop.
-                delay(REALTIME_MAX_BACKOFF.toMillis())
-                continue
-            }
-            try {
-                listen(userId)
-                // A clean return means the account went away, not that anything broke.
-                backoff = REALTIME_MIN_BACKOFF
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                delay(backoff.toMillis())
-                backoff = minOf(backoff.multipliedBy(2), REALTIME_MAX_BACKOFF)
+    fun startForegroundPoll(interval: Duration = FOREGROUND_POLL_INTERVAL) {
+        if (pollJob?.isActive == true) return
+        pollJob = scope.launch {
+            while (true) {
+                delay(interval.toMillis())
+                syncOnce()
             }
         }
     }
 
-    /**
-     * One channel, all four tables, filtered server-side on `user_id`.
-     *
-     * The filter is not decoration: without it the socket carries every account's rows and RLS
-     * drops them at delivery, which is waste plus one more thing to get wrong.
-     *
-     * Returns when the session ends; throws when the socket does. Every flow is collected before
-     * [RealtimeChannel.subscribe] because a `postgres_changes` binding is registered as its flow
-     * is collected and only travels with the join that follows it.
-     */
-    private suspend fun listen(userId: String) = coroutineScope {
-        val channel = client.realtime.channel(REALTIME_CHANNEL)
-        val tasks = channel.postgresChangeFlow<PostgresAction>(schema = SCHEMA) {
-            table = TABLE_TASKS
-            filter(COLUMN_USER_ID, FilterOperator.EQ, userId)
-        }
-        val projects = channel.postgresChangeFlow<PostgresAction>(schema = SCHEMA) {
-            table = TABLE_PROJECTS
-            filter(COLUMN_USER_ID, FilterOperator.EQ, userId)
-        }
-        val sections = channel.postgresChangeFlow<PostgresAction>(schema = SCHEMA) {
-            table = TABLE_SECTIONS
-            filter(COLUMN_USER_ID, FilterOperator.EQ, userId)
-        }
-        val tags = channel.postgresChangeFlow<PostgresAction>(schema = SCHEMA) {
-            table = TABLE_TAGS
-            filter(COLUMN_USER_ID, FilterOperator.EQ, userId)
-        }
-
-        val listeners = listOf(
-            launch { tasks.collect { action -> action.record()?.let { mergeRemoteTask(it) } } },
-            launch { projects.collect { action -> action.record()?.let { mergeRemoteProject(it) } } },
-            launch { sections.collect { action -> action.record()?.let { mergeRemoteSection(it) } } },
-            launch { tags.collect { action -> action.record()?.let { mergeRemoteTag(it) } } },
-            // Every reconnect the library manages under us gets its own full round, for the same
-            // reason the first subscribe does: the socket's downtime is exactly the gap the
-            // cursor covers. `drop(1)` skips the *first* connected — that one is the socket this
-            // subscribe just opened, and the round for it is the explicit one below.
-            launch {
-                client.realtime.status
-                    .filter { it == Realtime.Status.CONNECTED }
-                    .drop(1)
-                    .collect { syncOnce() }
-            },
-        )
-
-        try {
-            channel.subscribe(blockUntilSubscribed = true)
-            syncOnce()
-            // Nothing else to do here: the listeners are running, and the library rejoins on its
-            // own. This returns when the account goes away, and is cancelled when the shell says
-            // to stop.
-            client.auth.sessionStatus.first { it is SessionStatus.NotAuthenticated }
-        } finally {
-            listeners.forEach { it.cancel() }
-            withContext(NonCancellable) { runCatching { client.realtime.removeChannel(channel) } }
-        }
+    /** Stops the poll. The lifecycle-edge rounds are what cover the gap afterwards. */
+    @Synchronized
+    fun stopForegroundPoll() {
+        pollJob?.cancel()
+        pollJob = null
     }
-
-    /**
-     * Folds one payload row in **without touching the cursor** (ADR 0002, decision 12).
-     *
-     * Realtime is at-most-once: a dropped socket loses events silently, and a cursor advanced
-     * past an event that never arrived has skipped that row forever. Merging is idempotent and
-     * therefore safe; advancing from a payload is not, so the cursors travel as null and the next
-     * pull re-fetches the same rows harmlessly.
-     *
-     * A row that does not decode is dropped rather than thrown: one unreadable payload must not
-     * take the socket down with it, and the pull will bring the same row back.
-     */
-    private suspend fun mergeRemoteTask(record: JsonObject) {
-        val task = runCatching { SyncJson.decodeFromJsonElement(RemoteTask.serializer(), record) }
-            .getOrNull() ?: return
-        mutex.withLock {
-            store.mergeAndAdvance(
-                projects = emptyList(),
-                sections = emptyList(),
-                tags = emptyList(),
-                tasks = listOf(task.toDomain()),
-                taskCursor = null,
-                projectCursor = null,
-                sectionCursor = null,
-                tagCursor = null,
-            )
-        }
-    }
-
-    private suspend fun mergeRemoteProject(record: JsonObject) {
-        val project =
-            runCatching { SyncJson.decodeFromJsonElement(RemoteProject.serializer(), record) }
-                .getOrNull() ?: return
-        mutex.withLock {
-            store.mergeAndAdvance(
-                projects = listOf(project.toDomain()),
-                sections = emptyList(),
-                tags = emptyList(),
-                tasks = emptyList(),
-                taskCursor = null,
-                projectCursor = null,
-                sectionCursor = null,
-                tagCursor = null,
-            )
-        }
-    }
-
-    private suspend fun mergeRemoteSection(record: JsonObject) {
-        val section =
-            runCatching { SyncJson.decodeFromJsonElement(RemoteSection.serializer(), record) }
-                .getOrNull() ?: return
-        mutex.withLock {
-            store.mergeAndAdvance(
-                projects = emptyList(),
-                sections = listOf(section.toDomain()),
-                tags = emptyList(),
-                tasks = emptyList(),
-                taskCursor = null,
-                projectCursor = null,
-                sectionCursor = null,
-                tagCursor = null,
-            )
-        }
-    }
-
-    private suspend fun mergeRemoteTag(record: JsonObject) {
-        val tag = runCatching { SyncJson.decodeFromJsonElement(RemoteTag.serializer(), record) }
-            .getOrNull() ?: return
-        mutex.withLock {
-            store.mergeAndAdvance(
-                projects = emptyList(),
-                sections = emptyList(),
-                tags = listOf(tag.toDomain()),
-                tasks = emptyList(),
-                taskCursor = null,
-                projectCursor = null,
-                sectionCursor = null,
-                tagCursor = null,
-            )
-        }
-    }
-
-    /** The new version a payload carries, or null for the events that carry none. A delete is a
-     *  tombstone `UPDATE` here (ADR 0002, decision 3), so `DELETE` needs no handling. */
-    private fun PostgresAction.record(): JsonObject? = (this as? HasRecord)?.record
 
     suspend fun syncOnce(): SyncOutcome = mutex.withLock {
-        val session = client.auth.sessionStatus.value as? SessionStatus.Authenticated
-            ?: return SyncOutcome.SignedOut
-        val email = session.email()
+        val session = tokens.current() ?: return SyncOutcome.SignedOut
+        val email = session.email
         _status.value = SyncStatus.Syncing(email)
         try {
             val pulled = pull()
@@ -508,10 +298,9 @@ class CadenceSyncEngine(
         var sectionCursor = state.sectionCursor
         var tagCursor = state.tagCursor
         var merged = 0
-        // Tracked per table rather than for the pull as a whole. The three are paged
+        // Tracked per table rather than for the pull as a whole. The four are paged
         // independently, and asking a table that already answered with a short page costs a
-        // request that can only return rows this round has merged already — which is what the old
-        // shared `done` flag did on every iteration while another table was still catching up.
+        // request that can only return rows this round has merged already.
         var moreTasks = true
         var moreProjects = true
         var moreSections = true
@@ -519,7 +308,7 @@ class CadenceSyncEngine(
 
         while (moreTasks || moreProjects || moreSections || moreTags) {
             // No table's page depends on another's, so they travel together: one round trip's
-            // latency per iteration instead of three.
+            // latency per iteration instead of four.
             val projectPage = if (moreProjects) async { fetchProjects(projectCursor) } else null
             val sectionPage = if (moreSections) async { fetchSections(sectionCursor) } else null
             val tagPage = if (moreTags) async { fetchTags(tagCursor) } else null
@@ -566,32 +355,36 @@ class CadenceSyncEngine(
     }
 
     private suspend fun fetchTasks(cursor: String?): List<RemoteTask> =
-        client.from(TABLE_TASKS).select {
-            filter { cursor?.let { gte(COLUMN_SERVER_UPDATED_AT, it.minusOverlap()) } }
-            order(COLUMN_SERVER_UPDATED_AT, Order.ASCENDING)
-            limit(PAGE_SIZE.toLong())
-        }.decodeList()
+        tokens.withAccessToken { token ->
+            SyncJson.decodeFromString(
+                ListSerializer(RemoteTask.serializer()),
+                postgrest.selectSince(TABLE_TASKS, cursor?.minusOverlap(), PAGE_SIZE, token),
+            )
+        }
 
     private suspend fun fetchProjects(cursor: String?): List<RemoteProject> =
-        client.from(TABLE_PROJECTS).select {
-            filter { cursor?.let { gte(COLUMN_SERVER_UPDATED_AT, it.minusOverlap()) } }
-            order(COLUMN_SERVER_UPDATED_AT, Order.ASCENDING)
-            limit(PAGE_SIZE.toLong())
-        }.decodeList()
+        tokens.withAccessToken { token ->
+            SyncJson.decodeFromString(
+                ListSerializer(RemoteProject.serializer()),
+                postgrest.selectSince(TABLE_PROJECTS, cursor?.minusOverlap(), PAGE_SIZE, token),
+            )
+        }
 
     private suspend fun fetchSections(cursor: String?): List<RemoteSection> =
-        client.from(TABLE_SECTIONS).select {
-            filter { cursor?.let { gte(COLUMN_SERVER_UPDATED_AT, it.minusOverlap()) } }
-            order(COLUMN_SERVER_UPDATED_AT, Order.ASCENDING)
-            limit(PAGE_SIZE.toLong())
-        }.decodeList()
+        tokens.withAccessToken { token ->
+            SyncJson.decodeFromString(
+                ListSerializer(RemoteSection.serializer()),
+                postgrest.selectSince(TABLE_SECTIONS, cursor?.minusOverlap(), PAGE_SIZE, token),
+            )
+        }
 
     private suspend fun fetchTags(cursor: String?): List<RemoteTag> =
-        client.from(TABLE_TAGS).select {
-            filter { cursor?.let { gte(COLUMN_SERVER_UPDATED_AT, it.minusOverlap()) } }
-            order(COLUMN_SERVER_UPDATED_AT, Order.ASCENDING)
-            limit(PAGE_SIZE.toLong())
-        }.decodeList()
+        tokens.withAccessToken { token ->
+            SyncJson.decodeFromString(
+                ListSerializer(RemoteTag.serializer()),
+                postgrest.selectSince(TABLE_TAGS, cursor?.minusOverlap(), PAGE_SIZE, token),
+            )
+        }
 
     // ── Push ───────────────────────────────────────────────────────────────────────
 
@@ -600,10 +393,11 @@ class CadenceSyncEngine(
      * tasks.
      *
      * The order is the reference order — a section names its project, and a task names both its
-     * section and its tags — so a round that fails part-way leaves the server with rows whose links already resolve.
-     * Postgres enforces none of it (the mirror carries no foreign key either, for the reason the
-     * local schema carries none), but a web client reading between two batches sees a coherent
-     * list rather than a heading pointing at a project it has not been sent yet.
+     * section and its tags — so a round that fails part-way leaves the server with rows whose
+     * links already resolve. Postgres enforces none of it (the mirror carries no foreign key
+     * either, for the reason the local schema carries none), but a web client reading between two
+     * batches sees a coherent list rather than a heading pointing at a project it has not been
+     * sent yet.
      *
      * The new watermark is the newest `updatedAt` actually sent, not "now": a row written while
      * this push was in flight has a stamp above that and is therefore still waiting for the next
@@ -618,24 +412,20 @@ class CadenceSyncEngine(
         if (projects.isEmpty() && sections.isEmpty() && tags.isEmpty() && tasks.isEmpty()) return 0
 
         projects.chunked(BATCH_SIZE).forEach { batch ->
-            client.from(TABLE_PROJECTS).upsert(batch.map { it.toRemote() }) {
-                onConflict = CONFLICT_KEY
-            }
+            upsert(TABLE_PROJECTS, SyncJson.encodeToString(
+                ListSerializer(RemoteProject.serializer()), batch.map { it.toRemote() }))
         }
         sections.chunked(BATCH_SIZE).forEach { batch ->
-            client.from(TABLE_SECTIONS).upsert(batch.map { it.toRemote() }) {
-                onConflict = CONFLICT_KEY
-            }
+            upsert(TABLE_SECTIONS, SyncJson.encodeToString(
+                ListSerializer(RemoteSection.serializer()), batch.map { it.toRemote() }))
         }
         tags.chunked(BATCH_SIZE).forEach { batch ->
-            client.from(TABLE_TAGS).upsert(batch.map { it.toRemote() }) {
-                onConflict = CONFLICT_KEY
-            }
+            upsert(TABLE_TAGS, SyncJson.encodeToString(
+                ListSerializer(RemoteTag.serializer()), batch.map { it.toRemote() }))
         }
         tasks.chunked(BATCH_SIZE).forEach { batch ->
-            client.from(TABLE_TASKS).upsert(batch.map { it.toRemote() }) {
-                onConflict = CONFLICT_KEY
-            }
+            upsert(TABLE_TASKS, SyncJson.encodeToString(
+                ListSerializer(RemoteTask.serializer()), batch.map { it.toRemote() }))
         }
 
         val newest = (
@@ -648,25 +438,43 @@ class CadenceSyncEngine(
         return projects.size + sections.size + tags.size + tasks.size
     }
 
-    /** Tombstones are only collectable once they have been handed over, so this runs after a
-     *  successful round and at most once a day. */
+    private suspend fun upsert(table: String, jsonBody: String) {
+        tokens.withAccessToken { token -> postgrest.upsert(table, jsonBody, token) }
+    }
+
+    /**
+     * Tombstones are only collectable once they have been handed over, so this runs after a
+     * successful round and at most once a day. Server first, local second, on purpose: a failed
+     * server sweep throws, the round fails, `lastSweepAt` stays unstamped and the whole sweep is
+     * retried next round — the local copy is never collected before the server's is.
+     *
+     * The cutoff filters `server_updated_at`, not `deleted_at`, the same choice the retired
+     * pg_cron job made: `deleted_at` is a device's clock, and a device with a wrong clock must
+     * not be able to collect a tombstone before the other device has pulled it.
+     */
     private suspend fun sweepIfDue(now: Instant) {
         val lastSweep = store.state().lastSweepAt
         if (lastSweep != null && Duration.between(lastSweep, now) < SWEEP_INTERVAL) return
-        store.collectTombstones(before = now.minus(TOMBSTONE_HORIZON), at = now)
+        val cutoff = now.minus(TOMBSTONE_HORIZON)
+        val cutoffIso = cutoff.toString()
+        listOf(TABLE_TASKS, TABLE_PROJECTS, TABLE_SECTIONS, TABLE_TAGS).forEach { table ->
+            tokens.withAccessToken { token ->
+                postgrest.deleteTombstonesBefore(table, cutoffIso, token)
+            }
+        }
+        store.collectTombstones(before = cutoff, at = now)
     }
 
     // ── Failure classification ─────────────────────────────────────────────────────
 
     private fun Throwable.toFailure(): SyncFailure = when {
-        this is UnauthorizedRestException -> SyncFailure.SESSION_EXPIRED
-        this is RestException && statusCode == PROJECT_PAUSED_STATUS -> SyncFailure.PROJECT_ASLEEP
-        this is RestException -> SyncFailure.SERVER
-        this is HttpRequestException || this is IOException -> SyncFailure.OFFLINE
+        this is SessionExpiredException -> SyncFailure.SESSION_EXPIRED
+        this is SyncHttpException && status == 401 -> SyncFailure.SESSION_EXPIRED
+        this is SyncHttpException -> SyncFailure.SERVER
+        this is NeonAuthException -> SyncFailure.SERVER
+        this is IOException -> SyncFailure.OFFLINE
         else -> SyncFailure.SERVER
     }
-
-    private fun SessionStatus.Authenticated.email(): String? = session.user?.email
 
     private fun String.asInstant(): Instant =
         runCatching { OffsetDateTime.parse(this).toInstant() }
@@ -680,64 +488,98 @@ class CadenceSyncEngine(
         const val TABLE_PROJECTS = "projects"
         const val TABLE_SECTIONS = "sections"
         const val TABLE_TAGS = "tags"
-        const val COLUMN_SERVER_UPDATED_AT = "server_updated_at"
-        const val COLUMN_USER_ID = "user_id"
-        const val SCHEMA = "public"
-
-        /** One channel carries all four tables — one per table would be four sockets' worth of
-         *  bookkeeping for the same account's rows. */
-        const val REALTIME_CHANNEL = "cadence"
-
-        val REALTIME_MIN_BACKOFF: Duration = Duration.ofSeconds(1)
-        val REALTIME_MAX_BACKOFF: Duration = Duration.ofSeconds(30)
-
-        /** The primary key every table carries, and therefore what an upsert conflicts on. */
-        const val CONFLICT_KEY = "user_id,id"
 
         const val PAGE_SIZE = 1000
         const val BATCH_SIZE = 500
 
-        /** Supabase's own status code for a project that has been paused for inactivity. */
-        const val PROJECT_PAUSED_STATUS = 540
-
         val PULL_OVERLAP: Duration = Duration.ofSeconds(5)
         val SWEEP_INTERVAL: Duration = Duration.ofDays(1)
+
+        /** What stands where realtime's ~1s delivery stood: the other device sees a change within
+         *  about a minute while both apps are in the foreground. */
+        val FOREGROUND_POLL_INTERVAL: Duration = Duration.ofSeconds(60)
 
         /** The horizon ADR 0001 chose and ADR 0002 kept. A device offline longer than this
          *  re-inserts what the others deleted; that is an accepted loss, not a solved problem. */
         val TOMBSTONE_HORIZON: Duration = Duration.ofDays(90)
+
+        /**
+         * Generous on purpose: a Neon compute that scaled to zero answers its first request only
+         * after a cold start, and that has to read as latency, not as OFFLINE.
+         */
+        fun defaultHttpClient(): HttpClient = HttpClient(OkHttp) {
+            install(HttpTimeout) {
+                connectTimeoutMillis = 10_000
+                requestTimeoutMillis = 30_000
+                socketTimeoutMillis = 30_000
+            }
+        }
     }
 }
 
+/** The stored session is expired or revoked and a refresh could not save it — the user has to
+ *  sign in again. The session stays stored so Settings can say who it belonged to. */
+internal class SessionExpiredException : Exception("session expired")
+
 /**
- * supabase-kt's session storage, pointed at `syncStateRow`.
+ * The engine's view of the stored [NeonSession], and the refresh state machine
+ * (ADR 0002 decision 6's worry, hand-rolled now that no library carries it: silent token refresh
+ * is where a client is most likely to be subtly wrong, so all of it lives in this one class).
  *
- * One small class rather than the whole auth flow written by hand: silent token refresh is where
- * a hand-rolled client is most likely to be subtly wrong, and its failure presents as "sync just
- * stopped" (ADR 0002, decision 6).
+ * [withAccessToken] hands the block a JWT it believes in: re-minted preemptively when it is
+ * within [EXPIRY_MARGIN] of its `exp` (or unreadable), re-minted once more and retried when the
+ * server answers 401 anyway. A mint the auth server refuses with a 4xx — the session is expired,
+ * revoked or deleted — throws [SessionExpiredException]; network trouble propagates as
+ * IOException and reads as offline, because an expired wifi login must not log the user out.
+ *
+ * The mint runs under its own mutex: the pull fans out four requests at once, and four expired
+ * JWTs must produce one `GET /token`, not four. Whoever waits on the lock re-reads the store
+ * first and takes the JWT a faster caller already minted.
  */
-private class DatabaseSessionManager(private val store: SyncStore) : SessionManager {
+private class SessionTokens(
+    private val store: SyncStore,
+    private val authClient: NeonAuthClient,
+) {
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private val refreshMutex = Mutex()
 
-    override suspend fun saveSession(session: UserSession) {
-        store.setSession(json.encodeToString(session))
+    suspend fun current(): NeonSession? = NeonSession.decodeOrNull(store.state().session)
+
+    suspend fun <T> withAccessToken(block: suspend (String) -> T): T {
+        var session = current() ?: throw SessionExpiredException()
+        val expiresAt = jwtExpiresAtOrNull(session.accessToken)
+        if (expiresAt == null || expiresAt.isBefore(Instant.now().plus(EXPIRY_MARGIN))) {
+            session = refreshFrom(session)
+        }
+        return try {
+            block(session.accessToken)
+        } catch (e: SyncHttpException) {
+            if (e.status != UNAUTHORIZED) throw e
+            val renewed = refreshFrom(session)
+            try {
+                block(renewed.accessToken)
+            } catch (e2: SyncHttpException) {
+                if (e2.status == UNAUTHORIZED) throw SessionExpiredException() else throw e2
+            }
+        }
     }
 
-    /**
-     * The library's contract is "return one or throw [NoSessionFoundException]" — the nullable
-     * answer is `loadSessionOrNull`, which catches exactly that.
-     *
-     * A session that no longer decodes — written by an older version of the library, or a damaged
-     * row — counts as absent rather than crashing the app at startup.
-     */
-    override suspend fun loadSession(): UserSession {
-        val stored = store.state().session ?: throw NoSessionFoundException()
-        return runCatching { json.decodeFromString<UserSession>(stored) }.getOrNull()
-            ?: throw NoSessionFoundException()
+    private suspend fun refreshFrom(stale: NeonSession): NeonSession = refreshMutex.withLock {
+        val stored = current() ?: throw SessionExpiredException()
+        // A caller that waited on the lock finds the JWT someone faster already minted.
+        if (stored.accessToken != stale.accessToken) return stored
+        val answer = try {
+            authClient.mintJwt(stored.sessionCookie)
+        } catch (e: NeonAuthException) {
+            if (e.status in 400..499) throw SessionExpiredException() else throw e
+        }
+        val renewed = stored.copy(accessToken = answer.token)
+        store.setSession(renewed.encode())
+        renewed
     }
 
-    override suspend fun deleteSession() {
-        store.setSession(null)
+    private companion object {
+        const val UNAUTHORIZED = 401
+        val EXPIRY_MARGIN: Duration = Duration.ofSeconds(30)
     }
 }

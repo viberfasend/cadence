@@ -147,7 +147,7 @@ dependencies {
     // already applied above.
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.material3)
-    // SyncWorker: a widget tap's write reaches Supabase through a one-shot WorkManager job, the
+    // SyncWorker: a widget tap's write reaches the server through a one-shot WorkManager job, the
     // only thing that survives the cached process a broadcast leaves behind. Glance runs on
     // WorkManager already; this names the dependency instead of riding its transitive one.
     implementation(libs.androidx.work.runtime.ktx)

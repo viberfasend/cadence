@@ -9,7 +9,7 @@ import java.time.Instant
 /**
  * What sync remembers between rounds, and the two views of local data no other caller wants.
  *
- * [session] is supabase-kt's serialised `UserSession`. It lives here rather than in the settings
+ * [session] is the serialised [NeonSession]. It lives here rather than in the settings
  * file because it has to stay consistent with the cursors beside it: a session restored from a
  * backup next to cursors that were not would have the device claim to hold rows it does not.
  *

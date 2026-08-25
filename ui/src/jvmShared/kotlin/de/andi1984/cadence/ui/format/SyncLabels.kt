@@ -16,7 +16,6 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 fun syncFailureText(reason: SyncFailure): String = when (reason) {
     SyncFailure.OFFLINE -> stringResource(Res.string.settings_sync_failed_offline)
-    SyncFailure.PROJECT_ASLEEP -> stringResource(Res.string.settings_sync_failed_asleep)
     SyncFailure.SESSION_EXPIRED -> stringResource(Res.string.settings_sync_failed_session)
     SyncFailure.SERVER -> stringResource(Res.string.settings_sync_failed_server)
 }

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Sync talks to Supabase over HTTPS (ADR 0002). The app is fully usable without it: signed
-         out there is no network traffic at all. -->
+    <!-- Sync talks to Neon over HTTPS (ADR 0002, transport in ADR 0005). The app is fully usable
+         without it: signed out there is no network traffic at all. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

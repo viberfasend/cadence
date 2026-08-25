@@ -25,13 +25,13 @@ import java.time.temporal.ChronoUnit
  * The published shape, not the storage shape (ADR 0002, decision 5): a date is a `date`, a time
  * is a `time`, an instant is a `timestamptz` and recurrence is an object — deliberately not the
  * epoch-day integers and the packed `v1;key=value` string `SqlDelightStores` keeps. `20309` means
- * nothing in the Supabase table editor and less to a future web client.
+ * nothing in the Neon table editor and less to a future web client.
  *
  * These are new types rather than `BackupCodec`'s DTOs reused, on purpose. The backup file is a
  * published contract; a column renamed in Postgres must not be able to change the shape of an
  * exported file. Twenty duplicated field names is the price of that independence.
  *
- * `user_id` is absent by design: the column defaults to `auth.uid()`, so leaving it out of the
+ * `user_id` is absent by design: the column defaults to `(auth.user_id())::uuid`, so leaving it out of the
  * payload is what files the row under the signed-in account, and an upsert that does not mention
  * it cannot move a row to somebody else either. `server_updated_at` travels as null on the way
  * out — the trigger overwrites it with the server's own clock before the row is stored.

@@ -131,12 +131,12 @@ class CadenceApplication : Application() {
             object : DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) {
                     container.syncEngine.syncInBackground()
-                    container.syncEngine.startRealtime()
+                    container.syncEngine.startForegroundPoll()
                 }
 
                 override fun onStop(owner: LifecycleOwner) {
                     container.syncEngine.syncInBackground()
-                    container.syncEngine.stopRealtime()
+                    container.syncEngine.stopForegroundPoll()
                 }
             },
         )

@@ -1,7 +1,7 @@
 # Roadmap
 
 Cadence is a local-first Android and desktop todo app (Kotlin, Compose Multiplatform,
-SQLDelight). Sync through a Supabase project you sign in to is optional and off until you do —
+SQLDelight). Sync through a Neon project you sign in to is optional and off until you do —
 these are candidate directions, not commitments. Order is rough priority, not a release plan.
 
 Decisions large enough to outlive a single change are written down in [`docs/adr/`](docs/adr/),
@@ -84,7 +84,8 @@ duration in this model).
       ([#32](../../issues/32), [#33](../../issues/33), [#34](../../issues/34))
 - [x] **Sync that runs itself** — [#76](../../issues/76),
       [ADR 0002](docs/adr/0002-supabase-sync.md) phases 3 and 3b: automatic triggers, sync in the
-      header, a failure snackbar, and realtime as an accelerant
+      header, a failure snackbar, and realtime as an accelerant (realtime since replaced by the
+      foreground poll — [ADR 0005](docs/adr/0005-neon-sync.md))
 - [x] **Desktop app (Ubuntu/macOS/Windows)** — [#28](../../issues/28),
       [ADR 0001](docs/adr/0001-desktop-app-and-multi-device-sync.md) phases 1–5: `:core` as a KMP
       module, UUIDv7 ids with `updatedAt`/`deletedAt`, `:ui` as Compose Multiplatform,

@@ -58,15 +58,12 @@ kotlin {
             // api, not implementation: the store ports hand back Flow, so anything implementing
             // one — the Android app today, the desktop app next — needs the type on its path.
             api(libs.kotlinx.coroutines.core)
-            // Sync (ADR 0002, decision 6). HTTPS and JSON are not a platform difference, so the
-            // client is a plain class here rather than a port either shell implements; the only
-            // thing that could have differed — the Ktor engine — is one dependency both targets
-            // share, because OkHttp is the engine that runs on Android and the desktop alike.
-            implementation(libs.supabase.auth)
-            implementation(libs.supabase.postgrest)
-            // Realtime (ADR 0002, decision 12): the same websocket engine, one channel beside
-            // the round rather than in place of it.
-            implementation(libs.supabase.realtime)
+            // Sync (ADR 0002 decision 6, transport re-decided in ADR 0005). HTTPS and JSON are
+            // not a platform difference, so the client is a plain class here rather than a port
+            // either shell implements; the only thing that could have differed — the Ktor
+            // engine — is one dependency both targets share, because OkHttp is the engine that
+            // runs on Android and the desktop alike. Ktor is the whole wire stack now: the
+            // Stack Auth and Data API calls are hand-rolled HTTP, no backend SDK involved.
             implementation(libs.ktor.client.okhttp)
         }
         jvmSharedTest.dependencies {
@@ -76,6 +73,9 @@ kotlin {
             // The JVM tests exercise the real SQLDelight-backed stores against a throwaway file,
             // not fakes, wherever a store's own logic (not the repository's) is under test.
             implementation(libs.sqldelight.sqlite.driver)
+            // The sync engine's tests feed it hand-written responses through Ktor's own fake
+            // engine — the HTTP-shaped version of the fakes behind every port.
+            implementation(libs.ktor.client.mock)
         }
     }
 }

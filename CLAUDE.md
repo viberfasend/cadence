@@ -9,8 +9,9 @@ Material 3, SQLDelight). No analytics. Package `de.andi1984.cadence` throughout.
 
 **Local-first, with an optional account.** The SQLite database on each device is the source of
 truth and the app is fully usable signed out and offline; signing in (Settings) syncs your own
-devices through a Supabase project, hub-and-spoke, last-writer-wins
-([ADR 0002](docs/adr/0002-supabase-sync.md)). The synced-`backup.json` design ADR 0001 chose was
+devices through a Neon project (Data API + Neon Auth, [ADR 0005](docs/adr/0005-neon-sync.md)),
+hub-and-spoke, last-writer-wins — the protocol is still
+[ADR 0002](docs/adr/0002-supabase-sync.md)'s. The synced-`backup.json` design ADR 0001 chose was
 tried and removed — two devices writing one file is a conflict no program resolves.
 
 Four modules: `:core` (Kotlin Multiplatform, the domain layer), `:ui` (Compose Multiplatform —
@@ -84,9 +85,9 @@ so the five-second undo window costs no wall clock). The ViewModel runs on `runT
 `backgroundScope` rather than on the test coroutine — its `init` starts collectors that never
 finish, and `runTest` waits for its own children — and the test subscribes to `state`, because
 `stateIn(WhileSubscribed)` keeps the upstream cold until something reads it. The ViewModel test
-sits in `jvmTest` rather than `jvmSharedTest`, alone among them,
-because it constructs a real `CadenceSyncEngine` — signed out that makes no request, but the
-Android unit-test JVM has no Android runtime behind supabase-kt. No screen is tested: composables
+sits in `jvmTest` rather than `jvmSharedTest`, alone among them — a placement supabase-kt used
+to force (its client needed an Android runtime the unit-test JVM lacks) and the hand-rolled Ktor
+stack no longer does; it simply has not moved. No screen is tested: composables
 would need the Compose test runtime, and none of the rules worth pinning live in one.
 
 `:app-desktop` is a plain JVM module, so its task is `:app-desktop:test`. It covers
@@ -122,36 +123,33 @@ assert only that the ViewModel called what the test told it to expect.
 
 JDK 17, compileSdk/targetSdk 35, minSdk 26. No lint or format task is wired up.
 
-The server half of sync is `supabase/migrations/*.sql` — four tables, forced RLS, the stale-write
-trigger and the nightly `pg_cron` job that collects tombstones from all four past the same 90-day
-horizon the client uses (by `server_updated_at`, the server's clock, since `deleted_at` is a device's). It is
-committed rather than left in the dashboard because it is the one part of the system the Kotlin
-suite cannot reach.
+The server half of sync is `neon/migrations/*.sql` ([ADR 0005](docs/adr/0005-neon-sync.md)) —
+four tables, forced RLS over `auth.user_id()`, and the stale-write trigger. It is committed
+rather than left in the console because it is the one part of the system the Kotlin suite cannot
+reach. There is deliberately no `pg_cron` job: Neon's compute scales to zero and cron only fires
+while it is awake, so the tombstone sweep is client-driven — after a successful push, at most
+daily, the engine `DELETE`s its own tombstones past the 90-day horizon through the Data API (by
+`server_updated_at`, the server's clock, since `deleted_at` is a device's).
 
-**Apply it with `npx supabase db push`, and only that.** The CLI arrives through `npx` (pinned in
-`package.json`) and `supabase/config.toml` is committed, so a clone needs `supabase link
---project-ref <ref>` and nothing else. The dashboard's SQL editor and the Management API — which
-is what an agent's `apply_migration` tool reaches — do apply the SQL, but they stamp
-`supabase_migrations.schema_migrations` with a version taken from the server's clock at apply
-time rather than from the filename. The filenames here are hand-picked (`…120000`), so the two
-never match, and the next `db push` refuses with *"Remote migration versions not found in local
-migrations directory"*. Untangling that is `supabase migration repair --status reverted <the
-server's versions>` followed by `--status applied <the filenames>`; both touch the history table
-only, never the schema. The SQL editor is still the right answer for a fresh project that will
-never see the CLI.
-
-`supabase db pull` is not the way out of a mismatch: it diffs the live database against the
-migrations and writes the difference as a generated `_remote_schema.sql`, which is unreadable
-beside these hand-written files and sorts to whatever timestamp it was generated at. Say no to
-its *"Update remote migration history table?"* prompt and delete the file.
+**Apply it with `bash neon/migrate.sh`**, which needs `CADENCE_NEON_DB_URL` (the direct Postgres
+connection string from the Neon console) and `psql`. Bookkeeping is one table,
+`public.schema_migrations`, keyed by *filename* — a file is applied inside one transaction with
+the row that records it, and re-running the script skips what is recorded. The files are
+idempotent besides, so pasting one into the console's SQL editor is also safe. **Enable the Data
+API for the branch before migrating**: it provisions `auth.user_id()` (pg_session_jwt) and the
+`authenticated`/`anonymous` roles the migration leans on, and the baseline refuses with a clear
+message when they are missing.
 
 No Gradle task will tell you any of it is wrong, so it has a test of its own:
-`bash supabase/tests/run.sh` applies every migration (twice, since they get pasted into projects
-that already carry half of them) to a throwaway `postgres:16` container with `auth.users` and
-`cron.schedule` stubbed, and checks what the sweep collects and what it leaves alone. Needs
-docker and nothing else. Run it after editing anything under `supabase/`. `SupabaseConfig` reads `CADENCE_SUPABASE_URL` and
-`CADENCE_SUPABASE_ANON_KEY` from the environment when set, so pointing a build at another project
-edits no Kotlin. The anon key is committed on purpose: RLS is what protects the rows.
+`bash neon/tests/run.sh` applies every migration to a throwaway `postgres:16` container (through
+`migrate.sh` once, then directly a second time for idempotence) with `auth.user_id()` and the
+Data API roles stubbed, and checks the trigger semantics, the RLS isolation and the client-shaped
+sweep statement. Needs docker and nothing else. Run it after editing anything under `neon/`.
+`NeonConfig` reads `CADENCE_NEON_DATA_API_URL` and `CADENCE_NEON_AUTH_URL` from the environment
+when set, so pointing a build at another project edits no Kotlin. Both URLs are committed on
+purpose — there is no API key in this design; the credential is the account, and RLS is what
+protects the rows. The account itself is created in the Neon console's Auth tab — the app has
+sign-in only, no sign-up.
 
 ```bash
 ./gradlew connectedDebugAndroidTest   # needs a device; CI has no emulator
@@ -210,8 +208,9 @@ of ADR 0001 decision 9 is still outstanding.
                           Android imports; this is what the JVM unit tests exercise. Keep it that way.
               data/       CadenceRepository, the TaskStore/ProjectStore/BackupStore/SyncStore ports it
                           needs, and the SQLDelight-backed implementations of those ports (data/db/)
-              data/sync/  CadenceSyncEngine (supabase-kt: sign in, pull, merge, push), the wire DTOs
-                          and SupabaseConfig — a plain class, not a port (ADR 0002, decision 7)
+              data/sync/  CadenceSyncEngine (hand-rolled Ktor: Neon Auth sign-in + JWT mint,
+                          PostgREST pull/merge/push against the Neon Data API — ADR 0005), the
+                          wire DTOs and NeonConfig — a plain class, not a port (ADR 0002, dec. 7)
 :ui           ui/         theme, shared components, ui/format/, one package per screen, CadenceViewModel
               ui/platform/ the ports the ViewModel needs from the machine — ReminderScheduler,
                           BackupGateway, BackupFilePicker, AttachmentFilePicker, AttachmentOpener
@@ -492,7 +491,7 @@ than reaching for `!!`.
     merges reach the widget through the container's collector like any other write.
   - **A write made from a widget does its own aftercare.** `ToggleTaskCallback` runs in a
     broadcast on a process nothing keeps alive, so it calls `WidgetUpdater.refreshAll` itself and
-    hands the push to Supabase to `sync/SyncWorker` — a one-shot WorkManager job with a network
+    hands the push to the server to `sync/SyncWorker` — a one-shot WorkManager job with a network
     constraint, the single WorkManager use in the app and not the poll ADR 0002 rejected (it
     never runs unprompted; it carries one write). In-app writes need neither: the container's
     collector redraws and the ViewModel's debounce pushes.
@@ -640,8 +639,9 @@ than reaching for `!!`.
   CadenceSyncEngine.kt`, ADR 0002). Signed out it does nothing at all and no request is made.
   Signed in, `syncOnce()` holds a `Mutex` and does: pull rows at or after the stored cursor →
   merge each page and advance the cursor **in the same transaction** → push everything written
-  since the watermark, tombstones included → collect tombstones past 90 days, at most daily and
-  only after a round that pushed. Five things are load-bearing:
+  since the watermark, tombstones included → collect tombstones past 90 days — on the server
+  through four Data API `DELETE`s first, then locally — at most daily and only after a round that
+  pushed (client-driven since ADR 0005; there is no server cron). Five things are load-bearing:
   - **The cursor is the server's clock, the merge is the device's.** `server_updated_at` is
     written only by the server's trigger, so a device whose clock is wrong can lose a conflict
     but can never make itself invisible to the other device. The pull deliberately re-reads a
@@ -649,16 +649,20 @@ than reaching for `!!`.
     that began earlier may commit later, landing behind a cursor already advanced past it.
   - **There is no `dirty` column, and it is the server that makes that safe.** The push sends
     everything above the watermark, so a row that arrived *from* the server gets pushed straight
-    back; the `BEFORE INSERT OR UPDATE` trigger in `supabase/migrations/` sees a timestamp that
+    back; the `BEFORE INSERT OR UPDATE` trigger in `neon/migrations/` sees a timestamp that
     is not strictly greater and returns `NULL`, which skips *that row* without failing the batch.
     Ties keep the incumbent, on both sides.
   - **The new watermark is the newest `updatedAt` actually sent**, never "now": a row written
     while the push was in flight stands above it and waits for the next round rather than being
     skipped by a clock that ran ahead of the data.
-  - **The session lives in `syncStateRow`, not in the settings file**, via a `SessionManager`
-    handed to supabase-kt — it has to stay consistent with the cursors beside it. Signing out
-    clears session, cursors and watermark and deletes **nothing**: the local database is the
-    source of truth.
+  - **The session lives in `syncStateRow`, not in the settings file** — a `NeonSession` (Data
+    API JWT + Better Auth session token) the engine keeps fresh itself: the JWT is re-minted via
+    `GET /token` preemptively near its `exp`, once more on a 401, under its own mutex so four
+    parallel pulls produce one mint. It has to stay
+    consistent with the cursors beside it. A stored value that does not decode — the supabase-kt
+    session every pre-0005 install carries — counts as signed out, which is the upgrade path: one
+    re-sign-in, cleared cursors, full push. Signing out clears session, cursors and watermark and
+    deletes **nothing**: the local database is the source of truth.
   - **The wire is the published shape, not the storage shape.** `data/sync/RemoteRecords.kt`
     speaks ISO dates and a `jsonb` recurrence object, and its DTOs are separate types from
     `BackupCodec`'s on purpose, so a Postgres column rename cannot change the shape of an
@@ -690,19 +694,15 @@ than reaching for `!!`.
     `Ctrl`/`Cmd`+`R`). Every failed round raises a snackbar, `OFFLINE` included, and a new
     failure replaces the one on screen — which is why the engine publishes `failures` as a
     `SharedFlow` beside `status`: identical consecutive failures would collapse in a `StateFlow`.
-  - **Realtime is an accelerant beside the round, and it never advances the cursor** (ADR 0002,
-    decision 12). `CadenceSyncEngine.startRealtime()` opens one channel over both tables,
-    filtered server-side on `user_id`; payloads decode with the same `RemoteTask`/`RemoteProject`
-    and merge through the same `mergeAndAdvance` — with **null cursors**, because the socket is
-    at-most-once and a cursor advanced past an event that never arrived skips that row forever.
-    Every subscribe and every reconnect therefore runs a full `syncOnce()`, which is also what
-    makes a missed event harmless. A deletion is a tombstone `UPDATE`, so `INSERT` and `UPDATE`
-    cover everything and `DELETE` is not handled. The socket's lifetime is the shells' one real
-    difference: `:app-android` opens it in `onStart` and closes it in `onStop` (a background
-    websocket is the wakelock `WorkManager` was rejected to avoid), `:app-desktop` holds it for
-    the process. `supabase/migrations/20260812120000_realtime.sql` is the server half — the
-    publication plus `replica identity full`, without which an RLS-checked `UPDATE` payload is
-    dropped.
+  - **The foreground poll stands where realtime stood** (ADR 0005; realtime was ADR 0002,
+    decision 12 — Neon has no change feed). `CadenceSyncEngine.startForegroundPoll()` runs a full
+    `syncOnce()` every 60 seconds; signed out a tick costs nothing, because the round returns
+    before making a request. Its lifetime is the shells' one real difference, exactly as the
+    socket's was: `:app-android` starts it in `onStart` and stops it in `onStop` (a background
+    poll is the battery drain `WorkManager` was rejected to avoid), `:app-desktop` starts it once
+    and holds it for the process, minimised included — a desktop that stopped polling on alt-tab
+    would go stale exactly when the phone is in use. The desktop's older 15-minute
+    `syncPollInterval` poll still runs beside it, redundant but harmless.
 - **Reminders are a per-device setting** (`CadenceSettings.remindersEnabled`), on by default on
   Android and off on the desktop — the default lives in each shell's `SettingsStore`, since that
   is the only thing that differs. Once a task exists on both devices both would otherwise fire

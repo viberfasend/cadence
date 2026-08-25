@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
  * than to anything this Activity owns — with the sync enqueue *inside* that coroutine, behind
  * the write it exists to carry. The aftercare matches [ToggleTaskCallback]'s, for the
  * same reason it exists there: this write happens with no screen open, so it redraws the widgets
- * itself and hands the Supabase push to a [SyncWorker] that outlives the cached process.
+ * itself and hands the server push to a [SyncWorker] that outlives the cached process.
  */
 class WidgetToggleActivity : Activity() {
 
