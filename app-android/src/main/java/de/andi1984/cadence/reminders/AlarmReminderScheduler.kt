@@ -6,18 +6,29 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.reminder.ReminderPlanner
 import de.andi1984.cadence.ui.platform.ReminderScheduler
-import java.time.Instant
 
 /**
  * Android's answer to [ReminderScheduler]: AlarmManager, which the desktop has no counterpart
  * for — phase 5 runs a coroutine timer against the same port instead.
  *
- * Alarms are inexact ([AlarmManager.setWindow]) so the app needs no exact-alarm permission —
- * a todo reminder does not need second accuracy.
+ * Alarms are exact and Doze-proof ([AlarmManager.setExactAndAllowWhileIdle]) wherever the
+ * platform lets them be, and degrade to [AlarmManager.setAndAllowWhileIdle] — inexact, but still
+ * delivered in Doze — where it does not. The first version of this class used [AlarmManager.setWindow]
+ * with a ten-minute window instead, on the grounds that a todo reminder does not need second
+ * accuracy; a lead of "5 minutes before" made that false. An inexact alarm is also *deferred*
+ * outright while the phone dozes, which is exactly the state a phone is in when a reminder is
+ * meant to interrupt it, so on a locked phone the old alarm arrived at the next maintenance window
+ * or on unlock — and by then the trigger was in the past and the next `sync` cancelled it unfired.
+ *
+ * The permission is `USE_EXACT_ALARM` (Android 13+, granted at install with no prompt) plus
+ * `SCHEDULE_EXACT_ALARM` on 12 and 12L, where it is granted by default; `canScheduleExactAlarms`
+ * is still checked, because either can be revoked from the app's special-access settings, and a
+ * revoked one throws rather than degrades.
  */
 class AlarmReminderScheduler(private val context: Context) : ReminderScheduler {
 
@@ -32,7 +43,7 @@ class AlarmReminderScheduler(private val context: Context) : ReminderScheduler {
      */
     override fun sync(tasks: List<Task>, leadMinutes: List<Int>) {
         val manager = alarmManager ?: return
-        val now = Instant.ofEpochMilli(System.currentTimeMillis())
+        val now = System.currentTimeMillis()
         // 0 is always a candidate — it is `reminderTime`'s own moment, scheduled the same way
         // since before lead times existed — so a task that never touches one behaves exactly as
         // it did before this method took a lead-minutes list at all.
@@ -45,25 +56,47 @@ class AlarmReminderScheduler(private val context: Context) : ReminderScheduler {
         task: Task,
         leadMinutes: List<Int>,
         candidateLeads: List<Int>,
-        now: Instant,
+        now: Long,
     ) {
         val planned = ReminderPlanner.plan(listOf(task), leadMinutes).associateBy { it.leadMinutes }
+        val previousActive = ReminderRequestCodes.activeLeadsFor(context, task.id)
         val stillActive = mutableSetOf<Int>()
         candidateLeads.forEach { lead ->
-            val intent = pendingIntent(task.id, task.title, lead, create = true) ?: return@forEach
             val triggerAt = planned[lead]?.triggerAt?.toEpochMilli()
-            if (triggerAt != null && triggerAt > now.toEpochMilli()) {
-                manager.setWindow(AlarmManager.RTC_WAKEUP, triggerAt, WINDOW_MILLIS, intent)
-                stillActive += lead
-            } else {
-                manager.cancel(intent)
+            when {
+                triggerAt == null || triggerAt + GRACE_MILLIS <= now -> cancelLead(task.id, lead)
+                triggerAt > now -> {
+                    val intent = pendingIntent(task.id, task.title, lead, create = true) ?: return@forEach
+                    arm(manager, triggerAt, intent)
+                    stillActive += lead
+                }
+                // Inside the grace period: the trigger has passed but the alarm may not have
+                // been delivered yet — the inexact fallback is allowed to run late, and a doze
+                // exit delivers pending alarms a beat after the app is already back and syncing.
+                // Re-arming a past trigger would fire it again at once, and cancelling it would
+                // be the race this grace exists to close, so an armed one is left exactly as it
+                // is. One that was never armed (the app first saw the task after its trigger)
+                // stays unarmed: AlarmManager cannot fire retroactively, and nor should we.
+                lead in previousActive -> stillActive += lead
             }
         }
         // A lead that was armed before but is not even a candidate any more — Settings dropped
         // it — is never visited by the loop above, so it needs cancelling on its own.
-        val previousActive = ReminderRequestCodes.activeLeadsFor(context, task.id)
         (previousActive - candidateLeads.toSet()).forEach { staleLead -> cancelLead(task.id, staleLead) }
         ReminderRequestCodes.setActiveLeadsFor(context, task.id, stillActive)
+    }
+
+    private fun arm(manager: AlarmManager, triggerAt: Long, intent: PendingIntent) {
+        val exactAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms()
+        if (exactAllowed) {
+            try {
+                manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, intent)
+                return
+            } catch (_: SecurityException) {
+                // Revoked between the check and the call; fall through to the inexact alarm.
+            }
+        }
+        manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, intent)
     }
 
     override fun cancel(taskId: String) {
@@ -108,7 +141,12 @@ class AlarmReminderScheduler(private val context: Context) : ReminderScheduler {
         const val EXTRA_TASK_ID = "taskId"
         const val EXTRA_TITLE = "title"
         const val EXTRA_LEAD_MINUTES = "leadMinutes"
-        private const val WINDOW_MILLIS = 10 * 60 * 1000L
+        /**
+         * How long after its trigger an armed alarm is left alone rather than cancelled. Exact
+         * alarms arrive within seconds; the inexact fallback can be delivered up to this much
+         * later, and cancelling inside that window took the notification away unfired.
+         */
+        private const val GRACE_MILLIS = 10 * 60 * 1000L
 
         fun createChannel(context: Context) {
             val manager = context.getSystemService(NotificationManager::class.java) ?: return
