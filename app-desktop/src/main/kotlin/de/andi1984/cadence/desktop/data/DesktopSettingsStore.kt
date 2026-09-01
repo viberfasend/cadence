@@ -34,6 +34,7 @@ private data class SettingsFile(
     // Off by default on the desktop — see CadenceSettings.remindersEnabled. The default lives in
     // this file rather than in the shared data class precisely because it differs per shell.
     val remindersEnabled: Boolean = false,
+    val reminderLeadMinutes: List<Int> = emptyList(),
 )
 
 /**
@@ -107,6 +108,7 @@ class DesktopSettingsStore(
             sortMode = SortMode.entries.firstOrNull { it.name == onDisk.sortMode } ?: SortMode.IMPORTANCE,
             showCompleted = onDisk.showCompleted,
             remindersEnabled = onDisk.remindersEnabled,
+            reminderLeadMinutes = onDisk.reminderLeadMinutes,
         )
     }
 
@@ -134,6 +136,7 @@ class DesktopSettingsStore(
             sortMode = settings.sortMode.name,
             showCompleted = settings.showCompleted,
             remindersEnabled = settings.remindersEnabled,
+            reminderLeadMinutes = settings.reminderLeadMinutes,
         )
         runCatching {
             tmp.parentFile?.mkdirs()
@@ -173,4 +176,7 @@ class DesktopSettingsStore(
 
     override fun setRemindersEnabled(enabled: Boolean) =
         persist(_state.value.copy(remindersEnabled = enabled))
+
+    override fun setReminderLeadMinutes(minutes: List<Int>) =
+        persist(_state.value.copy(reminderLeadMinutes = minutes))
 }

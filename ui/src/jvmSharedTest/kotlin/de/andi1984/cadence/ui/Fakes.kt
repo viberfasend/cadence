@@ -392,9 +392,12 @@ class RecordingReminderScheduler : ReminderScheduler {
     val cancelled = mutableListOf<String>()
     var lastSynced: List<Task> = emptyList()
         private set
+    var lastLeadMinutes: List<Int> = emptyList()
+        private set
 
-    override fun sync(tasks: List<Task>) {
+    override fun sync(tasks: List<Task>, leadMinutes: List<Int>) {
         lastSynced = tasks
+        lastLeadMinutes = leadMinutes
     }
 
     override fun cancel(taskId: String) {
@@ -463,6 +466,10 @@ class FakeSettingsStore(initial: CadenceSettings = CadenceSettings()) : Settings
 
     override fun setRemindersEnabled(enabled: Boolean) {
         _state.value = _state.value.copy(remindersEnabled = enabled)
+    }
+
+    override fun setReminderLeadMinutes(minutes: List<Int>) {
+        _state.value = _state.value.copy(reminderLeadMinutes = minutes)
     }
 }
 

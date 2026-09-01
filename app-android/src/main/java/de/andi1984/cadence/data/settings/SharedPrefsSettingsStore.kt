@@ -34,6 +34,13 @@ class SharedPrefsSettingsStore(context: Context) : SettingsStore {
         // On by default here and off on the desktop: this is the device people carry, so it is
         // the one that should speak up when a task comes due (ADR 0002, decision 9).
         remindersEnabled = prefs.getBoolean(KEY_REMINDERS, true),
+        // SharedPreferences has no list type, so the minutes are packed comma-separated —
+        // TagIdsCodec's shape, for the same reason: it is one scalar-shaped preference, not a
+        // table. Empty by default, same as CadenceSettings itself.
+        reminderLeadMinutes = prefs.getString(KEY_REMINDER_LEAD_MINUTES, null)
+            ?.split(",")
+            ?.mapNotNull { it.toIntOrNull() }
+            ?: emptyList(),
     )
 
     private fun persist(settings: CadenceSettings) {
@@ -43,6 +50,7 @@ class SharedPrefsSettingsStore(context: Context) : SettingsStore {
             .putString(KEY_SORT, settings.sortMode.name)
             .putBoolean(KEY_SHOW_COMPLETED, settings.showCompleted)
             .putBoolean(KEY_REMINDERS, settings.remindersEnabled)
+            .putString(KEY_REMINDER_LEAD_MINUTES, settings.reminderLeadMinutes.joinToString(","))
             .apply()
         _state.value = settings
     }
@@ -58,11 +66,15 @@ class SharedPrefsSettingsStore(context: Context) : SettingsStore {
     override fun setRemindersEnabled(enabled: Boolean) =
         persist(_state.value.copy(remindersEnabled = enabled))
 
+    override fun setReminderLeadMinutes(minutes: List<Int>) =
+        persist(_state.value.copy(reminderLeadMinutes = minutes))
+
     private companion object {
         const val KEY_THEME = "theme"
         const val KEY_DENSITY = "density"
         const val KEY_SORT = "sort"
         const val KEY_SHOW_COMPLETED = "showCompleted"
         const val KEY_REMINDERS = "remindersEnabled"
+        const val KEY_REMINDER_LEAD_MINUTES = "reminderLeadMinutes"
     }
 }

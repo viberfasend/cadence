@@ -415,6 +415,38 @@ class CadenceViewModelUndoTest {
         }
 
     @Test
+    fun `switching reminders off strips a due time too, not just a manual reminder time`() = runTest {
+        taskStore.seed(
+            listOf(
+                Task(
+                    id = "a",
+                    title = "a",
+                    dueDate = LocalDate.of(2026, 8, 17),
+                    dueTime = LocalTime.of(18, 0),
+                ),
+            ),
+        )
+        val viewModel = viewModel()
+
+        viewModel.setRemindersEnabled(false)
+        runCurrent()
+
+        assertEquals(listOf<LocalTime?>(null), reminders.lastSynced.map { it.dueTime })
+    }
+
+    @Test
+    fun `the configured lead minutes reach the scheduler and follow changes to Settings`() = runTest {
+        val viewModel = viewModel()
+
+        assertEquals(emptyList<Int>(), reminders.lastLeadMinutes)
+
+        viewModel.setReminderLeadMinutes(listOf(20, 10, 5))
+        runCurrent()
+
+        assertEquals(listOf(20, 10, 5), reminders.lastLeadMinutes)
+    }
+
+    @Test
     fun `dismissing the snackbar does not rush the write`() = runTest {
         taskStore.seed(listOf(task("doomed")))
         val viewModel = viewModel()

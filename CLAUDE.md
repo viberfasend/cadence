@@ -447,12 +447,37 @@ than reaching for `!!`.
   already speaks for its steps there, while the date-driven views (Today, Upcoming, Search) show
   a dated subtask in its own right, labelled with the parent's title.
 - **Reminders reconcile on every task emission**: the ViewModel collects `repository.tasks` and
-  calls `ReminderScheduler.sync(tasks)`, which schedules *or cancels* a reminder for every task.
-  Android's alarms are inexact (`setWindow`) deliberately, so the app needs no exact-alarm
-  permission; the desktop has no AlarmManager at all, so `DesktopReminderScheduler` instead polls
-  the synced task list every 30 seconds and fires a system-tray balloon for whatever just came
-  due — which only works while the app is running, same accepted trade-off ADR 0001 §8 names for
-  a killed Android process.
+  `settingsStore.state` together and calls `ReminderScheduler.sync(tasks, leadMinutes)`, which
+  schedules *or cancels* a reminder for every task. Android's alarms are inexact (`setWindow`)
+  deliberately, so the app needs no exact-alarm permission; the desktop has no AlarmManager at
+  all, so `DesktopReminderScheduler` instead polls the synced task list every 30 seconds and fires
+  a system-tray balloon for whatever just came due — which only works while the app is running,
+  same accepted trade-off ADR 0001 §8 names for a killed Android process.
+- **A task can carry several reminders, not one.** `CadenceSettings.reminderLeadMinutes` is a
+  per-device list of "notify me this many minutes before" values (Settings → Notify me before, a
+  chip per preset plus a custom one the user can add) — empty by default, since a fresh install,
+  or an existing task that already has a due time, must not suddenly start notifying for
+  something nobody configured. `domain/reminder/ReminderPlanner.kt` (`:core`, pure, unit-tested on
+  the JVM) is the one answer both shells' schedulers ask "when": for a task with `dueTime` set —
+  quick-add's "18 Uhr" already fills it in — it returns one instant per configured lead, counted
+  back from that time; for a task with `reminderTime` set (the older, manually-picked, exact-time
+  reminder, independent of `dueTime`) it returns one more instant, reported with lead `0`. It
+  deliberately does **not** filter by "now": AlarmManager cannot fire retroactively, so Android
+  discards a past instant and cancels whatever alarm was there; the desktop has no such limit and
+  fires on the very next poll after a reminder that elapsed while the app was closed, exactly as
+  it always did. Each platform scheduler therefore needs one alarm identity per **(task id, lead
+  minutes)** pair rather than per task — Android's `ReminderRequestCodes` keys a `PendingIntent` on
+  the pair (lead `0` keeps the bare task id it always used, so upgrading changes nothing about an
+  alarm that predates lead times) and separately persists which leads are currently armed for a
+  task, so a lead value removed from Settings gets its outstanding alarm cancelled on the next
+  sync rather than firing once more; the desktop's `DesktopReminderScheduler` keys its three maps
+  the same way with a `ReminderKey(taskId, leadMinutes)`.
+- **A bare time in quick-add defaults the due date to today.** "Kochen 18 Uhr" has no date word of
+  its own, so `QuickAddParser.parse`'s `resolvedDue` falls back to `today` whenever `dueTime`
+  parsed to something and neither an explicit date nor a recurrence rule claimed one — the same
+  way "Kochen morgen 19 Uhr" is already tomorrow because "morgen" claims the date itself. A
+  recurrence still wins over the bare-time fallback: "every monday at 9am" is a schedule, not
+  "today at 9am, once."
 - **Home-screen widgets are Glance, live in `:app-android/widget/`, and are Android-only.** Glance
   is the only widget toolkit still under development — `RemoteViews` is the legacy API it hides —
   and it has no desktop counterpart, so nothing about widgets belongs in `:ui`. `AppContainer`
