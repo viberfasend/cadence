@@ -79,6 +79,7 @@ import de.andi1984.cadence.ui.format.formatDate
 import de.andi1984.cadence.ui.format.formatTime
 import de.andi1984.cadence.ui.format.overdueByDays
 import de.andi1984.cadence.ui.format.relativeDate
+import de.andi1984.cadence.ui.format.relativeDateTime
 import de.andi1984.cadence.ui.platform.AttachmentFilePicker
 import de.andi1984.cadence.ui.platform.PickedFile
 import de.andi1984.cadence.ui.recurrence.RecurrenceSheet
@@ -170,14 +171,6 @@ fun TaskDetailScreen(
                             projectPickerOpen = true
                         },
                         leadingIcon = { Icon(AppIcons.Folder, contentDescription = null) },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(Res.string.task_set_time)) },
-                        onClick = {
-                            menuOpen = false
-                            timePickerOpen = true
-                        },
-                        leadingIcon = { Icon(AppIcons.Schedule, contentDescription = null) },
                     )
                 }
             }
@@ -378,7 +371,7 @@ fun TaskDetailScreen(
                 DetailRow(
                     icon = AppIcons.Event,
                     title = task.dueDate
-                        ?.let { stringResource(Res.string.task_due, relativeDate(it, today)) }
+                        ?.let { stringResource(Res.string.task_due, relativeDateTime(it, task.dueTime, today)) }
                         ?: stringResource(Res.string.task_no_due_date),
                     supporting = task.dueDate.let { dueDate ->
                         when {
@@ -390,6 +383,22 @@ fun TaskDetailScreen(
                     supportingColor = if (overdue) scheme.error else scheme.onSurfaceVariant,
                     trailingIcon = AppIcons.EditCalendar,
                     onClick = { datePickerOpen = true },
+                )
+                DetailDivider()
+                // The time is its own row rather than a suffix hidden in the date picker: it is
+                // what "notify me N minutes before" counts back from, so it has to be visible
+                // once set and reachable to change or clear — a menu entry was neither.
+                DetailRow(
+                    icon = AppIcons.Schedule,
+                    title = task.dueTime
+                        ?.let { stringResource(Res.string.task_due_at, formatTime(it)) }
+                        ?: stringResource(Res.string.task_no_due_time),
+                    supporting = if (task.dueTime != null) {
+                        stringResource(Res.string.task_tap_to_change_time)
+                    } else {
+                        stringResource(Res.string.task_tap_to_add_time)
+                    },
+                    onClick = { timePickerOpen = true },
                 )
                 DetailDivider()
                 DetailRow(
@@ -555,7 +564,12 @@ fun TaskDetailScreen(
             initial = task.dueTime,
             title = stringResource(Res.string.task_due_at_picker),
             onDismiss = { timePickerOpen = false },
-            onPick = { onSave(task.copy(dueTime = it)) },
+            // A time without a day is nothing to remind about, so an undated task picking one
+            // lands on today — the same default quick-add gives "Kochen 18 Uhr".
+            onPick = { time ->
+                val date = task.dueDate ?: today.takeIf { time != null }
+                onSave(task.copy(dueTime = time, dueDate = date))
+            },
         )
     }
     if (reminderPickerOpen) {
