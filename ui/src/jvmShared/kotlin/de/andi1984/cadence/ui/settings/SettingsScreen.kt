@@ -63,6 +63,7 @@ fun SettingsScreen(
     onDensityChange: (Density) -> Unit,
     onShowCompletedChange: (Boolean) -> Unit,
     onRemindersChange: (Boolean) -> Unit,
+    onReminderLeadMinutesChange: (List<Int>) -> Unit,
     onExport: (BackupTarget) -> Unit,
     onImport: (List<BackupTarget>) -> Unit,
     onClearBackupOutcome: () -> Unit,
@@ -173,6 +174,17 @@ fun SettingsScreen(
                     modifier = Modifier.weight(1f),
                 )
             }
+
+            SettingSection(stringResource(Res.string.settings_reminder_lead))
+            ReminderLeadMinutesEditor(
+                leadMinutes = settings.reminderLeadMinutes,
+                onChange = onReminderLeadMinutesChange,
+            )
+            Text(
+                text = stringResource(Res.string.settings_reminder_lead_supporting),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             SettingSection(stringResource(Res.string.settings_sync))
             SyncSection(
@@ -548,6 +560,84 @@ private fun signInErrorText(error: SignInError): String = when (error) {
     SignInError.WRONG_CREDENTIALS -> stringResource(Res.string.settings_sync_error_credentials)
     SignInError.OFFLINE -> stringResource(Res.string.settings_sync_error_offline)
     SignInError.SERVER -> stringResource(Res.string.settings_sync_error_server)
+}
+
+/** Common choices shown up front; a value the user types goes in [ReminderLeadMinutesEditor]'s
+ *  own chip alongside them, in whatever order [reminderLeadMinutes][CadenceSettings] holds it. */
+private val PRESET_LEAD_MINUTES = listOf(5, 10, 15, 30, 60)
+
+/**
+ * The chip row behind [CadenceSettings.reminderLeadMinutes]: presets toggle like the theme and
+ * density chips above them, a custom value typed once earns its own chip next to them, and both
+ * kinds remove the same way — tap it.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ReminderLeadMinutesEditor(leadMinutes: List<Int>, onChange: (List<Int>) -> Unit) {
+    var addingCustom by remember { mutableStateOf(false) }
+    val customLeads = leadMinutes.filter { it !in PRESET_LEAD_MINUTES }
+
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        PRESET_LEAD_MINUTES.forEach { minutes ->
+            CadenceChip(
+                label = stringResource(Res.string.settings_reminder_lead_chip, minutes),
+                selected = minutes in leadMinutes,
+                onClick = {
+                    onChange(
+                        if (minutes in leadMinutes) leadMinutes - minutes else leadMinutes + minutes,
+                    )
+                },
+            )
+        }
+        customLeads.forEach { minutes ->
+            CadenceChip(
+                label = stringResource(Res.string.settings_reminder_lead_chip, minutes),
+                selected = true,
+                onClick = { onChange(leadMinutes - minutes) },
+            )
+        }
+        CadenceChip(
+            label = stringResource(Res.string.settings_reminder_lead_add),
+            selected = false,
+            leadingIcon = AppIcons.Add,
+            onClick = { addingCustom = true },
+        )
+    }
+
+    if (addingCustom) {
+        var text by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { addingCustom = false },
+            title = { Text(stringResource(Res.string.settings_reminder_lead_add_title)) },
+            text = {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it.filter(Char::isDigit) },
+                    label = { Text(stringResource(Res.string.settings_reminder_lead_add_label)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        text.toIntOrNull()?.takeIf { it > 0 }?.let { minutes ->
+                            if (minutes !in leadMinutes) onChange(leadMinutes + minutes)
+                        }
+                        addingCustom = false
+                    },
+                    enabled = text.toIntOrNull()?.let { it > 0 } == true,
+                ) {
+                    Text(stringResource(Res.string.action_add))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { addingCustom = false }) {
+                    Text(stringResource(Res.string.action_cancel))
+                }
+            },
+        )
+    }
 }
 
 @Composable

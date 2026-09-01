@@ -23,6 +23,7 @@
     <string name="action_clear">Löschen</string>
     <string name="action_expand">Aufklappen</string>
     <string name="action_collapse">Zuklappen</string>
+    <string name="action_add">Hinzufügen</string>
 
     <!-- ── Sortierung ──────────────────────────────────────────────────────────────── -->
     <string name="sort_importance">Nach Wichtigkeit</string>
@@ -456,6 +457,14 @@
     <!-- ── Erinnerungen ────────────────────────────────────────────────────────────── -->
     <string name="settings_reminders">Erinnerungen auf diesem Gerät</string>
     <string name="settings_reminders_supporting">Jedes Gerät, das die Aufgabe kennt, kann an sie erinnern – du bekämst also eine Benachrichtigung pro Gerät. Schalte sie dort ab, wo du sie nicht brauchst.</string>
+
+    <string name="settings_reminder_lead">Vorher benachrichtigen</string>
+    <string name="settings_reminder_lead_supporting">Bei einer Aufgabe mit Uhrzeit so lange vorher benachrichtigen – wähle so viele wie du willst. „Kochen 18 Uhr“ mit ausgewählten 10 benachrichtigt um 17:50 Uhr. Ist keine ausgewählt, gibt es für eine reine Uhrzeit keine Benachrichtigung.</string>
+    <!-- %1$d ist eine Anzahl Minuten; steht auf einem Chip, deshalb kurz statt ausgeschrieben. -->
+    <string name="settings_reminder_lead_chip">%1$d Min.</string>
+    <string name="settings_reminder_lead_add">Hinzufügen…</string>
+    <string name="settings_reminder_lead_add_title">Vorher benachrichtigen</string>
+    <string name="settings_reminder_lead_add_label">Minuten vorher</string>
 
     <!-- ── Größen und vergangene Zeit ──────────────────────────────────────────────── -->
     <string name="size_bytes">%1$s B</string>

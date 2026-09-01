@@ -23,6 +23,7 @@
     <string name="action_clear">Clear</string>
     <string name="action_expand">Expand</string>
     <string name="action_collapse">Collapse</string>
+    <string name="action_add">Add</string>
 
     <!-- ── Sort modes ──────────────────────────────────────────────────────────────── -->
     <string name="sort_importance">By importance</string>
@@ -473,6 +474,14 @@
     <!-- ── Reminders ───────────────────────────────────────────────────────────────── -->
     <string name="settings_reminders">Reminders on this device</string>
     <string name="settings_reminders_supporting">Every device that has the task can remind you about it, so you would get one notification per device. Turn this off where you do not want them.</string>
+
+    <string name="settings_reminder_lead">Notify me before</string>
+    <string name="settings_reminder_lead_supporting">For a task with a time, get a notification this long before it — pick as many as you like. "Kochen 18 Uhr" with 10 picked here notifies at 17:50. None picked means no notification for a due time alone.</string>
+    <!-- %1$d is a whole number of minutes; shown on a chip, so kept short rather than spelled out. -->
+    <string name="settings_reminder_lead_chip">%1$d min</string>
+    <string name="settings_reminder_lead_add">Add…</string>
+    <string name="settings_reminder_lead_add_title">Notify me before</string>
+    <string name="settings_reminder_lead_add_label">Minutes before</string>
 
     <!-- ── Sizes and elapsed time ──────────────────────────────────────────────────── -->
     <string name="size_bytes">%1$s B</string>

@@ -39,6 +39,9 @@ class DesktopSettingsStoreTest {
         // Off here and on for Android: with the task list shared, both devices would otherwise
         // fire for the same task at the same minute.
         assertFalse(state.remindersEnabled)
+        // Empty on both shells: a fresh install, or an existing task that already has a due time,
+        // must not suddenly start notifying for something nobody configured.
+        assertEquals(emptyList<Int>(), state.reminderLeadMinutes)
     }
 
     @Test
@@ -60,6 +63,7 @@ class DesktopSettingsStoreTest {
             setSortMode(SortMode.MANUAL)
             setShowCompleted(false)
             setRemindersEnabled(true)
+            setReminderLeadMinutes(listOf(20, 10, 5))
             // The setters answer before the file does (#104), so anything reading the file back
             // has to wait for it — which is the same call `main()` makes on the way out.
             flush()
@@ -71,6 +75,7 @@ class DesktopSettingsStoreTest {
         assertEquals(SortMode.MANUAL, reopened.sortMode)
         assertFalse(reopened.showCompleted)
         assertTrue(reopened.remindersEnabled)
+        assertEquals(listOf(20, 10, 5), reopened.reminderLeadMinutes)
     }
 
     @Test
@@ -119,6 +124,9 @@ class DesktopSettingsStoreTest {
         assertEquals(Density.COMPACT, state.density)
         assertEquals(SortMode.DATE, state.sortMode)
         assertTrue(state.remindersEnabled)
+        // A file from before lead times existed has no such key at all — not even absent-with-
+        // null, simply never written — and must still decode rather than refuse the whole file.
+        assertEquals(emptyList<Int>(), state.reminderLeadMinutes)
     }
 
     @Test

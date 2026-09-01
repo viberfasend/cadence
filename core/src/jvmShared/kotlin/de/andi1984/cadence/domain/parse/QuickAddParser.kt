@@ -51,7 +51,9 @@ data class ParsedQuickAdd(
  *  - `every 2 weeks on thu`, `every 1st`, `every 2nd monday`, `every last friday`, `daily`,
  *    `3 days after done` — recurrence; counts may be spelled out (`every three days`)
  *  - `tomorrow`, `next friday`, `in 3 days`, `24.12.`, `24 Dec`, `2026-12-24` — due date
- *  - `at 17:00`, `17:00`, `9am` — due time
+ *  - `at 17:00`, `17:00`, `9am`, `18 Uhr` — due time; a time with no date word of its own defaults
+ *    the due date to today ("Kochen 18 Uhr" is today at 18:00, same as "Kochen morgen 19 Uhr" is
+ *    tomorrow at 19:00 because "morgen" already claims a date)
  *
  * The keywords themselves live in [QuickAddLexicon], so the same grammar reads
  * "jeden Tag Frühstück zubereiten" once the German lexicon is passed in.
@@ -143,12 +145,16 @@ object QuickAddParser {
         val dueTime = parseTime(lexicon, find, take)
 
         val title = buildTitle(input, consumed)
+        // A bare time with no date word of its own ("Kochen 18 Uhr") means today at that time —
+        // the same way "Kochen morgen 19 Uhr" already means tomorrow, because "morgen" claimed an
+        // explicit date. Recurrence still wins when both are present: "every monday at 9am" is a
+        // schedule, not "today at 9am one time".
         val resolvedDue = dueDate ?: recurrence?.let { rule ->
             when (rule.mode) {
                 RecurrenceMode.SCHEDULE -> RecurrenceEngine.nextAfter(rule, today.minusDays(1))
                 RecurrenceMode.AFTER_COMPLETION -> today
             }
-        }
+        } ?: dueTime?.let { today }
 
         return ParsedQuickAdd(
             title = title,

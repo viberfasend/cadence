@@ -28,12 +28,16 @@ value class BackupTarget(val value: String)
 
 /** Brings the platform's scheduled reminders in line with the tasks that still exist. */
 interface ReminderScheduler {
-    /** Every task in [tasks] is either (re)scheduled or cancelled, so removing a reminder takes
-     *  effect on the next sync. */
-    fun sync(tasks: List<Task>)
+    /**
+     * Every task in [tasks] gets one alarm per candidate lead — every positive entry in
+     * [leadMinutes], that many minutes before [Task.dueTime], plus the moment [Task.reminderTime]
+     * itself names — each either (re)scheduled or cancelled, so removing a reminder or changing
+     * [leadMinutes] in Settings takes effect on the next sync.
+     */
+    fun sync(tasks: List<Task>, leadMinutes: List<Int>)
 
-    /** Drops a task's reminder outright — for a row that is about to stop existing, which
-     *  [sync] would never see again. */
+    /** Drops a task's reminders outright, every lead included — for a row that is about to stop
+     *  existing, which [sync] would never see again. */
     fun cancel(taskId: String)
 }
 

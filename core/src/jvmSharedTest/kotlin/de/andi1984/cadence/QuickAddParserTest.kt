@@ -73,6 +73,33 @@ class QuickAddParserTest {
     }
 
     @Test
+    fun `a bare time with no date word defaults the due date to today`() {
+        val parsed = QuickAddParser.parse("Kochen 18 Uhr", projects, today = today, lexicon = german)
+
+        assertEquals("Kochen", parsed.title)
+        assertEquals(today, parsed.dueDate)
+        assertEquals(LocalTime.of(18, 0), parsed.dueTime)
+    }
+
+    @Test
+    fun `a date word still sets its own date alongside a bare time`() {
+        val parsed = QuickAddParser.parse("Kochen morgen 19 Uhr", projects, today = today, lexicon = german)
+
+        assertEquals("Kochen", parsed.title)
+        assertEquals(today.plusDays(1), parsed.dueDate)
+        assertEquals(LocalTime.of(19, 0), parsed.dueTime)
+    }
+
+    @Test
+    fun `a recurrence still decides the date over a bare time`() {
+        val parsed = QuickAddParser.parse("Water the plants daily at 9am", projects, today = today)
+
+        assertEquals(RecurrenceUnit.DAY, parsed.recurrence?.unit)
+        assertEquals(today, parsed.dueDate)
+        assertEquals(LocalTime.of(9, 0), parsed.dueTime)
+    }
+
+    @Test
     fun `every two weeks on a weekday`() {
         val parsed = QuickAddParser.parse("Take out recycling every 2 weeks on thu", projects, today = today)
 

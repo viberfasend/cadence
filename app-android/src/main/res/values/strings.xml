@@ -4,6 +4,10 @@
     <string name="reminder_channel_name">Task reminders</string>
     <string name="reminder_channel_description">Reminders for tasks that are due</string>
     <string name="reminder_content_text">Due today</string>
+    <plurals name="reminder_lead_content_text">
+        <item quantity="one">In %1$d minute</item>
+        <item quantity="other">In %1$d minutes</item>
+    </plurals>
 
     <string name="widget_today_title">Today</string>
     <string name="widget_today_empty">Nothing due today — tap to add a task</string>

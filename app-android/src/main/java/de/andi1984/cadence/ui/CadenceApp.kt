@@ -308,6 +308,7 @@ fun CadenceApp(
                         onImport = viewModel::importBackup,
                         onClearBackupOutcome = viewModel::clearBackupOutcome,
                         onRemindersChange = viewModel::setRemindersEnabled,
+                        onReminderLeadMinutesChange = viewModel::setReminderLeadMinutes,
                         onSignIn = viewModel::signIn,
                         onSyncNow = { viewModel.syncNow() },
                         onSignOut = { viewModel.signOut() },
