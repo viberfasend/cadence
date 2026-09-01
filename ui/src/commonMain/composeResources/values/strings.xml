@@ -48,6 +48,8 @@
     <string name="date_pattern_day_month_year">EEE d MMM yyyy</string>
     <string name="date_pattern_weekday">EEE</string>
     <string name="date_pattern_time">HH:mm</string>
+    <!-- A date label with the task's time behind it: "Tomorrow · 18:00". -->
+    <string name="date_with_time">%1$s · %2$s</string>
     <string name="date_today">Today</string>
     <string name="date_tomorrow">Tomorrow</string>
     <string name="date_yesterday">Yesterday</string>
@@ -286,11 +288,14 @@
     <string name="task_move_to_section">Move to section</string>
     <!-- The section chip beside the project chip, shown only when the project has sections. -->
     <string name="task_no_section">No section</string>
-    <string name="task_set_time">Set time</string>
     <string name="task_importance">Importance</string>
     <string name="task_due">Due %1$s</string>
     <string name="task_no_due_date">No due date</string>
     <string name="task_tap_to_schedule">Tap to schedule</string>
+    <string name="task_due_at">Due at %1$s</string>
+    <string name="task_no_due_time">No time</string>
+    <string name="task_tap_to_add_time">Tap to add one — reminders count back from it</string>
+    <string name="task_tap_to_change_time">Tap to change or clear</string>
     <string name="task_remind_at">Remind at %1$s</string>
     <string name="task_no_reminder">No reminder</string>
     <string name="task_on_the_due_day">On the due day</string>

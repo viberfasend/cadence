@@ -73,16 +73,28 @@ fun relativeDate(date: LocalDate, today: LocalDate): String {
     }
 }
 
-/** The compact-density trailing label: "−4d", "Today", "Wed", "17:00". */
+/**
+ * [relativeDate] with the task's time appended when it has one — "Tomorrow · 18:00",
+ * "Wed 13 Aug · 09:30". A time is what reminders count back from, so a task that carries one
+ * says so wherever its date is spelled out, not only on the day itself.
+ */
+@Composable
+fun relativeDateTime(date: LocalDate, time: LocalTime?, today: LocalDate): String {
+    val day = relativeDate(date, today)
+    return if (time == null) day else stringResource(Res.string.date_with_time, day, formatTime(time))
+}
+
+/** The compact-density trailing label: "−4d", "Today", "Wed", "17:00", "Wed · 17:00". */
 @Composable
 fun compactDate(date: LocalDate, time: LocalTime?, today: LocalDate): String {
     val days = ChronoUnit.DAYS.between(today, date)
-    return when {
-        days < 0 -> stringResource(Res.string.date_compact_overdue, (-days).toInt())
-        days == 0L -> time?.let { formatTime(it) } ?: stringResource(Res.string.date_today)
+    val day = when {
+        days < 0 -> return stringResource(Res.string.date_compact_overdue, (-days).toInt())
+        days == 0L -> return time?.let { formatTime(it) } ?: stringResource(Res.string.date_today)
         days in 1L..6L -> formatWeekday(date)
         else -> formatDate(date)
     }
+    return if (time == null) day else stringResource(Res.string.date_with_time, day, formatTime(time))
 }
 
 /** "Tomorrow", "Thu 14 Aug" — the day headers in Upcoming. */

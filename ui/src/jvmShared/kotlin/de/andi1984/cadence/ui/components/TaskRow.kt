@@ -47,6 +47,7 @@ import de.andi1984.cadence.ui.format.compactDate
 import de.andi1984.cadence.ui.format.describeRecurrence
 import de.andi1984.cadence.ui.format.describeRecurrenceInline
 import de.andi1984.cadence.ui.format.formatTime
+import de.andi1984.cadence.ui.format.relativeDateTime
 import de.andi1984.cadence.ui.format.relativeDate
 import de.andi1984.cadence.ui.theme.LocalCadenceColors
 import de.andi1984.cadence.ui.theme.LocalCadenceDensity
@@ -523,9 +524,9 @@ private fun DueChip(task: Task, today: LocalDate, overdue: Boolean) {
         // carries the "it comes back" half. Without the date two occurrences of the same task
         // read identically, which is how a duplicate used to hide in plain sight.
         recurrenceText != null && due != null ->
-            Triple(AppIcons.EventRepeat, relativeDate(due, today), recurrenceText)
+            Triple(AppIcons.EventRepeat, relativeDateTime(due, dueTime, today), recurrenceText)
         recurrenceText != null -> Triple(AppIcons.EventRepeat, recurrenceText, null)
-        due != null -> Triple(AppIcons.Event, relativeDate(due, today), null)
+        due != null -> Triple(AppIcons.Event, relativeDateTime(due, dueTime, today), null)
         else -> return
     }
 
