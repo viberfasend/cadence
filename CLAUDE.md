@@ -448,11 +448,23 @@ than reaching for `!!`.
   a dated subtask in its own right, labelled with the parent's title.
 - **Reminders reconcile on every task emission**: the ViewModel collects `repository.tasks` and
   `settingsStore.state` together and calls `ReminderScheduler.sync(tasks, leadMinutes)`, which
-  schedules *or cancels* a reminder for every task. Android's alarms are inexact (`setWindow`)
-  deliberately, so the app needs no exact-alarm permission; the desktop has no AlarmManager at
-  all, so `DesktopReminderScheduler` instead polls the synced task list every 30 seconds and fires
-  a system-tray balloon for whatever just came due — which only works while the app is running,
-  same accepted trade-off ADR 0001 §8 names for a killed Android process.
+  schedules *or cancels* a reminder for every task. Android's alarms are **exact and
+  Doze-proof** (`setExactAndAllowWhileIdle`, under `USE_EXACT_ALARM` — granted at install on
+  13+, no prompt — plus `SCHEDULE_EXACT_ALARM` for 12/12L), degrading to `setAndAllowWhileIdle`
+  when `canScheduleExactAlarms()` says the user revoked it. They used to be inexact
+  (`setWindow`, ten minutes) so that no permission was needed, and that cost the lead-minutes
+  feature its first release: a "5 minutes before" alarm with a ten-minute window can land after
+  the task is due, an inexact alarm is deferred outright while the phone dozes — the one state
+  a reminder exists to interrupt — and once the trigger was in the past the next `sync` cancelled
+  the still-undelivered alarm. Two rules follow: **an alarm whose trigger passed less than
+  `GRACE_MILLIS` ago is left alone, neither re-armed nor cancelled** (re-arming a past trigger
+  fires it again at once, cancelling it is the race above), and a (task, lead) pair with no
+  planned instant is cancelled through `cancelLead`, which looks up an existing request code
+  rather than minting one — so a task with no time never grows the code store. The desktop has
+  no AlarmManager at all, so `DesktopReminderScheduler` instead polls the synced task list every
+  30 seconds and fires a system-tray balloon for whatever just came due — which only works
+  while the app is running, same accepted trade-off ADR 0001 §8 names for a killed Android
+  process.
 - **A task can carry several reminders, not one.** `CadenceSettings.reminderLeadMinutes` is a
   per-device list of "notify me this many minutes before" values (Settings → Notify me before, a
   chip per preset plus a custom one the user can add) — empty by default, since a fresh install,

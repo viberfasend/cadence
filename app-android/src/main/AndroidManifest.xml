@@ -7,6 +7,14 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Reminders fire at the minute they name (reminders/AlarmReminderScheduler.kt): a lead of
+         "5 minutes before" is meaningless with the ten-minute inexact window the app used to
+         accept. USE_EXACT_ALARM is granted at install on Android 13+ with no prompt;
+         SCHEDULE_EXACT_ALARM covers 12/12L, where it is granted by default. -->
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <application
         android:name=".CadenceApplication"
