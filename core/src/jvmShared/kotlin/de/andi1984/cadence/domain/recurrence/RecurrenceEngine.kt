@@ -58,9 +58,13 @@ object RecurrenceEngine {
     /**
      * The due date a rescheduled instance should land on when the previous one is completed.
      *
-     * With [RecurrenceRule.keepMissed] off, occurrences that are not strictly after
-     * [completedOn] are skipped so the task reappears in the future rather than immediately
-     * overdue — or, for a daily rule, due again on the very day it was just ticked off.
+     * A task completed on its day, or early, steps on from its own due date, which is already
+     * today or later. An *overdue* one hands over to the first occurrence that is not behind
+     * us — today's, when the rule names today, otherwise the next one in the future — however
+     * many it missed in between: ticking off a daily task last due in March must not hand back
+     * one due in March, and a Monday task done a week late on a Monday is due today, not next
+     * week. The occurrence being completed is never handed back, since it is strictly before
+     * the completion day in that branch and strictly the anchor in the other.
      */
     fun dueDateAfterCompletion(
         rule: RecurrenceRule,
@@ -72,9 +76,9 @@ object RecurrenceEngine {
         }
         val anchor = previousDue ?: completedOn
         var next = nextAfter(rule, anchor)
-        if (!rule.keepMissed) {
+        if (anchor.isBefore(completedOn)) {
             var guard = 0
-            while (!next.isAfter(completedOn) && guard < SAFETY_LIMIT) {
+            while (next.isBefore(completedOn) && guard < SAFETY_LIMIT) {
                 next = nextAfter(rule, next)
                 guard++
             }

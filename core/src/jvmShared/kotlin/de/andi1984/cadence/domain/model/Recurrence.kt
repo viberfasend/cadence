@@ -24,9 +24,4 @@ data class RecurrenceRule(
     val dayOfMonth: Int? = null,
     val nthWeek: Int? = null,
     val nthDayOfWeek: DayOfWeek? = null,
-    /** Skipped instances stay overdue instead of vanishing. Off by default: a recurring
-     *  task completed while overdue catches its series up to the next future occurrence
-     *  rather than handing back another overdue one. Turn it on for a rule whose missed
-     *  instances should keep nagging. */
-    val keepMissed: Boolean = false,
 )

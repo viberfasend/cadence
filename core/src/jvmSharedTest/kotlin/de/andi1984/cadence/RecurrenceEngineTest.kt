@@ -120,40 +120,38 @@ class RecurrenceEngineTest {
     }
 
     @Test
-    fun `keeping missed instances leaves the series where it was`() {
-        val rule = RecurrenceRule(unit = RecurrenceUnit.DAY, keepMissed = true)
-        assertEquals(
-            LocalDate.of(2026, 7, 2),
-            RecurrenceEngine.dueDateAfterCompletion(
-                rule = rule,
-                previousDue = LocalDate.of(2026, 7, 1),
-                completedOn = LocalDate.of(2026, 8, 1),
-            ),
-        )
-    }
-
-    @Test
-    fun `dropping missed instances catches the series up`() {
-        // Strictly after the completion day: a daily task ticked off on the 1st is due on the
-        // 2nd whether it was on time or a month late, rather than landing back in Today.
-        val rule = RecurrenceRule(unit = RecurrenceUnit.DAY, keepMissed = false)
-        assertEquals(
-            LocalDate.of(2026, 8, 2),
-            RecurrenceEngine.dueDateAfterCompletion(
-                rule = rule,
-                previousDue = LocalDate.of(2026, 7, 1),
-                completedOn = LocalDate.of(2026, 8, 1),
-            ),
-        )
-    }
-
-    @Test
-    fun `a default rule catches an overdue series up to the next future occurrence`() {
-        // keepMissed defaults to off, so a task completed well past its due date hands back the
-        // next occurrence in the future rather than another overdue one a single step on.
+    fun `a task completed on its day steps on to the next occurrence`() {
         val rule = RecurrenceRule(unit = RecurrenceUnit.DAY)
         assertEquals(
             LocalDate.of(2026, 8, 2),
+            RecurrenceEngine.dueDateAfterCompletion(
+                rule = rule,
+                previousDue = LocalDate.of(2026, 8, 1),
+                completedOn = LocalDate.of(2026, 8, 1),
+            ),
+        )
+    }
+
+    @Test
+    fun `an overdue daily task lands on today, not on the day after the one it missed`() {
+        // A month of missed instances is not a month of ticking: the next occurrence that is
+        // not behind us is today's, and it is still open.
+        val rule = RecurrenceRule(unit = RecurrenceUnit.DAY)
+        assertEquals(
+            LocalDate.of(2026, 8, 1),
+            RecurrenceEngine.dueDateAfterCompletion(
+                rule = rule,
+                previousDue = LocalDate.of(2026, 7, 1),
+                completedOn = LocalDate.of(2026, 8, 1),
+            ),
+        )
+    }
+
+    @Test
+    fun `an overdue series catches up however far behind it fell`() {
+        val rule = RecurrenceRule(unit = RecurrenceUnit.DAY)
+        assertEquals(
+            LocalDate.of(2026, 8, 1),
             RecurrenceEngine.dueDateAfterCompletion(
                 rule = rule,
                 previousDue = LocalDate.of(2026, 3, 4), // ~150 days before completion
@@ -163,9 +161,25 @@ class RecurrenceEngineTest {
     }
 
     @Test
-    fun `a weekly rule completed on the day it came due skips to the next week`() {
-        // The occurrence that equals the completion day is behind us too, so it is skipped:
-        // a Monday task done a week late is due next Monday, not the one just ticked off.
+    fun `a weekly task done a week late on its weekday is due today`() {
+        // Last Monday's instance is being ticked off; this Monday's has not been, so it is
+        // the one handed back rather than next week's.
+        val rule = RecurrenceRule(
+            unit = RecurrenceUnit.WEEK,
+            daysOfWeek = setOf(DayOfWeek.MONDAY),
+        )
+        assertEquals(
+            LocalDate.of(2026, 8, 10),
+            RecurrenceEngine.dueDateAfterCompletion(
+                rule = rule,
+                previousDue = LocalDate.of(2026, 8, 3),
+                completedOn = LocalDate.of(2026, 8, 10),
+            ),
+        )
+    }
+
+    @Test
+    fun `a weekly task done late on another day is due on the next weekday it names`() {
         val rule = RecurrenceRule(
             unit = RecurrenceUnit.WEEK,
             daysOfWeek = setOf(DayOfWeek.MONDAY),
@@ -175,7 +189,20 @@ class RecurrenceEngineTest {
             RecurrenceEngine.dueDateAfterCompletion(
                 rule = rule,
                 previousDue = LocalDate.of(2026, 8, 3),
-                completedOn = LocalDate.of(2026, 8, 10),
+                completedOn = LocalDate.of(2026, 8, 12), // a Wednesday
+            ),
+        )
+    }
+
+    @Test
+    fun `a task completed early keeps stepping from its own due date`() {
+        val rule = RecurrenceRule(unit = RecurrenceUnit.DAY)
+        assertEquals(
+            LocalDate.of(2026, 8, 6),
+            RecurrenceEngine.dueDateAfterCompletion(
+                rule = rule,
+                previousDue = LocalDate.of(2026, 8, 5),
+                completedOn = LocalDate.of(2026, 8, 1),
             ),
         )
     }

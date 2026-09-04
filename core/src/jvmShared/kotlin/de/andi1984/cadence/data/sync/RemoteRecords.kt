@@ -142,8 +142,6 @@ data class RemoteRecurrence(
     @SerialName("day_of_month") val dayOfMonth: Int? = null,
     @SerialName("nth_week") val nthWeek: Int? = null,
     @SerialName("nth_day_of_week") val nthDayOfWeek: String? = null,
-    /** Absent from a payload an older client wrote — the model's default, not `true`. */
-    @SerialName("keep_missed") val keepMissed: Boolean = false,
 )
 
 fun Task.toRemote() = RemoteTask(
@@ -264,7 +262,6 @@ private fun RecurrenceRule.toRemote() = RemoteRecurrence(
     dayOfMonth = dayOfMonth,
     nthWeek = nthWeek,
     nthDayOfWeek = nthDayOfWeek?.name,
-    keepMissed = keepMissed,
 )
 
 private fun RemoteRecurrence.toDomain() = RecurrenceRule(
@@ -278,7 +275,6 @@ private fun RemoteRecurrence.toDomain() = RecurrenceRule(
     dayOfMonth = dayOfMonth,
     nthWeek = nthWeek,
     nthDayOfWeek = nthDayOfWeek?.let { name -> DayOfWeek.entries.firstOrNull { it.name == name } },
-    keepMissed = keepMissed,
 )
 
 /**
