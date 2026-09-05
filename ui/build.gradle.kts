@@ -50,6 +50,9 @@ kotlin {
             implementation(libs.test.junit)
             implementation(libs.kotlinx.coroutines.test)
             implementation(kotlin("test"))
+            // The ViewModel's Ask Cadence test feeds `ClaudeAssistant` a hand-written answer
+            // through Ktor's fake engine, the way `:core`'s own client test does.
+            implementation(libs.ktor.client.mock)
         }
     }
 }

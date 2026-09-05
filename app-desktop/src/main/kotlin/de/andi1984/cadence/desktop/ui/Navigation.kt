@@ -22,6 +22,8 @@ sealed interface Route {
     data object Settings : Route
     data object Triage : Route
     data object Tags : Route
+    /** Ask Cadence (ADR 0006). A top-level view like Search: a place to go, not a detail. */
+    data object Assistant : Route
     data class TaskDetail(val taskId: String) : Route
     data class ProjectDetail(val projectId: String) : Route
     data class TagDetail(val tagId: String) : Route

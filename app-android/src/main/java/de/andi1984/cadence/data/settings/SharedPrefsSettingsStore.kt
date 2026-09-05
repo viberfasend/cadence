@@ -41,6 +41,7 @@ class SharedPrefsSettingsStore(context: Context) : SettingsStore {
             ?.split(",")
             ?.mapNotNull { it.toIntOrNull() }
             ?: emptyList(),
+        claudeApiKey = prefs.getString(KEY_CLAUDE_API_KEY, null)?.takeIf { it.isNotBlank() },
     )
 
     private fun persist(settings: CadenceSettings) {
@@ -51,6 +52,7 @@ class SharedPrefsSettingsStore(context: Context) : SettingsStore {
             .putBoolean(KEY_SHOW_COMPLETED, settings.showCompleted)
             .putBoolean(KEY_REMINDERS, settings.remindersEnabled)
             .putString(KEY_REMINDER_LEAD_MINUTES, settings.reminderLeadMinutes.joinToString(","))
+            .putString(KEY_CLAUDE_API_KEY, settings.claudeApiKey)
             .apply()
         _state.value = settings
     }
@@ -69,6 +71,8 @@ class SharedPrefsSettingsStore(context: Context) : SettingsStore {
     override fun setReminderLeadMinutes(minutes: List<Int>) =
         persist(_state.value.copy(reminderLeadMinutes = minutes))
 
+    override fun setClaudeApiKey(key: String?) = persist(_state.value.copy(claudeApiKey = key))
+
     private companion object {
         const val KEY_THEME = "theme"
         const val KEY_DENSITY = "density"
@@ -76,5 +80,6 @@ class SharedPrefsSettingsStore(context: Context) : SettingsStore {
         const val KEY_SHOW_COMPLETED = "showCompleted"
         const val KEY_REMINDERS = "remindersEnabled"
         const val KEY_REMINDER_LEAD_MINUTES = "reminderLeadMinutes"
+        const val KEY_CLAUDE_API_KEY = "claudeApiKey"
     }
 }

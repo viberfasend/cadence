@@ -68,11 +68,15 @@ One flagship, not both — see [`docs/plans/next-epics.md`](docs/plans/next-epic
 - [ ] Additional locales beyond German — [#47](../../issues/47)
 
 **Not proposed:** shared or collaborative projects (a different merge model and a different
-security model from the one ADR 0002 chose), AI features, and time tracking (a task has no
-duration in this model).
+security model from the one ADR 0002 chose), AI features beyond the read-only *Ask Cadence*
+of ADR 0006 (the assistant never writes), and time tracking (a task has no duration in this
+model).
 
 ## Done
 
+- [x] **Ask Cadence** — a question about the list, typed or spoken, answered by Claude with
+      read-only tool access to the local database, designed in
+      [ADR 0006](docs/adr/0006-ask-cadence.md)
 - [x] **The desktop power shell** — [#123](../../issues/123), designed in
       [ADR 0003](docs/adr/0003-desktop-interaction-model.md): a drag-and-drop kernel, right-click
       menus, drag to reorder and to file, the sidebar with the project tree, the command palette,

@@ -25,6 +25,7 @@ class CadenceViewModelHost(application: CadenceApplication) : ViewModel() {
         backupGateway = container.backupIo,
         attachmentOpener = container.attachmentOpener,
         syncEngine = container.syncEngine,
+        assistant = container.assistant,
         scope = viewModelScope,
     )
 

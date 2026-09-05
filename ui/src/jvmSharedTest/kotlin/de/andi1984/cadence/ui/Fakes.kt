@@ -471,6 +471,10 @@ class FakeSettingsStore(initial: CadenceSettings = CadenceSettings()) : Settings
     override fun setReminderLeadMinutes(minutes: List<Int>) {
         _state.value = _state.value.copy(reminderLeadMinutes = minutes)
     }
+
+    override fun setClaudeApiKey(key: String?) {
+        _state.value = _state.value.copy(claudeApiKey = key)
+    }
 }
 
 /**

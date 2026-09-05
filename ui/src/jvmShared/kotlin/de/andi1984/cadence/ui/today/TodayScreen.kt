@@ -67,6 +67,9 @@ fun TodayScreen(
     onSortChange: (SortMode) -> Unit,
     onSearch: () -> Unit,
     onSettings: () -> Unit,
+    /** Opens Ask Cadence (ADR 0006). Up here beside search because both are ways to *find*
+     *  something, and Today is the screen the app opens on. */
+    onAssistant: () -> Unit,
     syncControls: SyncControls = SyncControls(),
 ) {
     val sortMode = state.settings.sortMode
@@ -84,6 +87,9 @@ fun TodayScreen(
             subtitle = "${formatDate(today)} · ${pluralTasks(openCount)}",
         ) {
             SyncActions(status = state.sync.status, controls = syncControls)
+            IconButton(onClick = onAssistant) {
+                Icon(AppIcons.Assistant, contentDescription = stringResource(Res.string.assistant_title))
+            }
             IconButton(onClick = onSearch) {
                 Icon(AppIcons.Search, contentDescription = stringResource(Res.string.action_search))
             }

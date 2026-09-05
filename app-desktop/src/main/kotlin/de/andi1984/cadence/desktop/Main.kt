@@ -69,6 +69,7 @@ fun main() = application {
             backupGateway = container.backupIo,
             attachmentOpener = container.attachmentOpener,
             syncEngine = container.syncEngine,
+            assistant = container.assistant,
             scope = viewModelScope,
             syncPollInterval = DESKTOP_POLL_INTERVAL,
         )
@@ -162,6 +163,7 @@ fun main() = application {
                 ShortcutAction.CommandPalette -> { paletteRequested = true; true }
                 ShortcutAction.ShowShortcuts -> { shortcutsRequested = true; true }
                 ShortcutAction.Search -> { navigator.go(Route.Search); true }
+                ShortcutAction.Assistant -> { navigator.go(Route.Assistant); true }
                 ShortcutAction.Settings -> { navigator.go(Route.Settings); true }
                 ShortcutAction.ToggleSidebar -> {
                     workspaceStore.setSidebarCollapsed(!workspace.sidebarCollapsed)

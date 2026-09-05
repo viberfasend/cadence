@@ -304,6 +304,7 @@ private fun paletteCommands(
         Route.Inbox to stringResource(Res.string.nav_inbox),
         Route.Projects to stringResource(Res.string.nav_projects),
         Route.Search to stringResource(Res.string.search_title),
+        Route.Assistant to stringResource(Res.string.assistant_title),
         Route.Settings to stringResource(Res.string.settings_title),
     )
 

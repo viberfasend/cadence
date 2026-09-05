@@ -125,3 +125,27 @@ interface AttachmentOpener {
 
     fun openLink(url: String): Boolean
 }
+
+/**
+ * Turns a spoken question into text for Ask Cadence (ADR 0006, decision 5).
+ *
+ * The one platform difference in the feature: Android has a system speech recogniser behind
+ * `RecognizerIntent`, the JVM has nothing, and the shells say so through [isAvailable] — the
+ * screen draws the microphone only when it is true. The desktop implementation is [NoVoiceInput];
+ * every desktop OS ships dictation of its own that types into the same text field.
+ */
+interface VoiceInput {
+    /** Whether [listen] can do anything on this device. Read once per composition, not per tap. */
+    val isAvailable: Boolean
+
+    /** Listens once and hands back what was heard, or null when the user cancelled or nothing
+     *  was understood. Called on the UI thread; the callback arrives there too. */
+    fun listen(onResult: (String?) -> Unit)
+}
+
+/** The desktop's answer: no recogniser, no microphone drawn. */
+object NoVoiceInput : VoiceInput {
+    override val isAvailable: Boolean = false
+
+    override fun listen(onResult: (String?) -> Unit) = onResult(null)
+}

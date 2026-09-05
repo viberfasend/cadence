@@ -29,6 +29,8 @@ import de.andi1984.cadence.desktop.data.DesktopWorkspaceStore
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.CadenceViewModel
+import de.andi1984.cadence.ui.assistant.AssistantScreen
+import de.andi1984.cadence.ui.platform.NoVoiceInput
 import androidx.compose.runtime.CompositionLocalProvider
 import de.andi1984.cadence.ui.components.LocalRowSelection
 import de.andi1984.cadence.ui.components.ProvideRowInteractions
@@ -323,6 +325,7 @@ private fun RouteContent(
             onSortChange = viewModel::setSortMode,
             onSearch = { navigator.go(Route.Search) },
             onSettings = { navigator.go(Route.Settings) },
+            onAssistant = { navigator.go(Route.Assistant) },
             syncControls = syncControls,
         )
 
@@ -387,6 +390,21 @@ private fun RouteContent(
             onToggle = viewModel::toggleTask,
         )
 
+        Route.Assistant -> {
+            val assistant by viewModel.assistantState.collectAsState()
+            AssistantScreen(
+                state = state,
+                assistant = assistant,
+                // No speech recogniser on the JVM; the OS dictation every desktop ships types
+                // into the field like any keyboard (ADR 0006, decision 5).
+                voiceInput = NoVoiceInput,
+                onBack = navigator::back,
+                onAsk = viewModel::ask,
+                onClear = viewModel::clearConversation,
+                onSettings = { navigator.go(Route.Settings) },
+            )
+        }
+
         Route.Settings -> SettingsScreen(
             state = state,
             appInfo = appInfo,
@@ -404,6 +422,7 @@ private fun RouteContent(
             onSyncNow = { viewModel.syncNow() },
             onSignOut = { viewModel.signOut() },
             onWipe = { viewModel.wipeEverything() },
+            onClaudeApiKeyChange = viewModel::setClaudeApiKey,
         )
 
         Route.Triage -> TriageScreen(
@@ -473,6 +492,7 @@ fun routeLabel(route: Route, state: CadenceUiState): String = when (route) {
     Route.Projects -> stringResource(Res.string.nav_projects)
     Route.Tags -> stringResource(Res.string.tags_title)
     Route.Search -> stringResource(Res.string.search_title)
+    Route.Assistant -> stringResource(Res.string.assistant_title)
     Route.Settings -> stringResource(Res.string.settings_title)
     Route.Triage -> stringResource(Res.string.inbox_title)
     is Route.TaskDetail -> state.tasks.firstOrNull { it.id == route.taskId }?.title.orEmpty()

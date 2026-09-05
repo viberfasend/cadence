@@ -1,5 +1,6 @@
 package de.andi1984.cadence.ui
 
+import de.andi1984.cadence.data.assistant.ClaudeAssistant
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
@@ -64,6 +65,7 @@ class CadenceViewModelUndoTest {
             backupGateway = FakeBackupGateway(),
             attachmentOpener = RecordingAttachmentOpener(),
             syncEngine = CadenceSyncEngine(FakeSyncStore(), backgroundScope),
+            assistant = ClaudeAssistant(),
             scope = backgroundScope,
         )
         backgroundScope.launch { viewModel.state.collect { } }

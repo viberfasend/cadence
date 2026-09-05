@@ -74,6 +74,14 @@ everything carrying it; the list is reached from Projects, and on the desktop fr
 **Task detail** — importance as a four-way segmented control, due date, reminder, recurrence
 and notes.
 
+**Ask Cadence** — a question in your own words, typed or spoken: *when did I last clean the
+kitchen?*, *what is due this week?*, *what is still open in Home?* Claude looks it up in the list
+on your device and answers; it can read, never change anything. It needs an Anthropic API key of
+your own, entered once in Settings — without one the screen just explains that, and nothing about
+your tasks leaves the device until you ask. Voice input uses the phone's own speech recogniser;
+on the desktop, use your OS dictation into the same field. See
+[ADR 0006](docs/adr/0006-ask-cadence.md).
+
 **Danger zone** — Settings ends with *Delete all data*: every task and every project, gone in one
 step. It asks first, names how much it is about to take, and offers Undo for a few seconds
 afterwards. Signed in, the deletion reaches your other devices on their next sync, so export a

@@ -568,4 +568,32 @@
     <string name="snackbar_attachment_failed">That file could not be copied</string>
     <string name="snackbar_attachment_invalid_link">Please enter a link</string>
     <string name="snackbar_attachment_no_viewer">Nothing on this device opens that</string>
+
+    <!-- ── Ask Cadence (ADR 0006): a question about the list, answered by Claude ── -->
+    <string name="assistant_title">Ask Cadence</string>
+    <string name="assistant_clear">New conversation</string>
+    <string name="assistant_no_key_title">Add a Claude API key first</string>
+    <string name="assistant_no_key_supporting">Ask Cadence answers with Claude, using an Anthropic API key of your own. Enter it once in Settings — nothing about your tasks is sent until you ask a question.</string>
+    <string name="assistant_open_settings">Open Settings</string>
+    <string name="assistant_empty_title">Ask about your tasks</string>
+    <string name="assistant_empty_supporting">In your own words — when you last did something, what is due this week, what is still open in a project. Claude looks it up in the list on this device.</string>
+    <string name="assistant_example_last_done">When did I last clean the kitchen?</string>
+    <string name="assistant_example_this_week">What is due this week?</string>
+    <string name="assistant_example_project_open">What is still open in my projects?</string>
+    <string name="assistant_placeholder">Ask about your tasks…</string>
+    <string name="assistant_send">Send</string>
+    <string name="assistant_speak">Ask by voice</string>
+    <string name="assistant_thinking">Looking it up…</string>
+    <string name="assistant_footnote">Answers are read from your task list and can be wrong. Questions and the tasks they match go to Anthropic.</string>
+    <string name="assistant_failed_offline">No connection. Try again when you are online.</string>
+    <string name="assistant_failed_unauthorized">Claude rejected the API key. Check it in Settings.</string>
+    <string name="assistant_failed_rate_limited">Claude is busy right now. Try again in a moment.</string>
+    <string name="assistant_failed_server">Claude could not answer. Try again later.</string>
+    <string name="assistant_failed_refused">Claude declined to answer that.</string>
+    <string name="settings_assistant">Ask Cadence</string>
+    <string name="settings_assistant_supporting">Questions and the tasks they match are sent to Claude by Anthropic with an API key of your own, stored on this device only. Without a key the feature stays off.</string>
+    <string name="settings_assistant_key">Anthropic API key</string>
+    <string name="settings_assistant_key_replace">Replace the stored key</string>
+    <string name="settings_assistant_key_remove">Remove key</string>
+    <string name="settings_assistant_key_stored">A key is stored on this device.</string>
 </resources>

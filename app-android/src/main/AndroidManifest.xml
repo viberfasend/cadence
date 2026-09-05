@@ -16,6 +16,16 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
+    <!-- Ask Cadence by voice (ADR 0006, decision 5) goes through the system speech recogniser,
+         RecognizerIntent, which holds the microphone permission itself — the app asks for none.
+         Since Android 11 an app sees only the packages it declares here, so without this entry
+         the recogniser resolves to nothing and the microphone would never be drawn. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
+
     <application
         android:name=".CadenceApplication"
         android:allowBackup="true"

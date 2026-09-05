@@ -163,6 +163,15 @@ fun CadenceSidebar(
                             onClick = { onSwitchTo(Route.Search) },
                         )
                     }
+                    item {
+                        SidebarRow(
+                            icon = AppIcons.Assistant,
+                            label = stringResource(Res.string.assistant_title),
+                            count = null,
+                            selected = current == Route.Assistant,
+                            onClick = { onSwitchTo(Route.Assistant) },
+                        )
+                    }
 
                     item {
                         Spacer(modifier = Modifier.height(12.dp))
@@ -352,6 +361,9 @@ private fun CollapsedRail(
         }
         RailIcon(AppIcons.Folder, Res.string.nav_projects, current == Route.Projects) {
             onSwitchTo(Route.Projects)
+        }
+        RailIcon(AppIcons.Assistant, Res.string.assistant_title, current == Route.Assistant) {
+            onSwitchTo(Route.Assistant)
         }
         Spacer(modifier = Modifier.weight(1f))
         RailIcon(AppIcons.Settings, Res.string.settings_title, current == Route.Settings) {

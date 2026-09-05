@@ -18,6 +18,7 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +31,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import de.andi1984.cadence.ui.assistant.AssistantScreen
+import de.andi1984.cadence.ui.assistant.rememberSpeechVoiceInput
 import de.andi1984.cadence.ui.attachments.rememberSafAttachmentFilePicker
 import de.andi1984.cadence.ui.backup.rememberSafBackupFilePicker
 import de.andi1984.cadence.ui.components.AppIcons
@@ -71,6 +74,7 @@ object Routes {
     const val PROJECT = "project/{projectId}"
     const val TAGS = "tags"
     const val TAG = "tag/{tagId}"
+    const val ASSISTANT = "assistant"
 
     fun task(id: String) = "task/$id"
 
@@ -105,6 +109,8 @@ fun CadenceApp(
     val navController = rememberNavController()
     val backupFilePicker = rememberSafBackupFilePicker()
     val attachmentFilePicker = rememberSafAttachmentFilePicker()
+    val voiceInput = rememberSpeechVoiceInput()
+    val assistantState by viewModel.assistantState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -228,6 +234,7 @@ fun CadenceApp(
                         onSortChange = viewModel::setSortMode,
                         onSearch = { navController.navigate(Routes.SEARCH) },
                         onSettings = { navController.navigate(Routes.SETTINGS) },
+                        onAssistant = { navController.navigate(Routes.ASSISTANT) },
                         syncControls = syncControls,
                     )
                 }
@@ -295,6 +302,17 @@ fun CadenceApp(
                         onToggle = viewModel::toggleTask,
                     )
                 }
+                composable(Routes.ASSISTANT) {
+                    AssistantScreen(
+                        state = state,
+                        assistant = assistantState,
+                        voiceInput = voiceInput,
+                        onBack = { navController.popBackStack() },
+                        onAsk = viewModel::ask,
+                        onClear = viewModel::clearConversation,
+                        onSettings = { navController.navigate(Routes.SETTINGS) },
+                    )
+                }
                 composable(Routes.SETTINGS) {
                     SettingsScreen(
                         state = state,
@@ -313,6 +331,7 @@ fun CadenceApp(
                         onSyncNow = { viewModel.syncNow() },
                         onSignOut = { viewModel.signOut() },
                         onWipe = { viewModel.wipeEverything() },
+                        onClaudeApiKeyChange = viewModel::setClaudeApiKey,
                     )
                 }
                 composable(Routes.TRIAGE) {

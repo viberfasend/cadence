@@ -70,6 +70,7 @@ enum class ShortcutAction {
     SelectedNoDueDate,
     CommandPalette,
     Search,
+    Assistant,
     Settings,
     ToggleSidebar,
     SyncNow,
@@ -179,6 +180,7 @@ val CADENCE_SHORTCUTS: List<Shortcut> = listOf(
         Res.string.palette_title, "K",
     ),
     Shortcut(ShortcutAction.Search, Key.F, primary, ShortcutGroup.Global, Res.string.search_title, "F"),
+    Shortcut(ShortcutAction.Assistant, Key.J, primary, ShortcutGroup.Global, Res.string.assistant_title, "J"),
     Shortcut(
         ShortcutAction.Settings, Key.Comma, primary, ShortcutGroup.Global,
         Res.string.settings_title, ",",

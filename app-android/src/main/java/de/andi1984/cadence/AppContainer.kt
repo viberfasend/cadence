@@ -18,6 +18,7 @@ import de.andi1984.cadence.data.db.SqlDelightSectionStore
 import de.andi1984.cadence.data.db.SqlDelightSyncStore
 import de.andi1984.cadence.data.db.SqlDelightTagStore
 import de.andi1984.cadence.data.db.SqlDelightTaskStore
+import de.andi1984.cadence.data.assistant.ClaudeAssistant
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.data.settings.SharedPrefsSettingsStore
 import de.andi1984.cadence.reminders.AlarmReminderScheduler
@@ -76,6 +77,10 @@ class AppContainer(context: Context) {
         store = SqlDelightSyncStore(database),
         scope = applicationScope,
     )
+
+    /** Ask Cadence's client (ADR 0006): stateless, so one for the process is one too many
+     *  rather than too few — it is here for the same reason [syncEngine] is. */
+    val assistant = ClaudeAssistant()
 
     init {
         // Heals a leak left by a process killed mid-copy — cheap even at a few hundred files,

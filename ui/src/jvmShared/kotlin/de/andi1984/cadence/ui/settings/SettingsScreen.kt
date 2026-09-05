@@ -71,6 +71,8 @@ fun SettingsScreen(
     onSyncNow: () -> Unit,
     onSignOut: () -> Unit,
     onWipe: () -> Unit,
+    /** Null forgets the stored key. */
+    onClaudeApiKeyChange: (String?) -> Unit,
 ) {
     val settings = state.settings
 
@@ -193,6 +195,9 @@ fun SettingsScreen(
                 onSyncNow = onSyncNow,
                 onSignOut = onSignOut,
             )
+
+            SettingSection(stringResource(Res.string.settings_assistant))
+            AssistantSection(apiKey = settings.claudeApiKey, onChange = onClaudeApiKeyChange)
 
             SettingSection(stringResource(Res.string.settings_data))
             BackupControls(
@@ -637,6 +642,57 @@ private fun ReminderLeadMinutesEditor(leadMinutes: List<Int>, onChange: (List<In
                 }
             },
         )
+    }
+}
+
+/**
+ * Ask Cadence's one setting: the Anthropic API key (ADR 0006, decision 2). The field is a
+ * password field and the stored key is never read back into it — a key that is on screen is a
+ * key on a screenshot — so what the section shows is whether one is stored, and the two verbs.
+ */
+@Composable
+private fun AssistantSection(apiKey: String?, onChange: (String?) -> Unit) {
+    val stored = !apiKey.isNullOrBlank()
+    var draft by remember(apiKey) { mutableStateOf("") }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = stringResource(Res.string.settings_assistant_supporting),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { draft = it },
+            label = {
+                Text(
+                    stringResource(
+                        if (stored) Res.string.settings_assistant_key_replace else Res.string.settings_assistant_key,
+                    ),
+                )
+            },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = { onChange(draft); draft = "" }, enabled = draft.isNotBlank()) {
+                Text(stringResource(Res.string.action_save))
+            }
+            if (stored) {
+                TextButton(onClick = { onChange(null) }) {
+                    Text(stringResource(Res.string.settings_assistant_key_remove))
+                }
+            }
+        }
+        if (stored) {
+            Text(
+                text = stringResource(Res.string.settings_assistant_key_stored),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

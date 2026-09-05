@@ -47,6 +47,17 @@ data class CadenceSettings(
      * something nobody asked for. The reminder screen's job is choosing at least one.
      */
     val reminderLeadMinutes: List<Int> = emptyList(),
+    /**
+     * The Anthropic API key Ask Cadence sends questions with (ADR 0006, decision 2), or null
+     * when none is stored — the screen then explains itself instead of asking.
+     *
+     * Per device like everything else here, and deliberately not synced: the key is the user's
+     * own account, entered where it is used, and a row that travelled through the sync server
+     * would put a secret on a wire that otherwise carries only tasks. Stored the way the store
+     * stores everything — plain `SharedPreferences`, a plain JSON file — which is the same
+     * standing the sync session has in `syncStateRow`.
+     */
+    val claudeApiKey: String? = null,
 )
 
 /**
@@ -71,4 +82,7 @@ interface SettingsStore {
     fun setRemindersEnabled(enabled: Boolean)
 
     fun setReminderLeadMinutes(minutes: List<Int>)
+
+    /** Null forgets the key; a blank string must never be stored, so callers trim first. */
+    fun setClaudeApiKey(key: String?)
 }

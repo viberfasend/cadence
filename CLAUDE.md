@@ -235,9 +235,16 @@ of ADR 0001 decision 9 is still outstanding.
               data/sync/  CadenceSyncEngine (hand-rolled Ktor: Neon Auth sign-in + JWT mint,
                           PostgREST pull/merge/push against the Neon Data API — ADR 0005), the
                           wire DTOs and NeonConfig — a plain class, not a port (ADR 0002, dec. 7)
+              domain/assistant/ AssistantToolbox — the five read-only tools Ask Cadence hands
+                          Claude, pure Kotlin over a snapshot (ADR 0006)
+              data/assistant/ ClaudeAssistant — the one Messages API call, Ktor like sync, with
+                          the tool loop; model, version and beta flag in its companion
 :ui           ui/         theme, shared components, ui/format/, one package per screen, CadenceViewModel
               ui/platform/ the ports the ViewModel needs from the machine — ReminderScheduler,
-                          BackupGateway, BackupFilePicker, AttachmentFilePicker, AttachmentOpener
+                          BackupGateway, BackupFilePicker, AttachmentFilePicker, AttachmentOpener,
+                          VoiceInput (Android: RecognizerIntent; desktop: NoVoiceInput)
+              ui/assistant/ AssistantScreen — the Ask Cadence transcript and composer, shared
+                          by both shells (ADR 0006)
               ui/dnd/     the drag kernel (ADR 0003): DragModel.kt is pure — payloads, targets,
                           resolveDrop, hitTest — and DragAndDrop.kt is the gesture, ghost and caret
               ui/palette/ CommandPaletteModel — the fuzzy ranking behind Ctrl/Cmd+K, pure Kotlin
@@ -636,6 +643,16 @@ than reaching for `!!`.
     since a headless run opens nothing and says so.
   - **A recurring task hands its attachments to the next occurrence**, with the checklist — the
     rows are cloned, the bytes are not, because two rows naming one hash *is* the dedupe.
+- **Ask Cadence is read-only, keyed by the user, and its transcript is scratch** (ADR 0006).
+  `CadenceViewModel.ask` freezes `state.value` into an `AssistantSnapshot`, and
+  `ClaudeAssistant` answers over `POST /v1/messages` with five tools that read that snapshot
+  and nothing else — the model cannot write, and the system prompt says so. The key is
+  `CadenceSettings.claudeApiKey`, per device and never synced; without one the screen explains
+  itself and no request is made. The transcript is `assistantState`, a second `StateFlow`
+  beside `state`, never stored. Three rules follow: `search_tasks` must keep returning
+  *completed* rows (that is what "when did I last…" reads), every date the toolbox emits is
+  resolved against the injected clock (never `LocalDate.now()`), and the assistant turn is
+  echoed back *unchanged* between tool rounds — dropping a thinking block is a 400.
 - **A fresh install starts empty.** There is no seeding: the first screen a new user sees is the
   empty state, not sample content. Anything that needs a populated app (screenshots, a demo) is
   built by importing a backup file, not by putting fixtures back into the app.

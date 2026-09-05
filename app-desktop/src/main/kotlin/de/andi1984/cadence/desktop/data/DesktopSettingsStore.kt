@@ -35,6 +35,7 @@ private data class SettingsFile(
     // this file rather than in the shared data class precisely because it differs per shell.
     val remindersEnabled: Boolean = false,
     val reminderLeadMinutes: List<Int> = emptyList(),
+    val claudeApiKey: String? = null,
 )
 
 /**
@@ -109,6 +110,7 @@ class DesktopSettingsStore(
             showCompleted = onDisk.showCompleted,
             remindersEnabled = onDisk.remindersEnabled,
             reminderLeadMinutes = onDisk.reminderLeadMinutes,
+            claudeApiKey = onDisk.claudeApiKey?.takeIf { it.isNotBlank() },
         )
     }
 
@@ -137,6 +139,7 @@ class DesktopSettingsStore(
             showCompleted = settings.showCompleted,
             remindersEnabled = settings.remindersEnabled,
             reminderLeadMinutes = settings.reminderLeadMinutes,
+            claudeApiKey = settings.claudeApiKey,
         )
         runCatching {
             tmp.parentFile?.mkdirs()
@@ -179,4 +182,6 @@ class DesktopSettingsStore(
 
     override fun setReminderLeadMinutes(minutes: List<Int>) =
         persist(_state.value.copy(reminderLeadMinutes = minutes))
+
+    override fun setClaudeApiKey(key: String?) = persist(_state.value.copy(claudeApiKey = key))
 }

@@ -550,4 +550,32 @@
     <string name="snackbar_attachment_failed">Die Datei konnte nicht kopiert werden</string>
     <string name="snackbar_attachment_invalid_link">Bitte einen Link eingeben</string>
     <string name="snackbar_attachment_no_viewer">Auf diesem Gerät kann das nichts öffnen</string>
+
+    <!-- ── Cadence fragen (ADR 0006): eine Frage an die Liste, beantwortet von Claude ── -->
+    <string name="assistant_title">Cadence fragen</string>
+    <string name="assistant_clear">Neues Gespräch</string>
+    <string name="assistant_no_key_title">Zuerst einen Claude-API-Schlüssel hinterlegen</string>
+    <string name="assistant_no_key_supporting">„Cadence fragen“ antwortet mit Claude über einen eigenen Anthropic-API-Schlüssel. Einmal in den Einstellungen eintragen – bis zur ersten Frage verlässt nichts über deine Aufgaben das Gerät.</string>
+    <string name="assistant_open_settings">Einstellungen öffnen</string>
+    <string name="assistant_empty_title">Frag nach deinen Aufgaben</string>
+    <string name="assistant_empty_supporting">In eigenen Worten – wann du etwas zuletzt erledigt hast, was diese Woche fällig ist, was in einem Projekt noch offen ist. Claude schlägt in der Liste auf diesem Gerät nach.</string>
+    <string name="assistant_example_last_done">Wann habe ich zuletzt die Küche geputzt?</string>
+    <string name="assistant_example_this_week">Was ist diese Woche fällig?</string>
+    <string name="assistant_example_project_open">Was ist in meinen Projekten noch offen?</string>
+    <string name="assistant_placeholder">Frag nach deinen Aufgaben…</string>
+    <string name="assistant_send">Senden</string>
+    <string name="assistant_speak">Per Sprache fragen</string>
+    <string name="assistant_thinking">Schlage nach…</string>
+    <string name="assistant_footnote">Antworten stammen aus deiner Aufgabenliste und können falsch sein. Fragen und die passenden Aufgaben gehen an Anthropic.</string>
+    <string name="assistant_failed_offline">Keine Verbindung. Versuch es, sobald du online bist.</string>
+    <string name="assistant_failed_unauthorized">Claude hat den API-Schlüssel abgelehnt. Prüf ihn in den Einstellungen.</string>
+    <string name="assistant_failed_rate_limited">Claude ist gerade ausgelastet. Versuch es gleich noch einmal.</string>
+    <string name="assistant_failed_server">Claude konnte nicht antworten. Versuch es später noch einmal.</string>
+    <string name="assistant_failed_refused">Claude hat die Antwort abgelehnt.</string>
+    <string name="settings_assistant">Cadence fragen</string>
+    <string name="settings_assistant_supporting">Fragen und die passenden Aufgaben gehen mit einem eigenen Anthropic-API-Schlüssel an Claude von Anthropic; der Schlüssel bleibt auf diesem Gerät. Ohne Schlüssel bleibt die Funktion aus.</string>
+    <string name="settings_assistant_key">Anthropic-API-Schlüssel</string>
+    <string name="settings_assistant_key_replace">Gespeicherten Schlüssel ersetzen</string>
+    <string name="settings_assistant_key_remove">Schlüssel entfernen</string>
+    <string name="settings_assistant_key_stored">Auf diesem Gerät ist ein Schlüssel gespeichert.</string>
 </resources>

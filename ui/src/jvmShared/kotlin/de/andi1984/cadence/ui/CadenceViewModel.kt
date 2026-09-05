@@ -5,10 +5,16 @@ import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.data.MAX_ATTACHMENTS_PER_TASK
 import de.andi1984.cadence.data.MAX_ATTACHMENT_BYTES
 import de.andi1984.cadence.data.RepositoryResult
+import de.andi1984.cadence.data.assistant.AssistantFailure
+import de.andi1984.cadence.data.assistant.AssistantMessage
+import de.andi1984.cadence.data.assistant.AssistantResult
+import de.andi1984.cadence.data.assistant.AssistantRole
+import de.andi1984.cadence.data.assistant.ClaudeAssistant
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.data.sync.SignInResult
 import de.andi1984.cadence.data.sync.SyncFailure
 import de.andi1984.cadence.data.sync.SyncStatus
+import de.andi1984.cadence.domain.assistant.AssistantSnapshot
 import de.andi1984.cadence.domain.backup.BackupOutcome
 import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.AttachmentKind
@@ -22,6 +28,7 @@ import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.domain.model.projectPath
 import de.andi1984.cadence.domain.model.withoutSupersededOccurrences
 import de.andi1984.cadence.domain.parse.ParsedQuickAdd
+import de.andi1984.cadence.ui.assistant.AssistantUiState
 import de.andi1984.cadence.ui.dnd.DropIntent
 import de.andi1984.cadence.ui.platform.BackupGateway
 import de.andi1984.cadence.ui.platform.AttachmentOpener
@@ -49,6 +56,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
@@ -439,6 +447,9 @@ class CadenceViewModel(
      *  "open this with something else" is an intent on Android and `java.awt.Desktop` here. */
     private val attachmentOpener: AttachmentOpener,
     private val syncEngine: CadenceSyncEngine,
+    /** The Claude client behind Ask Cadence (ADR 0006) — a plain class from `:core` on the
+     *  same footing as [syncEngine]: HTTPS and JSON are not a platform difference. */
+    private val assistant: ClaudeAssistant,
     private val scope: CoroutineScope,
     /**
      * How often to sync with nothing prompting it, or null for never — the safety net for a
@@ -593,6 +604,14 @@ class CadenceViewModel(
 
     /** One event per failed round, for the shell to raise a snackbar from. */
     val syncFailures: Flow<SyncFailure> = syncEngine.failures
+
+    private val assistantUi = MutableStateFlow(AssistantUiState())
+
+    /** Ask Cadence's conversation, beside [state] rather than in it — see [AssistantUiState]. */
+    val assistantState: StateFlow<AssistantUiState> = assistantUi.asStateFlow()
+
+    /** The question in flight, so clearing the conversation can drop its answer on the floor. */
+    private var assistantJob: Job? = null
 
     init {
         startWriteDebounce()
@@ -1181,6 +1200,68 @@ class CadenceViewModel(
     fun setRemindersEnabled(enabled: Boolean) = settingsStore.setRemindersEnabled(enabled)
 
     fun setReminderLeadMinutes(minutes: List<Int>) = settingsStore.setReminderLeadMinutes(minutes)
+
+    /** Blank forgets the key: the field's "remove" and an emptied field mean the same thing. */
+    fun setClaudeApiKey(key: String?) =
+        settingsStore.setClaudeApiKey(key?.trim()?.takeIf { it.isNotEmpty() })
+
+    // ── Ask Cadence (ADR 0006) ───────────────────────────────────────────────────────
+
+    /**
+     * Asks [question] against the lists as they stand right now.
+     *
+     * The snapshot is [state]'s current value — pending deletes already hidden, the way every
+     * screen sees it — frozen for the length of the round, so an answer describes one moment
+     * rather than a list that changed under the tools. The transcript shown so far goes along
+     * as history; the reply, or the reason there is none, lands in [assistantState]. One
+     * question at a time: a second one while the first is out is dropped, since the screen
+     * disables the send button while [AssistantUiState.busy].
+     */
+    fun ask(question: String) {
+        val trimmed = question.trim()
+        if (trimmed.isEmpty() || assistantUi.value.busy) return
+        val snapshot = state.value
+        val apiKey = snapshot.settings.claudeApiKey?.trim().orEmpty()
+        if (apiKey.isEmpty()) {
+            assistantUi.value = assistantUi.value.copy(failure = AssistantFailure.UNAUTHORIZED)
+            return
+        }
+        val history = assistantUi.value.messages
+        assistantUi.value = AssistantUiState(
+            messages = history + AssistantMessage(AssistantRole.USER, trimmed),
+            busy = true,
+            failure = null,
+        )
+        assistantJob = scope.launch {
+            val result = assistant.ask(
+                apiKey = apiKey,
+                history = history,
+                question = trimmed,
+                snapshot = AssistantSnapshot(
+                    tasks = snapshot.tasks,
+                    projects = snapshot.projects,
+                    tags = snapshot.tags,
+                    sections = snapshot.sections,
+                ),
+            )
+            val current = assistantUi.value
+            assistantUi.value = when (result) {
+                is AssistantResult.Answer -> current.copy(
+                    messages = current.messages + AssistantMessage(AssistantRole.ASSISTANT, result.text),
+                    busy = false,
+                )
+                is AssistantResult.Failed -> current.copy(busy = false, failure = result.reason)
+            }
+        }
+    }
+
+    /** Forgets the conversation, an unanswered question included. Nothing was stored, so there
+     *  is nothing to delete — the next question starts from an empty transcript. */
+    fun clearConversation() {
+        assistantJob?.cancel()
+        assistantJob = null
+        assistantUi.value = AssistantUiState()
+    }
 
     // ── Backup ───────────────────────────────────────────────────────────────────────
 

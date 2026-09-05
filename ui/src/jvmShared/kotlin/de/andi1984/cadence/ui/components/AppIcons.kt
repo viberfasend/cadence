@@ -2,6 +2,9 @@ package de.andi1984.cadence.ui.components
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AttachFile
@@ -101,4 +104,10 @@ object AppIcons {
     val Link: ImageVector = Icons.Rounded.Link
     val Image: ImageVector = Icons.Rounded.Image
     val File: ImageVector = Icons.Rounded.Description
+
+    // ── Ask Cadence (ADR 0006) ──
+    /** The assistant itself, in the Today header and the desktop sidebar. */
+    val Assistant: ImageVector = Icons.Rounded.AutoAwesome
+    val Mic: ImageVector = Icons.Rounded.Mic
+    val Send: ImageVector = Icons.AutoMirrored.Rounded.Send
 }
