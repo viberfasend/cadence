@@ -295,8 +295,6 @@ internal data class BackupRecurrence(
     val dayOfMonth: Int? = null,
     val nthWeek: Int? = null,
     val nthDayOfWeek: String? = null,
-    /** Absent from a file an older version wrote — the model's default, not `true`. */
-    val keepMissed: Boolean = false,
 )
 
 private fun Project.toBackup() = BackupProject(
@@ -408,7 +406,6 @@ private fun RecurrenceRule.toBackup() = BackupRecurrence(
     dayOfMonth = dayOfMonth,
     nthWeek = nthWeek,
     nthDayOfWeek = nthDayOfWeek?.name,
-    keepMissed = keepMissed,
 )
 
 private fun BackupRecurrence.toDomain() = RecurrenceRule(
@@ -422,7 +419,6 @@ private fun BackupRecurrence.toDomain() = RecurrenceRule(
     dayOfMonth = dayOfMonth,
     nthWeek = nthWeek,
     nthDayOfWeek = nthDayOfWeek?.let { name -> DayOfWeek.entries.firstOrNull { it.name == name } },
-    keepMissed = keepMissed,
 )
 
 /** A single unreadable date must not fail the whole restore — that field simply goes empty. */

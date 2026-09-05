@@ -23,7 +23,6 @@ object RecurrenceCodec {
             "interval=${rule.interval}",
             "unit=${rule.unit.name}",
             "monthly=${rule.monthlyMode.name}",
-            "keepMissed=${rule.keepMissed}",
         )
         if (rule.daysOfWeek.isNotEmpty()) {
             parts += "dows=" + rule.daysOfWeek.sortedBy { it.value }.joinToString(",") { it.name }
@@ -69,10 +68,6 @@ object RecurrenceCodec {
             nthDayOfWeek = values["nthDow"]?.let { name ->
                 DayOfWeek.entries.firstOrNull { it.name == name }
             },
-            // A row written before this segment existed means "the default", not "keep them":
-            // defaulting it to true here is what left every legacy rule stepping a single
-            // interval on however far overdue it had fallen.
-            keepMissed = values["keepMissed"]?.toBooleanStrictOrNull() ?: false,
         )
     }
 }

@@ -378,7 +378,6 @@ def parse_recurrence(text: str, ref: dt.date) -> Recurrence | None:
         "dayOfMonth": None,
         "nthWeek": None,
         "nthDayOfWeek": None,
-        "keepMissed": True,
     }
 
     days = sorted({WEEKDAYS[t] for t in tokens if t in WEEKDAYS})

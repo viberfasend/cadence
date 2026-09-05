@@ -48,7 +48,6 @@ class BackupCodecTest {
             monthlyMode = MonthlyMode.NTH_WEEKDAY,
             nthWeek = 2,
             nthDayOfWeek = DayOfWeek.MONDAY,
-            keepMissed = false,
         ),
     )
 

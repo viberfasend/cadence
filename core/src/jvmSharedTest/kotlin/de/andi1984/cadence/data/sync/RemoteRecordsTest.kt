@@ -49,7 +49,6 @@ class RemoteRecordsTest {
                 dayOfMonth = null,
                 nthWeek = 2,
                 nthDayOfWeek = DayOfWeek.FRIDAY,
-                keepMissed = false,
             ),
             updatedAt = now,
             deletedAt = null,

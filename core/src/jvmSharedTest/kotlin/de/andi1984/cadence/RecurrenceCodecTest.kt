@@ -25,7 +25,6 @@ class RecurrenceCodecTest {
             dayOfMonth = 15,
             nthWeek = 2,
             nthDayOfWeek = DayOfWeek.TUESDAY,
-            keepMissed = false,
         )
         assertEquals(rule, RecurrenceCodec.decode(RecurrenceCodec.encode(rule)))
         assertNull(RecurrenceCodec.encode(null))
@@ -39,7 +38,6 @@ class RecurrenceCodecTest {
             mode = RecurrenceMode.AFTER_COMPLETION,
             interval = 3,
             unit = RecurrenceUnit.DAY,
-            keepMissed = true,
         )
         val encoded = RecurrenceCodec.encode(rule)
 
@@ -55,13 +53,12 @@ class RecurrenceCodecTest {
     }
 
     @Test
-    fun `a column written before keepMissed existed catches its series up`() {
-        // Rules stored before the flag was added carry no `keepMissed=` segment. They used to
-        // decode to true, which is why every one of them only ever stepped a single interval on
-        // however far overdue it was; the missing segment now means the model's own default.
-        val decoded = RecurrenceCodec.decode("v1;mode=SCHEDULE;interval=1;unit=DAY;monthly=DAY_OF_MONTH")
+    fun `a column carrying the retired keepMissed segment still decodes`() {
+        // Rules stored between August 2026 builds carry `keepMissed=true` or `=false`; the
+        // flag is gone and the segment is ignored like any other unknown one.
+        val decoded = RecurrenceCodec.decode("v1;mode=SCHEDULE;interval=1;unit=DAY;monthly=DAY_OF_MONTH;keepMissed=true")
 
-        assertFalse(decoded!!.keepMissed)
+        assertEquals(RecurrenceRule(unit = RecurrenceUnit.DAY), decoded)
     }
 
     @Test
@@ -72,13 +69,6 @@ class RecurrenceCodecTest {
     @Test
     fun `a missing mode decodes the whole rule to null`() {
         assertNull(RecurrenceCodec.decode("v1;interval=1;unit=WEEK"))
-    }
-
-    @Test
-    fun `a malformed keepMissed value falls back to false, the model's default`() {
-        val decoded = RecurrenceCodec.decode("v1;mode=SCHEDULE;interval=1;unit=WEEK;keepMissed=maybe")
-
-        assertEquals(false, decoded?.keepMissed)
     }
 
     @Test

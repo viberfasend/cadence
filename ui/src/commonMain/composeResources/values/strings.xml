@@ -393,8 +393,6 @@
     <string name="repeat_nth_weekday">%1$s %2$s</string>
     <string name="repeat_preview_next_three">Next three</string>
     <string name="repeat_preview_after_completion">Next, if you finish today</string>
-    <string name="repeat_keep_missed">Keep missed instances</string>
-    <string name="repeat_keep_missed_supporting">Skipped ones stay overdue instead of vanishing</string>
     <string name="repeat_turn_off">Turn off</string>
     <string name="repeat_save">Save rule</string>
 

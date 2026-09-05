@@ -375,8 +375,6 @@
     <string name="repeat_nth_weekday">%1$s %2$s</string>
     <string name="repeat_preview_next_three">Die nächsten drei</string>
     <string name="repeat_preview_after_completion">Nächster Termin, wenn du heute fertig wirst</string>
-    <string name="repeat_keep_missed">Verpasste Termine behalten</string>
-    <string name="repeat_keep_missed_supporting">Übersprungene bleiben überfällig, statt zu verschwinden</string>
     <string name="repeat_turn_off">Ausschalten</string>
     <string name="repeat_save">Regel speichern</string>
 
