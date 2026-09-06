@@ -215,12 +215,22 @@ a scope that survives a rotation and a moment to stop. Both are constructor para
 `viewModelScope`. `:app-desktop`'s `main()` supplies them instead: a plain `CoroutineScope` it
 creates and keeps alive for the process, and `Window`'s `onCloseRequest`.
 
-**Wiring** is hand-rolled in an `AppContainer` class per shell. `:app-android`'s is built once in
+**Wiring** is hand-rolled in an `AppContainer` class per shell, built on top of `:core`'s
+`CadenceCore` — the database, the blob store, the seven-argument `CadenceRepository` and the
+`CadenceSyncEngine` over them, and the application scope all three run on. Every store a feature
+adds used to mean a line in both `AppContainer`s; it is now a line in `CadenceCore` alone, since
+opening the database is the one genuinely platform-specific step left (`DatabaseDriverFactory`
+takes a `Context` on Android and a `File` on the desktop) and each shell still does that itself
+before handing the driver to `CadenceCore`. `:app-android`'s `AppContainer` is built once in
 `CadenceApplication.onCreate` and reached through
 `ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY`; `:app-desktop`'s is a plain
 `AppContainer()` constructed once at the top of `main()` — no Activity, no Application, so no
-factory to hang it from. No DI framework either way — new singletons go in the shell's
-`AppContainer`.
+factory to hang it from. No DI framework either way — a singleton shared by both shells goes in
+`CadenceCore`, one that is genuinely platform-specific (SharedPreferences, AlarmManager, SAF, a
+JSON settings file, a tray icon) goes in the shell's `AppContainer`. `:ui`'s
+`cadenceViewModel(core, adapters, scope)` (`CadenceViewModelFactory.kt`) builds the ViewModel
+over a `CadenceCore` plus a `ViewModelAdapters` of the four platform ports, so the
+seven-argument `CadenceViewModel` constructor is written once rather than once per shell.
 
 **Navigation** lives entirely in each shell — the part of the UI that does *not* move.
 `:app-android`'s `ui/CadenceApp.kt` uses `androidx.navigation.compose`: route constants in
@@ -246,7 +256,9 @@ of ADR 0001 decision 9 is still outstanding.
 :core         domain/     pure Kotlin — model, RecurrenceEngine, QuickAddParser, BackupCodec. NO
                           Android imports; this is what the JVM unit tests exercise. Keep it that way.
               data/       CadenceRepository, the TaskStore/ProjectStore/BackupStore/SyncStore ports it
-                          needs, and the SQLDelight-backed implementations of those ports (data/db/)
+                          needs, and the SQLDelight-backed implementations of those ports (data/db/);
+                          CadenceCore wires the database, the blob store, the repository and the
+                          sync engine into the one graph both shells' AppContainers build on
               data/sync/  CadenceSyncEngine (hand-rolled Ktor: Neon Auth sign-in + JWT mint,
                           PostgREST pull/merge/push against the Neon Data API — ADR 0005), the
                           wire DTOs and NeonConfig — a plain class, not a port (ADR 0002, dec. 7)
@@ -293,7 +305,8 @@ on the desktop, which `:ui` only ever hands back. `:app-android` implements all 
 implements the same three (`DesktopReminderScheduler`, `DesktopBackupIo`,
 `DesktopBackupFilePicker`), and no screen learns which shell it got. **Sync is deliberately not a
 port**: HTTPS and JSON are identical on both platforms, so `CadenceSyncEngine` is a concrete class
-in `:core` that each `AppContainer` constructs on its application scope (ADR 0002, decision 7). `SettingsStore` is a port
+in `:core` that `CadenceCore` constructs once, on the application scope both shells share
+(ADR 0002, decision 7). `SettingsStore` is a port
 for the same reason, declared next to the settings types in `ui/settings/SettingsStore.kt` —
 `SharedPrefsSettingsStore` on Android, `DesktopSettingsStore` (a JSON file under `PlatformDirs`)
 on the desktop. The desktop's *window* state — sidebar width, folded projects, window bounds — is
@@ -791,8 +804,9 @@ than reaching for `!!`.
   - **The lifecycle triggers hang off the shell, not the ViewModel**, and go through
     `CadenceSyncEngine.syncInBackground()`, which runs on the *application* scope:
     `:app-android`'s `CadenceApplication` observes `ProcessLifecycleOwner` (the Activity's
-    lifecycle would sync on every rotation), `:app-desktop`'s `main()` syncs at startup, on
-    `onCloseRequest` and on the poll it passes as `syncPollInterval`.
+    lifecycle would sync on every rotation), `:app-desktop`'s `main()` syncs at startup and on
+    `onCloseRequest`, and both rely on `CadenceSyncEngine.startForegroundPoll()` for everything
+    in between.
   - **The header shows where sync stands, and shows nothing at all signed out.**
     `ui/components/SyncControls.kt` holds the indicator, the pull-to-refresh wrapper and the
     failure snackbar; a shell hands the four top-level screens one `SyncControls` and the two
@@ -807,8 +821,10 @@ than reaching for `!!`.
     socket's was: `:app-android` starts it in `onStart` and stops it in `onStop` (a background
     poll is the battery drain `WorkManager` was rejected to avoid), `:app-desktop` starts it once
     and holds it for the process, minimised included — a desktop that stopped polling on alt-tab
-    would go stale exactly when the phone is in use. The desktop's older 15-minute
-    `syncPollInterval` poll still runs beside it, redundant but harmless.
+    would go stale exactly when the phone is in use. `CadenceViewModel` used to carry its own
+    older 15-minute `syncPollInterval` poll beside this one, redundant once the foreground poll
+    existed; it has been removed rather than kept "harmless" — one timer is one thing to reason
+    about sync's cadence from.
 - **Reminders are a per-device setting** (`CadenceSettings.remindersEnabled`), on by default on
   Android and off on the desktop — the default lives in each shell's `SettingsStore`, since that
   is the only thing that differs. Once a task exists on both devices both would otherwise fire
@@ -835,11 +851,17 @@ than reaching for `!!`.
   - **A write puts down the state it finds, never the value that started it.** Coroutines
     launched in order do not reach a lock in order, so an older write would otherwise rename a
     stale file over a newer one.
-  - **`main()` calls `flush()` before `exitApplication()`.** The writes run on daemon threads and
-    would be taken with the process — the toggle someone flipped a second before quitting is
-    exactly the one to keep. Anything reading the file straight back (every test that does) has
-    to call it too. `load()` stays on the calling thread, alone: it runs once before any window
-    exists, and loading asynchronously would paint the defaults and swap them.
+  - **`AppContainer.shutdown()` calls `flush()` before `exitApplication()`.** The writes run on
+    daemon threads and would be taken with the process — the toggle someone flipped a second
+    before quitting is exactly the one to keep. `onCloseRequest` and the tray menu's Quit are the
+    two ways out of the desktop app, and both call this one method rather than repeating the
+    order by hand: a last fire-and-forget `syncInBackground()` while there is still a process to
+    run it (ADR 0002, decision 11), then `settingsStore.flush()`, then `CadenceCore.close()` to
+    cancel the application scope and close the database driver — `viewModel.close()` stays
+    outside it, since the ViewModel's scope belongs to `main()`, not the container. Anything
+    reading the file straight back (every test that does) has to call `flush()` too. `load()`
+    stays on the calling thread, alone: it runs once before any window exists, and loading
+    asynchronously would paint the defaults and swap them.
 
 ### UI conventions
 

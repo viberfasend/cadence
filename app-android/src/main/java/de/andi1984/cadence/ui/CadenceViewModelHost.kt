@@ -18,13 +18,9 @@ class CadenceViewModelHost(application: CadenceApplication) : ViewModel() {
 
     private val container = application.container
 
-    val viewModel = CadenceViewModel(
-        repository = container.repository,
-        settingsStore = container.settingsStore,
-        reminderScheduler = container.reminderScheduler,
-        backupGateway = container.backupIo,
-        attachmentOpener = container.attachmentOpener,
-        syncEngine = container.syncEngine,
+    val viewModel = cadenceViewModel(
+        core = container.core,
+        adapters = container.viewModelAdapters,
         scope = viewModelScope,
     )
 

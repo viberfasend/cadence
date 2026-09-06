@@ -440,16 +440,6 @@ class CadenceViewModel(
     private val attachmentOpener: AttachmentOpener,
     private val syncEngine: CadenceSyncEngine,
     private val scope: CoroutineScope,
-    /**
-     * How often to sync with nothing prompting it, or null for never — the safety net for a
-     * socket that believes it is connected and is not (ADR 0002, decision 11).
-     *
-     * `:app-desktop` passes 15 minutes and `:app-android` passes nothing: a phone is stale only
-     * while nobody is looking at it, and it syncs on foreground before the user reads a row, so
-     * a background round there would buy a fresher database nobody is reading and pay for it in
-     * a doze-mode fight.
-     */
-    syncPollInterval: Duration? = null,
 ) {
 
     private val backupOutcome = MutableStateFlow<BackupOutcome?>(null)
@@ -596,7 +586,6 @@ class CadenceViewModel(
 
     init {
         startWriteDebounce()
-        if (syncPollInterval != null) startPoll(syncPollInterval)
 
         // Reminders reconcile on every emission, and on whether this device fires them at all:
         // with the task list shared between two devices, both would otherwise go off for the same
@@ -1250,13 +1239,6 @@ class CadenceViewModel(
     @OptIn(FlowPreview::class)
     private fun startWriteDebounce() = scope.launch {
         writes.debounce(WRITE_DEBOUNCE.toMillis()).collect { syncEngine.syncOnce() }
-    }
-
-    private fun startPoll(interval: Duration) = scope.launch {
-        while (true) {
-            delay(interval.toMillis())
-            syncEngine.syncOnce()
-        }
     }
 
     private fun armSync() {

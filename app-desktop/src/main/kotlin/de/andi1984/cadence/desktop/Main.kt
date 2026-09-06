@@ -29,7 +29,7 @@ import de.andi1984.cadence.desktop.ui.shortcutFor
 import de.andi1984.cadence.domain.model.Priority
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.CadenceUiState
-import de.andi1984.cadence.ui.CadenceViewModel
+import de.andi1984.cadence.ui.cadenceViewModel
 import de.andi1984.cadence.ui.components.RowSelectionState
 import de.andi1984.cadence.ui.platform.AppInfo
 import de.andi1984.cadence.ui.resources.Res
@@ -47,30 +47,15 @@ import java.time.Duration
 import java.time.LocalDate
 import java.util.Locale
 
-/**
- * The desktop's safety net, and the one poll in the app (ADR 0002, decision 11).
- *
- * A laptop lid or a socket that believes it is connected can leave this process out of step for
- * hours, and a window left open and focused on one screen for a whole day raises no other
- * trigger. Android gets no equivalent: a phone is stale only while nobody is looking at it, and
- * it syncs on foreground before the user reads a row.
- */
-private val DESKTOP_POLL_INTERVAL: Duration = Duration.ofMinutes(15)
-
 fun main() = application {
     val container = remember { AppContainer() }
     val workspaceStore = remember { DesktopWorkspaceStore() }
     val viewModelScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     val viewModel = remember {
-        CadenceViewModel(
-            repository = container.repository,
-            settingsStore = container.settingsStore,
-            reminderScheduler = container.reminderScheduler,
-            backupGateway = container.backupIo,
-            attachmentOpener = container.attachmentOpener,
-            syncEngine = container.syncEngine,
+        cadenceViewModel(
+            core = container.core,
+            adapters = container.viewModelAdapters,
             scope = viewModelScope,
-            syncPollInterval = DESKTOP_POLL_INTERVAL,
         )
     }
     val state by viewModel.state.collectAsState()
@@ -139,16 +124,13 @@ fun main() = application {
 
     Window(
         onCloseRequest = {
-            // Fire-and-forget on the container's application scope, which [CadenceViewModel.close]
-            // does not touch: the window must not hesitate on the way out, and a push that misses
-            // this window ships on the next start (ADR 0002, decision 11).
+            // The one exit path (`AppContainer.shutdown`): a last fire-and-forget sync while
+            // there is still a process to run it (ADR 0002, decision 11), then the settings
+            // flush `exitApplication()` must not race (#104), then the core's own teardown.
+            // `viewModel.close()` is not [AppContainer]'s to run — the ViewModel's scope is
+            // `main()`'s, not the container's.
             rememberWindowBounds()
-            container.syncEngine.syncInBackground()
-            // Settings, unlike sync, are *not* fire-and-forget on the way out: their write runs
-            // on a daemon thread and `exitApplication()` would take it with it, losing the
-            // toggle someone flipped a second before quitting. A few hundred bytes, at the one
-            // moment where there is nothing left to hold up (#104).
-            container.settingsStore.flush()
+            container.shutdown()
             viewModel.close()
             exitApplication()
         },
@@ -265,7 +247,7 @@ fun main() = application {
                 },
                 onSync = { container.syncEngine.syncInBackground() },
                 onQuit = {
-                    container.syncEngine.syncInBackground()
+                    container.shutdown()
                     viewModel.close()
                     exitApplication()
                 },

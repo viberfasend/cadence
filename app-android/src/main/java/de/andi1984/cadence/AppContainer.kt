@@ -5,51 +5,30 @@ import android.content.Context
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
-import de.andi1984.cadence.data.BlobStore
-import de.andi1984.cadence.data.CadenceRepository
-import de.andi1984.cadence.data.attachments.AndroidAttachmentOpener
+import de.andi1984.cadence.data.CadenceCore
 import de.andi1984.cadence.data.backup.BackupIo
-import de.andi1984.cadence.data.db.CadenceDatabase
+import de.andi1984.cadence.data.attachments.AndroidAttachmentOpener
 import de.andi1984.cadence.data.db.DatabaseDriverFactory
-import de.andi1984.cadence.data.db.SqlDelightAttachmentStore
-import de.andi1984.cadence.data.db.SqlDelightBackupStore
-import de.andi1984.cadence.data.db.SqlDelightProjectStore
-import de.andi1984.cadence.data.db.SqlDelightSectionStore
-import de.andi1984.cadence.data.db.SqlDelightSyncStore
-import de.andi1984.cadence.data.db.SqlDelightTagStore
-import de.andi1984.cadence.data.db.SqlDelightTaskStore
-import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.data.settings.SharedPrefsSettingsStore
 import de.andi1984.cadence.reminders.AlarmReminderScheduler
+import de.andi1984.cadence.ui.ViewModelAdapters
 import de.andi1984.cadence.widget.WidgetUpdater
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.io.File
 
-/** Hand-rolled dependency graph — the app is small enough not to need a DI framework. */
+/**
+ * Hand-rolled dependency graph — the app is small enough not to need a DI framework. The database,
+ * the blob store, the repository and the sync engine are built once, in [CadenceCore], for both
+ * shells; what is left here is Android's own adapters — SharedPreferences, AlarmManager, SAF —
+ * plus the event wiring `:core` cannot own (widgets, process lifecycle).
+ */
 class AppContainer(context: Context) {
 
-    private val database = CadenceDatabase(DatabaseDriverFactory(context).createDriver())
-
-    /** Both directories must sit on the same filesystem — the copy finishes with a `renameTo`
-     *  that is only atomic within one volume — so `tmp` is a sibling under `filesDir`, never
-     *  `cacheDir`, which Android is free to put elsewhere. */
-    private val blobStore = BlobStore(
-        root = File(context.filesDir, "attachments"),
-        tmp = File(context.filesDir, "attachments-tmp"),
+    val core = CadenceCore(
+        driver = DatabaseDriverFactory(context).createDriver(),
+        dataDir = context.filesDir,
     )
 
-    val repository = CadenceRepository(
-        taskStore = SqlDelightTaskStore(database),
-        projectStore = SqlDelightProjectStore(database),
-        sectionStore = SqlDelightSectionStore(database),
-        tagStore = SqlDelightTagStore(database),
-        backupStore = SqlDelightBackupStore(database),
-        attachmentStore = SqlDelightAttachmentStore(database),
-        blobStore = blobStore,
-    )
+    val repository = core.repository
 
     val settingsStore = SharedPrefsSettingsStore(context)
 
@@ -61,33 +40,36 @@ class AppContainer(context: Context) {
      *  launcher can only be created in a composition. */
     val attachmentOpener = AndroidAttachmentOpener(context)
 
-    /**
-     * Outlives every screen: the backup written as the user leaves the app starts while the
-     * Activity is already being torn down, so it cannot hang off a ViewModel's scope.
-     *
-     * Public because the widgets' `SyncWorker` and `ToggleTaskCallback` reach the engine and
-     * the repository through this container from a process a broadcast created.
-     */
-    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    /** On the application scope, not a ViewModel's: a round that starts as the user leaves the
-     *  screen has to be allowed to finish, and the session it refreshes outlives every screen. */
-    val syncEngine = CadenceSyncEngine(
-        store = SqlDelightSyncStore(database),
-        scope = applicationScope,
+    /** Handed to [de.andi1984.cadence.ui.cadenceViewModel] by [ui.CadenceViewModelHost] so the
+     *  seven-argument `CadenceViewModel` constructor is written once, in `:ui`. */
+    val viewModelAdapters = ViewModelAdapters(
+        settingsStore = settingsStore,
+        reminderScheduler = reminderScheduler,
+        backupGateway = backupIo,
+        attachmentOpener = attachmentOpener,
     )
 
-    init {
-        // Heals a leak left by a process killed mid-copy — cheap even at a few hundred files,
-        // and cold start is the only time nothing else is racing the blob directory yet.
-        applicationScope.launch { repository.sweepOrphanBlobs() }
+    /** [CadenceCore.applicationScope], named here too: the widgets' `SyncWorker` and
+     *  `ToggleTaskCallback` reach the engine and the repository through this container from a
+     *  process a broadcast created, and both used to reach a field declared directly on this
+     *  class. */
+    val applicationScope = core.applicationScope
 
+    /** On [applicationScope], not a ViewModel's: a round that starts as the user leaves the
+     *  screen has to be allowed to finish, and the session it refreshes outlives every screen. */
+    val syncEngine = core.syncEngine
+
+    init {
         // "Reminders reconcile on every task emission" (CLAUDE.md) — a home-screen widget is the
         // same shape of problem: it has no view of `repository.tasks` of its own, so something
         // has to push it a redraw whenever a local edit, an import or a sync merge changes what
         // it should show. When the process is not alive to run this collector the widgets look
         // after themselves: a tap redraws through `ToggleTaskCallback`, midnight through
         // `WidgetMidnightRefresh`, and `updatePeriodMillis` is the half-hourly floor under both.
+        //
+        // This stays here rather than moving into `CadenceCore`: it needs a `Context` to reach
+        // the widgets, which is exactly the kind of platform-specific event binding that does
+        // not belong in `:core`.
         applicationScope.launch {
             repository.tasks.collect { WidgetUpdater.refreshAll(context) }
         }
