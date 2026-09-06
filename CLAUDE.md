@@ -717,16 +717,23 @@ than reaching for `!!`.
   **Undo** still catches it. Tasks are wiped before projects and the two are separate statements —
   a process killed between them leaves empty projects, never orphaned tasks — and both halves are
   idempotent, so running it again finishes the job.
-- **The undo window is a deferred write, and the snackbar is one slot two things want.** A delete
-  hides its rows at once (`CadenceUiState.pendingDeleteIds`) and writes nothing for
-  `UNDO_WINDOW`; undo cancels the job, so it costs no transaction at all. Two rules fall out of
-  there being *one* pending action but possibly more than one set of held ids (#114):
+- **The undo window is a deferred write, and the snackbar is one slot two things want — and both
+  live in `ui/undo/UndoSlot.kt`, not in `CadenceViewModel`.** A delete hides its rows at once
+  (`UndoSlot.hiddenIds`, read into `CadenceUiState.pendingDeleteIds`) and writes nothing for the
+  window `UndoSlot` is constructed with (`CadenceViewModel.UNDO_WINDOW`); undo cancels the job, so
+  it costs no transaction at all. `CadenceViewModel` only supplies the `commit` lambda —
+  `commitPendingDelete`, the repository write, cancelling reminders and arming sync — and the
+  three call sites (`deleteTask`, `deleteProject`, `wipeEverything`) that hand `UndoSlot.offer` a
+  fresh `UndoAction`; the *when* is entirely `UndoSlot`'s. Two rules fall out of there being *one*
+  pending action but possibly more than one set of held ids (#114), and both are pinned in
+  `UndoSlotTest` against a recording `commit` lambda with no repository at all —
+  `CadenceViewModelUndoTest` keeps only the tests that need the real store and scheduler:
   - **`undo()` subtracts its own action's ids, never the whole set.** A second delete settles the
     first one out of band — the user moved on — and that commit is in flight with its ids still
-    in `pendingDeleteIds`. Clearing the flow flashed those rows back into every list until the
-    write landed and took them away again. Nothing rescues a settled delete; that is what
-    settling it meant.
-  - **An informational message never displaces a live undo — it queues** (`show`/`clearSnackbar`,
+    in `hiddenIds`. Clearing the flow flashed those rows back into every list until the write
+    landed and took them away again. Nothing rescues a settled delete; that is what settling it
+    meant.
+  - **An informational message never displaces a live undo — it queues** (`UndoSlot.show`,
     `queuedMessage`). The two are not equals: a validation message is repeatable feedback about a
     form still on screen, while the undo is a five-second, one-time chance to take a delete back.
     Overwriting it took that chance away silently, and the delete committed anyway.

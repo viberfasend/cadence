@@ -20,12 +20,17 @@ import java.time.LocalDate
 import java.time.LocalTime
 
 /**
- * The undo state machine: `offerUndo` → `pendingDeleteIds` → `commitPendingDelete`.
+ * The undo state machine as `CadenceViewModel` wires it up: `deleteTask`/`deleteProject`/
+ * `wipeEverything` → `de.andi1984.cadence.ui.undo.UndoSlot` → [CadenceViewModel.commitPendingDelete].
  *
- * The whole design is that a destructive write does not reach the database until the window
- * elapses, so every test here is about *when* something happened as much as *whether* it did.
- * Time is virtual — `StandardTestDispatcher` sharing `runTest`'s scheduler — so the five-second
- * window costs nothing and "before" and "after" are exact rather than racy.
+ * `UndoSlot`'s own timing rules — *when* an offer commits, the two #114 rules about a second
+ * delete and about the snackbar being one slot — are pinned in `UndoSlotTest` against a recording
+ * `commit` lambda, with no repository at all. What is left here is what only the real wiring can
+ * prove: that the ids a delete captures are the *right* ids (subtasks, a project's whole tree),
+ * that the write that finally lands actually tombstones those rows in the real SQLDelight store,
+ * and that the reminders it cancels are the real scheduler's. Time is still virtual —
+ * `StandardTestDispatcher` sharing `runTest`'s scheduler — so the five-second window costs nothing
+ * and "before" and "after" are exact rather than racy.
  *
  * The ViewModel runs on `runTest`'s `backgroundScope` rather than on the test coroutine itself:
  * its `init` starts collectors that never finish, and `runTest` waits for its own children
@@ -107,26 +112,6 @@ class CadenceViewModelUndoTest {
     }
 
     @Test
-    fun `undo inside the window writes nothing at all and brings the rows straight back`() = runTest {
-        stores.seedTasks(task("parent"), task("step", parentId = "parent"))
-        val viewModel = viewModel()
-
-        viewModel.deleteTask(task("parent"))
-        runCurrent()
-        viewModel.undo()
-        runCurrent()
-
-        // Past the window the cancelled job would have fired at, to prove it is really gone.
-        advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() * 2)
-        runCurrent()
-
-        assertEquals(setOf("parent", "step"), liveTaskIds())
-        assertTrue(viewModel.state.value.pendingDeleteIds.isEmpty())
-        assertNull(viewModel.state.value.snackbarMessage)
-        assertEquals(emptyList<String>(), reminders.cancelled)
-    }
-
-    @Test
     fun `committing a task delete cancels the alarms of the task and every step under it`() = runTest {
         stores.seedTasks(
             task("parent", due = LocalDate.of(2026, 8, 17)),
@@ -145,69 +130,13 @@ class CadenceViewModelUndoTest {
     }
 
     @Test
-    fun `the snackbar carries the undo action and counts the rows it will take`() = runTest {
-        stores.seedTasks(task("parent"), task("a", parentId = "parent"), task("b", parentId = "parent"))
-        val viewModel = viewModel()
-
-        viewModel.deleteTask(task("parent"))
-        runCurrent()
-
-        val message = viewModel.state.value.snackbarMessage as SnackbarMessage.Counted
-        assertEquals(3, message.count)
-        val action = message.undoAction as UndoAction.DeleteTask
-        assertEquals(setOf("parent", "a", "b"), action.ids)
-    }
-
-    // ── A second delete settles the first ────────────────────────────────────────────
-
-    @Test
-    fun `a second delete commits the first one out of band rather than racing it`() = runTest {
-        stores.seedTasks(task("first"), task("second"), task("kept"))
-        val viewModel = viewModel()
-
-        viewModel.deleteTask(task("first"))
-        runCurrent()
-        // Well inside the first window: nothing has been written yet.
-        advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() / 2)
-        assertEquals(setOf("first", "second", "kept"), liveTaskIds())
-
-        viewModel.deleteTask(task("second"))
-        runCurrent()
-
-        // The user moved on, so the first delete is settled now — without waiting out its window.
-        assertEquals(setOf("second", "kept"), liveTaskIds())
-        assertEquals(setOf("second"), viewModel.state.value.pendingDeleteIds)
-
-        advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() + 1)
-        runCurrent()
-
-        assertEquals(setOf("kept"), liveTaskIds())
-        assertTrue(viewModel.state.value.pendingDeleteIds.isEmpty())
-    }
-
-    @Test
-    fun `undo after a second delete only rescues the second — the first is already written`() = runTest {
-        stores.seedTasks(task("first"), task("second"))
-        val viewModel = viewModel()
-
-        viewModel.deleteTask(task("first"))
-        runCurrent()
-        viewModel.deleteTask(task("second"))
-        runCurrent()
-        viewModel.undo()
-        advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() * 2)
-        runCurrent()
-
-        assertEquals(setOf("second"), liveTaskIds())
-    }
-
-    @Test
     fun `undo leaves the settled delete hidden while its write is still in flight`() = runTest {
-        // #114. The test above drains the out-of-band commit before undoing, which is exactly
-        // what hid this: `undo()` used to clear the *whole* `pendingDeleteIds` flow, so the
-        // first delete's rows came back on screen and then vanished again a moment later, once
-        // the write it never rescued landed. The gate below is what makes that moment reachable
-        // — the only place in these tests that stands between the repository and SQLite.
+        // #114, the wiring half: `UndoSlotTest` pins the same rule against a recording `commit`
+        // lambda with no store at all; this is what proves the real gate — the tombstone write
+        // itself — sits in the same place. `undo()` used to clear the *whole* `pendingDeleteIds`
+        // flow, so the first delete's rows came back on screen and then vanished again a moment
+        // later, once the write it never rescued landed. The gate below is what makes that moment
+        // reachable — the only place in these tests that stands between the repository and SQLite.
         stores.seedTasks(task("first"), task("second"))
         val viewModel = viewModel()
 
@@ -241,33 +170,6 @@ class CadenceViewModelUndoTest {
 
         assertEquals(setOf("second"), liveTaskIds())
         assertTrue(viewModel.state.value.pendingDeleteIds.isEmpty())
-    }
-
-    // ── The snackbar is one slot ─────────────────────────────────────────────────────
-
-    @Test
-    fun `a validation message waits for the undo rather than replacing it`() = runTest {
-        // #114. The two are not equals: a validation message is repeatable feedback about a form
-        // still on screen, and the undo is a five-second, one-time chance to take a delete back.
-        stores.seedTasks(task("doomed"))
-        val viewModel = viewModel()
-
-        viewModel.deleteTask(task("doomed"))
-        runCurrent()
-        val undoMessage = viewModel.state.value.snackbarMessage
-        assertTrue(undoMessage is SnackbarMessage.Counted)
-
-        viewModel.addProject(name = "   ", colorHex = "#FF0000", parentId = null)
-        runCurrent()
-
-        assertEquals(undoMessage, viewModel.state.value.snackbarMessage)
-
-        viewModel.undo()
-        runCurrent()
-
-        // Not dropped either — it lands the moment the slot frees.
-        assertTrue(viewModel.state.value.snackbarMessage is SnackbarMessage.Text)
-        assertEquals(setOf("doomed"), liveTaskIds())
     }
 
     // ── Deleting a project ───────────────────────────────────────────────────────────

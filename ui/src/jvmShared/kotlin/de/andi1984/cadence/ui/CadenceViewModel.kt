@@ -30,6 +30,8 @@ import de.andi1984.cadence.ui.platform.PickedFile
 import de.andi1984.cadence.ui.platform.ReminderScheduler
 import de.andi1984.cadence.ui.resources.Res
 import de.andi1984.cadence.ui.resources.*
+import de.andi1984.cadence.ui.undo.UndoAction
+import de.andi1984.cadence.ui.undo.UndoSlot
 import de.andi1984.cadence.ui.settings.CadenceSettings
 import de.andi1984.cadence.ui.settings.Density
 import de.andi1984.cadence.ui.settings.SignInError
@@ -40,7 +42,6 @@ import de.andi1984.cadence.ui.settings.ThemeChoice
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
@@ -59,49 +60,6 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
-
-/**
- * A destructive action the user just took, held back from the database for [CadenceViewModel.UNDO_WINDOW]
- * so an undo costs no write at all — it only cancels the deferred job that would have committed it.
- */
-sealed class UndoAction {
-    /** Every id the commit will tombstone, so the pending set can hide exactly those rows. */
-    abstract val ids: Set<String>
-
-    /** Deleting a task tombstones it and its subtasks together. */
-    data class DeleteTask(val task: Task, val subtasks: List<Task>) : UndoAction() {
-        /** Every id the commit will tombstone — the row and its steps. */
-        override val ids: Set<String> = setOf(task.id) + subtasks.map { it.id }
-    }
-
-    /** Deleting a project tombstones it and (optionally) its subprojects and tasks. */
-    data class DeleteProject(
-        val project: Project,
-        val tasks: List<Task>,
-        val deleteTasks: Boolean,
-    ) : UndoAction() {
-        /** Every id the commit will tombstone. Tasks are only included when [deleteTasks] is
-         *  set, the same way [CadenceRepository.deleteProject] only tombstones them then. */
-        override val ids: Set<String> =
-            if (deleteTasks) setOf(project.id) + tasks.map { it.id } else setOf(project.id)
-    }
-
-    /**
-     * The Settings danger zone: every task and every project at once.
-     *
-     * The ids are what the user saw on screen when they confirmed, held so the rows can be hidden
-     * for the undo window and un-hidden again by an undo. The commit itself wipes whatever is
-     * stored at the moment it runs, not this list — a row merged in from a pull during those few
-     * seconds goes too, which is what "delete everything" has to mean for the wipe to be the same
-     * on every device.
-     */
-    data class DeleteEverything(
-        val taskIds: List<String>,
-        val projectIds: List<String>,
-    ) : UndoAction() {
-        override val ids: Set<String> = (taskIds + projectIds).toSet()
-    }
-}
 
 /**
  * A message the shell raises as a snackbar.
@@ -443,34 +401,18 @@ class CadenceViewModel(
 ) {
 
     private val backupOutcome = MutableStateFlow<BackupOutcome?>(null)
-    private val snackbarMessage = MutableStateFlow<SnackbarMessage?>(null)
 
     /**
-     * Ids of tasks/projects whose delete is held back while an undo is on the table.
-     *
-     * The deferred [commitPendingDelete] job sits in [pendingDeleteJob]; cancelling it on an
-     * undo is the whole transaction — nothing is written, nothing is tombstoned, and the rows
-     * the flow was already emitting simply stop being filtered out.
+     * The undo/deferred-delete machine (#114) — see [UndoSlot]'s own doc for the two rules it
+     * keeps. [commitPendingDelete] is the dispatch it runs once a window elapses (or a second
+     * delete settles this one out of band): the repository write, cancelling reminders and
+     * arming sync are still this ViewModel's job, and the *when* of it all belongs to the slot.
      */
-    private val pendingDeleteIds = MutableStateFlow<Set<String>>(emptySet())
-    private var pendingDeleteJob: Job? = null
-    /** The action [pendingDeleteJob] will commit when its window elapses, captured so a second
-     *  delete can commit it out of band rather than leave its rows filtered forever. */
-    private var pendingDeleteAction: UndoAction? = null
-
-    /**
-     * An informational message that arrived while the snackbar was carrying a live **Undo**,
-     * shown once that undo resolves.
-     *
-     * The snackbar is one slot, and the two things competing for it are not equals: a validation
-     * message is repeatable feedback about a form the user is still looking at, while the undo is
-     * a five-second, one-time chance to take a delete back. Overwriting the undo took that chance
-     * away silently — the delete still committed, and its only visible cue was gone.
-     *
-     * Only ever one is held: a second informational message replaces it, because the newest is
-     * the one the user just caused.
-     */
-    private var queuedMessage: SnackbarMessage? = null
+    private val undoSlot = UndoSlot(
+        scope = scope,
+        window = UNDO_WINDOW,
+        commit = ::commitPendingDelete,
+    )
 
     /** What a sign-in attempt is doing, folded together with the engine's own status — the
      *  screen wants one value, and `combine` takes five flows at most. */
@@ -491,8 +433,8 @@ class CadenceViewModel(
 
     private val transient = combine(
         backupOutcome,
-        pendingDeleteIds,
-        snackbarMessage,
+        undoSlot.hiddenIds,
+        undoSlot.snackbar,
     ) { backup, pending, snackMessage ->
         Transient(backup, pending, snackMessage)
     }
@@ -627,7 +569,7 @@ class CadenceViewModel(
      */
     fun deleteTask(task: Task) = scope.launch {
         val subtasks = state.value.subtasks(task.id)
-        offerUndo(
+        undoSlot.offer(
             UndoAction.DeleteTask(task, subtasks),
             count = 1 + subtasks.size,
         )
@@ -930,7 +872,7 @@ class CadenceViewModel(
         // speaks for its steps on screen, and a step left visible through the undo window would
         // stand in Today or Search until the commit landed and then blink away.
         val tasksInProject = if (deleteTasks) state.value.allTasksIn(project.id) else emptyList()
-        offerUndo(
+        undoSlot.offer(
             UndoAction.DeleteProject(project, tasksInProject, deleteTasks),
             count = if (deleteTasks) 1 + tasksInProject.size else 1,
         )
@@ -1147,7 +1089,7 @@ class CadenceViewModel(
     fun wipeEverything() = scope.launch {
         val snapshot = state.value
         if (snapshot.tasks.isEmpty() && snapshot.projects.isEmpty()) return@launch
-        offerUndo(
+        undoSlot.offer(
             UndoAction.DeleteEverything(
                 taskIds = snapshot.tasks.map { it.id },
                 projectIds = snapshot.projects.map { it.id },
@@ -1253,45 +1195,21 @@ class CadenceViewModel(
     }
 
     // ── Undo ─────────────────────────────────────────────────────────────────────────
+    //
+    // `offer`, `undo`, `show` and `dismiss` all live on `undoSlot` now (see its class doc for the
+    // two #114 rules); this ViewModel's own job is only [commitPendingDelete] below — the actual
+    // write `undoSlot` calls once a window elapses or a second delete settles this one out of
+    // band — and the three call sites above that hand it a fresh `UndoAction`.
 
     /**
-     * Offers an undo for [action]: hides its rows at once, shows the snackbar with a **Undo**
-     * button, and arms [commitPendingDelete] to run the real write after [UNDO_WINDOW].
+     * Runs the real destructive write [undoSlot] was holding back, then arms sync.
      *
-     * A second delete while one is already pending commits the first one immediately rather than
-     * racing two deferred jobs against the same data — the user moved on, so the previous delete
-     * is settled.
-     */
-    private fun offerUndo(action: UndoAction, count: Int) {
-        // Commit anything still pending before starting a new one: cancel its timer and run the
-        // write out of band, so its rows are truly gone rather than left filtered forever.
-        val prior = pendingDeleteAction
-        pendingDeleteJob?.cancel()
-        if (prior != null) {
-            scope.launch { commitPendingDelete(prior) }
-        }
-
-        pendingDeleteAction = action
-        pendingDeleteIds.value = pendingDeleteIds.value + action.ids
-        snackbarMessage.value = SnackbarMessage.Counted(
-            plural = Res.plurals.undo_items_deleted,
-            count = count,
-            args = listOf(count),
-            undoAction = action,
-        )
-        pendingDeleteJob = scope.launch {
-            delay(UNDO_WINDOW.toMillis())
-            commitPendingDelete(action)
-        }
-    }
-
-    /**
-     * Runs the real destructive write the undo window was holding back, then arms sync and
-     * clears the pending set so the rows stay hidden (the tombstone the write just made keeps
-     * them out of the flow on its own; clearing here is what drops the filter once they are).
+     * Unhiding the ids and clearing the snackbar, if it is still showing this action, are
+     * [undoSlot]'s to do once this returns — the tombstone this write just made keeps the rows
+     * out of the flow on its own; [undoSlot] dropping the filter is what stops them being hidden
+     * twice over.
      */
     private suspend fun commitPendingDelete(action: UndoAction) {
-        if (pendingDeleteAction === action) pendingDeleteAction = null
         when (action) {
             is UndoAction.DeleteTask -> {
                 action.subtasks.forEach { reminderScheduler.cancel(it.id) }
@@ -1311,61 +1229,23 @@ class CadenceViewModel(
             }
         }
         armSync()
-        pendingDeleteIds.value = pendingDeleteIds.value - action.ids
-        if (snackbarMessage.value?.undoAction === action) {
-            clearSnackbar()
-        }
     }
 
-    /**
-     * Undo. Cancels the deferred delete job and unhides the rows it was holding back — they were
-     * never written, so they reappear from the flow that was feeding them, and there is no
-     * database transaction at all. This is the whole point of offsetting the write by the undo
-     * window.
-     *
-     * **Only this action's ids come back.** [offerUndo] settles a *prior* delete out of band when
-     * a second one arrives, and that commit is still in flight with its own ids in
-     * [pendingDeleteIds]; clearing the whole set would flash those rows back into every list
-     * until the write caught up and took them away again. Nothing rescues them — the user moved
-     * on, which is what settling them meant.
-     */
+    /** Undo the delete [undoSlot] is still holding back — see its own doc for what "only this
+     *  action's ids come back" means. */
     fun undo() {
-        val action = pendingDeleteAction
-        pendingDeleteJob?.cancel()
-        pendingDeleteJob = null
-        pendingDeleteAction = null
-        pendingDeleteIds.value = pendingDeleteIds.value - action?.ids.orEmpty()
-        clearSnackbar()
+        undoSlot.undo()
     }
 
     /** Dismiss the current snackbar. Committing a pending delete is left to its own timer —
      *  dismissing the banner does not rush the write, it only stops showing it. */
     fun dismissSnackbar() {
-        clearSnackbar()
+        undoSlot.dismiss()
     }
 
     /** Show an informational snackbar with no undo action. */
     fun showSnackbar(text: StringResource, args: List<Any> = emptyList()) {
-        show(SnackbarMessage.Text(text = text, args = args))
-    }
-
-    /**
-     * Raises [message], or holds it back while the slot carries an undo the user can still take
-     * (see [queuedMessage]). Every informational message goes through here; [offerUndo] writes
-     * the flow directly, because an undo is what this defers *to*.
-     */
-    private fun show(message: SnackbarMessage) {
-        if (snackbarMessage.value?.undoAction != null) {
-            queuedMessage = message
-        } else {
-            snackbarMessage.value = message
-        }
-    }
-
-    /** Empties the slot, and lets whatever was waiting for it through. */
-    private fun clearSnackbar() {
-        snackbarMessage.value = queuedMessage
-        queuedMessage = null
+        undoSlot.show(SnackbarMessage.Text(text = text, args = args))
     }
 
     /** Stops everything this ViewModel started. The shell calls it when the screen it belongs
