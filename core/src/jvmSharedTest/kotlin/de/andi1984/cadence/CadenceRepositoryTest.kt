@@ -13,7 +13,10 @@ import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -862,5 +865,91 @@ class CadenceRepositoryTest {
         repository.deleteEverything()
 
         assertTrue(tagStore.getAll().isEmpty())
+    }
+
+    // ── localWrites ──────────────────────────────────────────────────────────────────
+    //
+    // The repository announces "this device wrote" itself now — `CadenceViewModel` no longer
+    // arms its sync debounce from each mutation, it collects this flow instead. The rule that
+    // matters is which calls tick and which don't: a validation failure or a store error must
+    // not (the same "arm on Success only" the ViewModel's `when` used to encode), an attachment
+    // write never does (an attachment is not in the wire shape at all), and a pull — which never
+    // goes through this class — cannot tick even in principle.
+
+    /**
+     * Subscribes to [CadenceRepository.localWrites] before returning, on [Dispatchers.Unconfined]
+     * so a `tryEmit` inside the test body delivers to it synchronously rather than waiting for a
+     * dispatcher turn nothing here ever gives it. `localWrites` replays nothing to a late
+     * subscriber (it is a tick, not an event log), so the collector has to already be running.
+     */
+    private fun TestScope.collectTicks(): MutableList<Unit> {
+        val ticks = mutableListOf<Unit>()
+        backgroundScope.launch(Dispatchers.Unconfined) {
+            repository.localWrites.collect { ticks.add(it) }
+        }
+        return ticks
+    }
+
+    @Test
+    fun `upsertTask ticks localWrites once`() = runTest {
+        val ticks = collectTicks()
+
+        repository.upsertTask(Task(title = "Buy milk"))
+
+        assertEquals(1, ticks.size)
+    }
+
+    @Test
+    fun `a project that fails validation does not tick localWrites`() = runTest {
+        val ticks = collectTicks()
+
+        val result = repository.upsertProject(Project(name = "   "))
+
+        assertEquals(RepositoryResult.ValidationError, result)
+        assertTrue(ticks.isEmpty())
+    }
+
+    @Test
+    fun `a tag whose name clashes does not tick localWrites`() = runTest {
+        repository.upsertTag(Tag(name = "Errand"))
+        val ticks = collectTicks()
+
+        val result = repository.upsertTag(Tag(name = "errand"))
+
+        assertTrue(result is RepositoryResult.Error)
+        assertTrue(ticks.isEmpty())
+    }
+
+    @Test
+    fun `an attachment write does not tick localWrites`() = runTest {
+        val task = store(Task(title = "Post the parcel"))
+        val ticks = collectTicks()
+
+        repository.addLinkAttachment(task.id, "https://example.org", "Receipt")
+
+        assertTrue(ticks.isEmpty())
+    }
+
+    /**
+     * A pull never reaches [CadenceRepository] at all — [SqlDelightSyncStore.mergeAndAdvance]
+     * writes straight to the database, which is the whole reason the ViewModel's debounce can
+     * collect [CadenceRepository.localWrites] without the two devices pushing each other awake.
+     */
+    @Test
+    fun `a sync merge never ticks localWrites`() = runTest {
+        val ticks = collectTicks()
+
+        stores.syncStore.mergeAndAdvance(
+            projects = emptyList(),
+            sections = emptyList(),
+            tags = emptyList(),
+            tasks = listOf(Task(id = "remote-1", title = "From the other device")),
+            taskCursor = null,
+            projectCursor = null,
+            sectionCursor = null,
+            tagCursor = null,
+        )
+
+        assertTrue(ticks.isEmpty())
     }
 }

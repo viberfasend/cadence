@@ -65,9 +65,10 @@ sealed class UndoAction {
  * once and shows a snackbar with an **Undo** button, but the real write — [commit] — does not run
  * until the window elapses, so an [undo] inside it costs no transaction at all, only the
  * cancellation of the deferred job. `CadenceViewModel` owns *what* [commit] does — dispatching to
- * the repository, cancelling reminders, arming sync — and hands it in as a lambda; this class owns
- * *when*, which is the two rules that follow from there being one pending action but possibly more
- * than one set of hidden ids:
+ * the repository and cancelling reminders, with the repository write ticking `localWrites` (and
+ * so arming sync) on its own — and hands it in as a lambda; this class owns *when*, which is the
+ * two rules that follow from there being one pending action but possibly more than one set of
+ * hidden ids:
  *
  * - **[undo] subtracts only its own action's ids, never the whole set.** A second [offer] settles
  *   a *prior* action out of band — the user moved on — and that commit may still be in flight with

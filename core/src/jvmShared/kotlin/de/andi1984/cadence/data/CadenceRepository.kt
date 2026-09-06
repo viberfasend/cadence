@@ -12,7 +12,11 @@ import de.andi1984.cadence.domain.recurrence.RecurrenceEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -86,6 +90,46 @@ class CadenceRepository(
 
     val attachments: Flow<List<Attachment>> = attachmentStore.observeAll()
 
+    private val _localWrites = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    /**
+     * Ticks once after this device writes a task, project, section or tag — never after a pull.
+     *
+     * A tick, not an event log: nobody needs to know *what* changed, only that something did, so
+     * a slow or absent collector never sees more than one pending tick (`DROP_OLDEST`, capacity
+     * 1) and a fresh subscriber sees nothing that happened before it subscribed (no replay). The
+     * ViewModel's sync debounce is the one collector today, and this is deliberately where the
+     * signal now originates instead of at every call site: [SqlDelightSyncStore.mergeAndAdvance]
+     * writes a pulled page straight to the database and never calls through this class, so a row
+     * merged in from another device can never appear here — the debounce can collect this flow
+     * without the two devices pushing each other awake forever (ADR 0002, decision 11).
+     */
+    val localWrites: SharedFlow<Unit> = _localWrites.asSharedFlow()
+
+    /**
+     * Runs [block] and ticks [localWrites] once it returns without throwing.
+     *
+     * Every method that used to be followed by `CadenceViewModel.armSync()` routes its write
+     * through here instead. A method that reports success or failure as a [RepositoryResult]
+     * wraps only the store call inside its success branch, so a validation error or a store
+     * failure never ticks — matching exactly what used to arm sync only from the `Success` branch
+     * of the caller's `when`. A method with no such branch (an unconditional `armSync()` today)
+     * wraps its whole body instead, ticking even where an internal guard made the call a no-op —
+     * `setCompleted`'s second tap on an already-done task, for one — because that is what always
+     * arming after the call already did.
+     *
+     * Attachment mutations are the one exception and never call this at all — see the comment by
+     * the attachment methods below for why.
+     */
+    private suspend fun <T> write(block: suspend () -> T): T {
+        val result = block()
+        _localWrites.tryEmit(Unit)
+        return result
+    }
+
     /**
      * Every attachment, and which of the blobs they name are actually on disk right now.
      *
@@ -124,20 +168,23 @@ class CadenceRepository(
             createdAt = if (task.createdAt == Instant.EPOCH) now else task.createdAt,
             updatedAt = now,
         )
-        return if (stamped.id.isBlank()) {
-            val minted = stamped.copy(
-                id = UuidV7.random(),
-                // A new task goes to the *bottom* of its list, which is only true if someone
-                // gives it a position: every row used to be inserted with 0 and manual order was
-                // therefore id order. A caller that already picked a position keeps it — that is
-                // what `addSubtask` does, and what an import does with the file's own numbers.
-                sortOrder = if (stamped.sortOrder == 0) nextTaskOrder(stamped) else stamped.sortOrder,
-            )
-            taskStore.insert(minted)
-            minted.id
-        } else {
-            taskStore.update(stamped)
-            stamped.id
+        return write {
+            if (stamped.id.isBlank()) {
+                val minted = stamped.copy(
+                    id = UuidV7.random(),
+                    // A new task goes to the *bottom* of its list, which is only true if someone
+                    // gives it a position: every row used to be inserted with 0 and manual order
+                    // was therefore id order. A caller that already picked a position keeps it —
+                    // that is what `addSubtask` does, and what an import does with the file's own
+                    // numbers.
+                    sortOrder = if (stamped.sortOrder == 0) nextTaskOrder(stamped) else stamped.sortOrder,
+                )
+                taskStore.insert(minted)
+                minted.id
+            } else {
+                taskStore.update(stamped)
+                stamped.id
+            }
         }
     }
 
@@ -166,7 +213,7 @@ class CadenceRepository(
      * ([sweepOrphanBlobs] is the backstop for exactly a blob the reclaim step never reached), and
      * not something a SQL rollback could undo anyway.
      */
-    suspend fun deleteTask(id: String) {
+    suspend fun deleteTask(id: String): Unit = write {
         val hashes = storeTransaction.run {
             val ids = listOf(id) + subtasksOf(id).map { it.id }
             val hashes = hashesForTasks(ids)
@@ -192,7 +239,7 @@ class CadenceRepository(
      * that no longer answer, which is the failure the whole `deleteWithChildren` rule exists to
      * avoid. Running the wipe again finishes the job: every part is idempotent.
      */
-    suspend fun deleteEverything(): List<String> {
+    suspend fun deleteEverything(): List<String> = write {
         val taskIds = taskStore.getAll().map { it.id }
         val hashes = attachmentStore.hashesForTasks(taskIds)
         attachmentStore.deleteForTasks(taskIds)
@@ -202,7 +249,7 @@ class CadenceRepository(
         tagStore.tombstoneAll(at)
         projectStore.tombstoneAll(at)
         reclaim(hashes)
-        return taskIds
+        taskIds
     }
 
     suspend fun subtasksOf(parentId: String): List<Task> = taskStore.subtasksOf(parentId)
@@ -240,7 +287,7 @@ class CadenceRepository(
                 updatedAt = now,
                 sortOrder = currentSubtaskCount,
             )
-            taskStore.insert(newTask)
+            write { taskStore.insert(newTask) }
             RepositoryResult.Success(newTask.id)
         } catch (e: CancellationException) {
             throw e
@@ -255,7 +302,7 @@ class CadenceRepository(
      * The section is dropped, not carried: a section belongs to one project, so the heading the
      * task had means nothing in the project it is arriving at.
      */
-    suspend fun moveToProject(task: Task, projectId: String?) {
+    suspend fun moveToProject(task: Task, projectId: String?): Unit = write {
         val now = now()
         taskStore.update(task.copy(projectId = projectId, sectionId = null, updatedAt = now))
         taskStore.subtasksOf(task.id).forEach {
@@ -270,8 +317,8 @@ class CadenceRepository(
      * under a different heading than the task it belongs to would read as two separate pieces of
      * work. A task with no project has nowhere to be grouped, so this does nothing for one.
      */
-    suspend fun moveToSection(task: Task, sectionId: String?) {
-        if (task.projectId == null && sectionId != null) return
+    suspend fun moveToSection(task: Task, sectionId: String?): Unit = write {
+        if (task.projectId == null && sectionId != null) return@write
         val now = now()
         taskStore.update(task.copy(sectionId = sectionId, updatedAt = now))
         taskStore.subtasksOf(task.id)
@@ -316,9 +363,9 @@ class CadenceRepository(
         task: Task,
         completed: Boolean,
         today: LocalDate = today(),
-    ): List<String> {
+    ): List<String> = write {
         if (!completed) {
-            return storeTransaction.run {
+            return@write storeTransaction.run {
                 if (reopenTaskIfDone(task.id, now()) == 0) return@run emptyList()
                 val successors = openSuccessorsOf(task.id)
                 val at = now()
@@ -326,7 +373,7 @@ class CadenceRepository(
                 successors
             }
         }
-        return storeTransaction.run {
+        storeTransaction.run {
             val now = now()
             if (completeTaskIfOpen(task.id, now) == 0) return@run emptyList()
 
@@ -380,17 +427,17 @@ class CadenceRepository(
     }
 
     /** Moves a task's due date by [days], used by snooze and the overdue triage action. */
-    suspend fun shiftDueDate(task: Task, days: Long, from: LocalDate = today()) {
+    suspend fun shiftDueDate(task: Task, days: Long, from: LocalDate = today()): Unit = write {
         val base = task.dueDate?.takeIf { it.isAfter(from) } ?: from
         taskStore.update(task.copy(dueDate = base.plusDays(days), updatedAt = now()))
     }
 
-    suspend fun setDueDate(task: Task, dueDate: LocalDate?) {
+    suspend fun setDueDate(task: Task, dueDate: LocalDate?): Unit = write {
         taskStore.update(task.copy(dueDate = dueDate, updatedAt = now()))
     }
 
     /** "Reschedule all" on the overdue block: everything overdue lands on today. */
-    suspend fun rescheduleOverdueToToday(today: LocalDate = today()) {
+    suspend fun rescheduleOverdueToToday(today: LocalDate = today()): Unit = write {
         val now = now()
         taskStore.getAll()
             .filter { it.isOverdue(today) }
@@ -419,8 +466,8 @@ class CadenceRepository(
      * to are skipped by the store rather than being an error — a list can be dragged while a pull
      * is deleting one of its rows.
      */
-    suspend fun reorderTasks(orderedIds: List<String>) {
-        if (orderedIds.size < 2) return
+    suspend fun reorderTasks(orderedIds: List<String>): Unit = write {
+        if (orderedIds.size < 2) return@write
         taskStore.reorder(orderedIds.mapIndexed { index, id -> id to index }, now())
     }
 
@@ -431,21 +478,21 @@ class CadenceRepository(
      * and goes through [upsertProject], and renumbering it here would leave it nested but ordered
      * among rows it is not beside.
      */
-    suspend fun reorderProjects(parentId: String?, orderedIds: List<String>) {
+    suspend fun reorderProjects(parentId: String?, orderedIds: List<String>): Unit = write {
         val here = projectStore.getAll().filterTo(mutableSetOf()) { it.parentId == parentId }
             .mapTo(mutableSetOf()) { it.id }
         val kept = orderedIds.filter { it in here }
-        if (kept.size < 2) return
+        if (kept.size < 2) return@write
         projectStore.reorder(kept.mapIndexed { index, id -> id to index }, now())
     }
 
     /** Writes the order of [projectId]'s bands. Ids from another project are ignored, as in
      *  [reorderProjects]. */
-    suspend fun reorderSections(projectId: String, orderedIds: List<String>) {
+    suspend fun reorderSections(projectId: String, orderedIds: List<String>): Unit = write {
         val here = sectionStore.getAll().filterTo(mutableSetOf()) { it.projectId == projectId }
             .mapTo(mutableSetOf()) { it.id }
         val kept = orderedIds.filter { it in here }
-        if (kept.size < 2) return
+        if (kept.size < 2) return@write
         sectionStore.reorder(kept.mapIndexed { index, id -> id to index }, now())
     }
 
@@ -475,21 +522,23 @@ class CadenceRepository(
 
         return try {
             val stamped = project.copy(updatedAt = now())
-            val id = if (stamped.id.isBlank()) {
-                val minted = stamped.copy(
-                    id = UuidV7.random(),
-                    // Last in its list — see the same line in [upsertTask].
-                    sortOrder = if (stamped.sortOrder == 0) {
-                        (projectStore.maxSortOrder(stamped.parentId) ?: -1) + 1
-                    } else {
-                        stamped.sortOrder
-                    },
-                )
-                projectStore.insert(minted)
-                minted.id
-            } else {
-                projectStore.update(stamped)
-                stamped.id
+            val id = write {
+                if (stamped.id.isBlank()) {
+                    val minted = stamped.copy(
+                        id = UuidV7.random(),
+                        // Last in its list — see the same line in [upsertTask].
+                        sortOrder = if (stamped.sortOrder == 0) {
+                            (projectStore.maxSortOrder(stamped.parentId) ?: -1) + 1
+                        } else {
+                            stamped.sortOrder
+                        },
+                    )
+                    projectStore.insert(minted)
+                    minted.id
+                } else {
+                    projectStore.update(stamped)
+                    stamped.id
+                }
             }
             RepositoryResult.Success(id)
         } catch (e: CancellationException) {
@@ -536,7 +585,7 @@ class CadenceRepository(
      * is exactly the outcome this whole method exists to prevent. [reclaim] stays outside it for
      * the same reason it does there.
      */
-    suspend fun deleteProject(id: String, deleteTasks: Boolean = false): List<String> {
+    suspend fun deleteProject(id: String, deleteTasks: Boolean = false): List<String> = write {
         val (affected, hashes) = storeTransaction.run {
             val affected = if (deleteTasks) taskIdsInProject(id) else emptyList()
             val hashes = if (deleteTasks) hashesForTasks(affected) else emptyList()
@@ -545,7 +594,7 @@ class CadenceRepository(
             affected to hashes
         }
         reclaim(hashes)
-        return affected
+        affected
     }
 
     // ── Sections ───────────────────────────────────────────────────────────────────
@@ -563,21 +612,23 @@ class CadenceRepository(
         }
         return try {
             val stamped = section.copy(name = section.name.trim(), updatedAt = now())
-            val id = if (stamped.id.isBlank()) {
-                val minted = stamped.copy(
-                    id = UuidV7.random(),
-                    // A new band goes below the existing ones — see [upsertTask].
-                    sortOrder = if (stamped.sortOrder == 0) {
-                        (sectionStore.maxSortOrder(stamped.projectId) ?: -1) + 1
-                    } else {
-                        stamped.sortOrder
-                    },
-                )
-                sectionStore.insert(minted)
-                minted.id
-            } else {
-                sectionStore.update(stamped)
-                stamped.id
+            val id = write {
+                if (stamped.id.isBlank()) {
+                    val minted = stamped.copy(
+                        id = UuidV7.random(),
+                        // A new band goes below the existing ones — see [upsertTask].
+                        sortOrder = if (stamped.sortOrder == 0) {
+                            (sectionStore.maxSortOrder(stamped.projectId) ?: -1) + 1
+                        } else {
+                            stamped.sortOrder
+                        },
+                    )
+                    sectionStore.insert(minted)
+                    minted.id
+                } else {
+                    sectionStore.update(stamped)
+                    stamped.id
+                }
             }
             RepositoryResult.Success(id)
         } catch (e: CancellationException) {
@@ -594,7 +645,7 @@ class CadenceRepository(
      * section is a band in a list, and nobody means "and everything in it" by dragging a heading
      * away. Deleting the work is what deleting a task or a project is for.
      */
-    suspend fun deleteSection(id: String) {
+    suspend fun deleteSection(id: String): Unit = write {
         sectionStore.tombstone(id, now())
     }
 
@@ -618,21 +669,23 @@ class CadenceRepository(
 
         return try {
             val stamped = tag.copy(name = name, updatedAt = now())
-            val id = if (stamped.id.isBlank()) {
-                val minted = stamped.copy(
-                    id = UuidV7.random(),
-                    // Last in the list — see the same line in [upsertTask].
-                    sortOrder = if (stamped.sortOrder == 0) {
-                        (tagStore.maxSortOrder() ?: -1) + 1
-                    } else {
-                        stamped.sortOrder
-                    },
-                )
-                tagStore.insert(minted)
-                minted.id
-            } else {
-                tagStore.update(stamped)
-                stamped.id
+            val id = write {
+                if (stamped.id.isBlank()) {
+                    val minted = stamped.copy(
+                        id = UuidV7.random(),
+                        // Last in the list — see the same line in [upsertTask].
+                        sortOrder = if (stamped.sortOrder == 0) {
+                            (tagStore.maxSortOrder() ?: -1) + 1
+                        } else {
+                            stamped.sortOrder
+                        },
+                    )
+                    tagStore.insert(minted)
+                    minted.id
+                } else {
+                    tagStore.update(stamped)
+                    stamped.id
+                }
             }
             RepositoryResult.Success(id)
         } catch (e: CancellationException) {
@@ -651,13 +704,13 @@ class CadenceRepository(
      * an id no live tag answers to. It also means reviving the tag from a backup puts it back on
      * exactly the tasks that had it.
      */
-    suspend fun deleteTag(id: String) {
+    suspend fun deleteTag(id: String): Unit = write {
         tagStore.tombstone(id, now())
     }
 
     /** Writes the order of the tag list — see [reorderTasks]. */
-    suspend fun reorderTags(orderedIds: List<String>) {
-        if (orderedIds.size < 2) return
+    suspend fun reorderTags(orderedIds: List<String>): Unit = write {
+        if (orderedIds.size < 2) return@write
         tagStore.reorder(orderedIds.mapIndexed { index, id -> id to index }, now())
     }
 
@@ -674,9 +727,9 @@ class CadenceRepository(
      * pruned. A pull can deliver a task before the tag it names, and a repository that pruned on
      * write would erase the label a moment before its tag arrived.
      */
-    suspend fun setTaskTags(task: Task, tagIds: List<String>) {
+    suspend fun setTaskTags(task: Task, tagIds: List<String>): Unit = write {
         val cleaned = tagIds.filter { it.isNotBlank() }.distinct()
-        if (cleaned == task.tagIds) return
+        if (cleaned == task.tagIds) return@write
         taskStore.update(task.copy(tagIds = cleaned, updatedAt = now()))
     }
 
@@ -689,6 +742,11 @@ class CadenceRepository(
     }
 
     // ── Attachments ────────────────────────────────────────────────────────────────
+    //
+    // None of these route through `write` — and that is not an oversight: an attachment is a
+    // local fact. Its row is not in the wire shape (`data/sync/RemoteRecords.kt`) and its bytes
+    // are not in the backup file either until the bundle export of phase 4, so there is nothing
+    // here for a round to push and no reason to tick `localWrites` at all.
 
     sealed class AddAttachmentResult {
         data class Success(val id: String) : AddAttachmentResult()
@@ -854,7 +912,7 @@ class CadenceRepository(
      * Blobs are swept afterwards because the merge can leave attachment rows naming tasks that
      * lost — see `mergeAll`, which does not touch attachments itself.
      */
-    suspend fun restore(snapshot: BackupSnapshot) {
+    suspend fun restore(snapshot: BackupSnapshot): Unit = write {
         backupStore.mergeAll(
             projects = snapshot.projects,
             sections = snapshot.sections,

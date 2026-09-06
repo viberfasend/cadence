@@ -57,6 +57,12 @@ kotlin {
             // tests too, which `:core:testDebugUnitTest` already relies on.
             implementation(libs.sqldelight.sqlite.driver)
         }
+        jvmTest.dependencies {
+            // One test needs a real `CadenceSyncEngine` fed a fake HTTP engine, the same idea
+            // `:core`'s own sync tests use — proving the write debounce actually reaches
+            // `syncOnce()` needs a call the engine attempts, not just one the ViewModel makes.
+            implementation(libs.ktor.client.mock)
+        }
     }
 }
 
