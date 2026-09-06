@@ -1,6 +1,7 @@
 package de.andi1984.cadence.ui
 
-import de.andi1984.cadence.data.TaskStore
+import de.andi1984.cadence.data.StoreTransaction
+import de.andi1984.cadence.data.TransactionScope
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
@@ -15,7 +16,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -46,9 +46,9 @@ import java.time.LocalTime
 class CadenceViewModelUndoTest {
 
     private val stores = TestStores()
-    /** The real task store behind a gate one test needs — see [GatedTaskStore]. */
-    private val taskStore = GatedTaskStore(stores.taskStore)
-    private val repository = stores.repository(taskStore)
+    /** The real store transaction behind a gate one test needs — see [GatedStoreTransaction]. */
+    private val storeTransaction = GatedStoreTransaction(stores.storeTransaction)
+    private val repository = stores.repository(storeTransaction = storeTransaction)
     private val reminders = RecordingReminderScheduler()
     private val settings = FakeSettingsStore()
 
@@ -142,9 +142,9 @@ class CadenceViewModelUndoTest {
 
         val reached = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
-        taskStore.beforeTombstone = {
+        storeTransaction.beforeRun = {
             // Only the settled delete waits; the rest of the test runs at full speed.
-            taskStore.beforeTombstone = null
+            storeTransaction.beforeRun = null
             reached.complete(Unit)
             release.await()
         }
@@ -345,20 +345,23 @@ class CadenceViewModelUndoTest {
 }
 
 /**
- * The real [TaskStore] with one hook in front of its tombstone write, and nothing else of its own.
+ * The real [StoreTransaction] with one hook in front of [run], and nothing else of its own.
  *
  * `CadenceViewModel`'s undo window has a state — *this* delete is being written while *that* one
  * can still be taken back — that a test cannot otherwise stand inside: the store answers without
  * ever yielding, so `runCurrent()` drains a settled delete to completion in the same breath as the
- * one that settled it. Null by default, so every other call, and every other test, goes straight
- * through to the database.
+ * one that settled it. `deleteTask`'s whole write now lands in one `storeTransaction.run { … }`
+ * call, so gating in front of it reaches the same in-flight state gating the old tombstone call
+ * alone used to — one hook, still the only place in these tests that stands between the
+ * repository and SQLite. Null by default, so every other call, and every other test, goes
+ * straight through to the database.
  */
-private class GatedTaskStore(private val delegate: TaskStore) : TaskStore by delegate {
+private class GatedStoreTransaction(private val delegate: StoreTransaction) : StoreTransaction {
 
-    var beforeTombstone: (suspend () -> Unit)? = null
+    var beforeRun: (suspend () -> Unit)? = null
 
-    override suspend fun tombstoneWithSubtasks(id: String, at: Instant) {
-        beforeTombstone?.invoke()
-        delegate.tombstoneWithSubtasks(id, at)
+    override suspend fun <T> run(block: TransactionScope.() -> T): T {
+        beforeRun?.invoke()
+        return delegate.run(block)
     }
 }

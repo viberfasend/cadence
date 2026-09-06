@@ -62,6 +62,9 @@ class CadenceRepository(
     private val backupStore: BackupStore,
     private val attachmentStore: AttachmentStore,
     private val blobStore: BlobStore,
+    /** The one seam for making several of the stores above commit together — see the note on
+     *  [StoreTransaction] and on [setCompleted]/[deleteTask]/[deleteProject] below. */
+    private val storeTransaction: StoreTransaction,
     /** Where the blob store's filesystem work runs — every other port already dispatches its
      *  own I/O, and [BlobStore] is a plain `java.io` class with no dispatcher of its own. */
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -155,12 +158,22 @@ class CadenceRepository(
      * database's FK cascade — for the same reason as everywhere else this repository does that:
      * the fakes this class is tested against model no foreign-key semantics at all, so an
      * implicit delete would let a leak slip past every test that exists to catch one.
+     *
+     * The attachment delete and the tombstone land in one [storeTransaction] — a process killed
+     * between them used to leave either a task gone with its attachments still on disk, or a
+     * task still on the row's own way out with its attachments already gone. [reclaim] stays
+     * outside it: it is a filesystem cleanup, already idempotent on its own
+     * ([sweepOrphanBlobs] is the backstop for exactly a blob the reclaim step never reached), and
+     * not something a SQL rollback could undo anyway.
      */
     suspend fun deleteTask(id: String) {
-        val ids = listOf(id) + taskStore.subtasksOf(id).map { it.id }
-        val hashes = attachmentStore.hashesForTasks(ids)
-        attachmentStore.deleteForTasks(ids)
-        taskStore.tombstoneWithSubtasks(id, now())
+        val hashes = storeTransaction.run {
+            val ids = listOf(id) + subtasksOf(id).map { it.id }
+            val hashes = hashesForTasks(ids)
+            deleteAttachmentsForTasks(ids)
+            tombstoneTaskWithSubtasks(id, now())
+            hashes
+        }
         reclaim(hashes)
     }
 
@@ -291,6 +304,13 @@ class CadenceRepository(
      * @return the ids of the tasks this call deleted, so their reminders can be cancelled —
      *   [de.andi1984.cadence.reminders.ReminderScheduler.sync] only ever sees the tasks that
      *   still exist, so it cannot cancel an alarm for one that is already gone.
+     *
+     * Every write below — closing the row (or reopening it), shifting the subtasks, inserting
+     * the successor and its own subtasks, cloning the attachments — lands in one
+     * [storeTransaction]. Before this, each was its own write, and a process killed between
+     * "closed" and "successor inserted" left a completed row with no successor, silently ending
+     * the recurrence; a kill between "reopened" and "successor removed" left the task standing in
+     * the list twice.
      */
     suspend fun setCompleted(
         task: Task,
@@ -298,61 +318,65 @@ class CadenceRepository(
         today: LocalDate = today(),
     ): List<String> {
         if (!completed) {
-            if (taskStore.reopenIfDone(task.id, now()) == 0) return emptyList()
-            val successors = taskStore.openSuccessorsOf(task.id)
-            val at = now()
-            successors.forEach { taskStore.tombstoneWithSubtasks(it, at) }
-            return successors
+            return storeTransaction.run {
+                if (reopenTaskIfDone(task.id, now()) == 0) return@run emptyList()
+                val successors = openSuccessorsOf(task.id)
+                val at = now()
+                successors.forEach { tombstoneTaskWithSubtasks(it, at) }
+                successors
+            }
         }
-        val now = now()
-        if (taskStore.completeIfOpen(task.id, now) == 0) return emptyList()
+        return storeTransaction.run {
+            val now = now()
+            if (completeTaskIfOpen(task.id, now) == 0) return@run emptyList()
 
-        // Read the row back rather than trust the snapshot: the rule, the due date and the
-        // project may have been edited since the row was drawn, and the next occurrence
-        // inherits all of them.
-        val current = taskStore.byId(task.id) ?: return emptyList()
+            // Read the row back rather than trust the snapshot: the rule, the due date and the
+            // project may have been edited since the row was drawn, and the next occurrence
+            // inherits all of them.
+            val current = taskById(task.id) ?: return@run emptyList()
 
-        val subtasks = subtasksOf(current.id)
-        subtasks.filter { !it.isDone }
-            .forEach { taskStore.update(it.copy(completedAt = now, updatedAt = now)) }
+            val subtasks = subtasksOf(current.id)
+            subtasks.filter { !it.isDone }
+                .forEach { updateTask(it.copy(completedAt = now, updatedAt = now)) }
 
-        val rule = current.recurrence ?: return emptyList()
-        val nextDue = RecurrenceEngine.dueDateAfterCompletion(rule, current.dueDate, today)
-        val nextId = UuidV7.successorId(current.id, nextDue)
-        taskStore.insert(
-            current.copy(
-                id = nextId,
-                completedAt = null,
-                dueDate = nextDue,
-                createdAt = now,
-                updatedAt = now,
-                spawnedFromId = current.id,
-            ),
-        )
-        val shift = current.dueDate?.let { ChronoUnit.DAYS.between(it, nextDue) } ?: 0L
-        subtasks.forEach { subtask ->
-            taskStore.insert(
-                subtask.copy(
-                    id = UuidV7.successorId(current.id, nextDue, discriminant = subtask.id),
-                    parentId = nextId,
+            val rule = current.recurrence ?: return@run emptyList()
+            val nextDue = RecurrenceEngine.dueDateAfterCompletion(rule, current.dueDate, today)
+            val nextId = UuidV7.successorId(current.id, nextDue)
+            insertTask(
+                current.copy(
+                    id = nextId,
                     completedAt = null,
-                    dueDate = subtask.dueDate?.plusDays(shift),
+                    dueDate = nextDue,
                     createdAt = now,
                     updatedAt = now,
-                    // The step belongs to the new occurrence, which already carries the link
-                    // back; only the parent rows form the chain.
-                    spawnedFromId = null,
+                    spawnedFromId = current.id,
                 ),
             )
-        }
+            val shift = current.dueDate?.let { ChronoUnit.DAYS.between(it, nextDue) } ?: 0L
+            subtasks.forEach { subtask ->
+                insertTask(
+                    subtask.copy(
+                        id = UuidV7.successorId(current.id, nextDue, discriminant = subtask.id),
+                        parentId = nextId,
+                        completedAt = null,
+                        dueDate = subtask.dueDate?.plusDays(shift),
+                        createdAt = now,
+                        updatedAt = now,
+                        // The step belongs to the new occurrence, which already carries the link
+                        // back; only the parent rows form the chain.
+                        spawnedFromId = null,
+                    ),
+                )
+            }
 
-        // A checklist is the method of doing the task, and the method repeats — attachments
-        // follow the same rule and hand over unticked. The store is content-addressed, so
-        // cloning a FILE row copies no bytes, only a row that points at the same blob.
-        attachmentStore.forTask(current.id).forEach { attachment ->
-            attachmentStore.insert(attachment.copy(id = UuidV7.random(), taskId = nextId))
+            // A checklist is the method of doing the task, and the method repeats — attachments
+            // follow the same rule and hand over unticked. The store is content-addressed, so
+            // cloning a FILE row copies no bytes, only a row that points at the same blob.
+            attachmentsForTask(current.id).forEach { attachment ->
+                insertAttachment(attachment.copy(id = UuidV7.random(), taskId = nextId))
+            }
+            emptyList()
         }
-        return emptyList()
     }
 
     /** Moves a task's due date by [days], used by snooze and the overdue triage action. */
@@ -505,12 +529,21 @@ class CadenceRepository(
      * deleted their attachments go with them, explicitly and ahead of the task rows, and
      * whichever blobs that leaves unnamed are reclaimed. Tasks moved to the Inbox keep their
      * attachments — nothing to reclaim there.
+     *
+     * Reading which tasks are affected, deleting their attachments and tombstoning the project
+     * tree all land in one [storeTransaction], the same reasoning as [deleteTask]: without it, a
+     * process killed mid-delete could leave a task naming a project that answers to nobody, which
+     * is exactly the outcome this whole method exists to prevent. [reclaim] stays outside it for
+     * the same reason it does there.
      */
     suspend fun deleteProject(id: String, deleteTasks: Boolean = false): List<String> {
-        val affected = if (deleteTasks) projectStore.taskIdsIn(id) else emptyList()
-        val hashes = if (deleteTasks) attachmentStore.hashesForTasks(affected) else emptyList()
-        if (deleteTasks) attachmentStore.deleteForTasks(affected)
-        projectStore.tombstoneWithChildren(id, deleteTasks, now())
+        val (affected, hashes) = storeTransaction.run {
+            val affected = if (deleteTasks) taskIdsInProject(id) else emptyList()
+            val hashes = if (deleteTasks) hashesForTasks(affected) else emptyList()
+            if (deleteTasks) deleteAttachmentsForTasks(affected)
+            tombstoneProjectWithChildren(id, deleteTasks, now())
+            affected to hashes
+        }
         reclaim(hashes)
         return affected
     }

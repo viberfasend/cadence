@@ -9,6 +9,7 @@ import de.andi1984.cadence.data.db.SqlDelightAttachmentStore
 import de.andi1984.cadence.data.db.SqlDelightBackupStore
 import de.andi1984.cadence.data.db.SqlDelightProjectStore
 import de.andi1984.cadence.data.db.SqlDelightSectionStore
+import de.andi1984.cadence.data.db.SqlDelightStoreTransaction
 import de.andi1984.cadence.data.db.SqlDelightSyncStore
 import de.andi1984.cadence.data.db.SqlDelightTagStore
 import de.andi1984.cadence.data.db.SqlDelightTaskStore
@@ -56,6 +57,7 @@ class TestStores(val database: CadenceDatabase = inMemoryDatabase()) {
     val attachmentStore = SqlDelightAttachmentStore(database, Dispatchers.Unconfined)
     val backupStore = SqlDelightBackupStore(database, Dispatchers.Unconfined)
     val syncStore = SqlDelightSyncStore(database, Dispatchers.Unconfined)
+    val storeTransaction = SqlDelightStoreTransaction(database, Dispatchers.Unconfined)
     val blobStore = BlobStore(
         root = Files.createTempDirectory("cadence-blobs").toFile(),
         tmp = Files.createTempDirectory("cadence-blobs-tmp").toFile(),
@@ -76,6 +78,7 @@ class TestStores(val database: CadenceDatabase = inMemoryDatabase()) {
         backupStore,
         attachmentStore,
         blobStore,
+        storeTransaction,
         Dispatchers.Unconfined,
         clock,
     )

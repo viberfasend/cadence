@@ -3,12 +3,14 @@ package de.andi1984.cadence.ui
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import de.andi1984.cadence.data.BlobStore
 import de.andi1984.cadence.data.CadenceRepository
+import de.andi1984.cadence.data.StoreTransaction
 import de.andi1984.cadence.data.TaskStore
 import de.andi1984.cadence.data.db.CadenceDatabase
 import de.andi1984.cadence.data.db.SqlDelightAttachmentStore
 import de.andi1984.cadence.data.db.SqlDelightBackupStore
 import de.andi1984.cadence.data.db.SqlDelightProjectStore
 import de.andi1984.cadence.data.db.SqlDelightSectionStore
+import de.andi1984.cadence.data.db.SqlDelightStoreTransaction
 import de.andi1984.cadence.data.db.SqlDelightTagStore
 import de.andi1984.cadence.data.db.SqlDelightTaskStore
 import de.andi1984.cadence.domain.model.Attachment
@@ -57,17 +59,19 @@ class TestStores(val database: CadenceDatabase = inMemoryDatabase()) {
     val tagStore = SqlDelightTagStore(database, Dispatchers.Unconfined)
     val attachmentStore = SqlDelightAttachmentStore(database, Dispatchers.Unconfined)
     val backupStore = SqlDelightBackupStore(database, Dispatchers.Unconfined)
+    val storeTransaction = SqlDelightStoreTransaction(database, Dispatchers.Unconfined)
     val blobStore = BlobStore(
         root = Files.createTempDirectory("cadence-ui-blobs").toFile(),
         tmp = Files.createTempDirectory("cadence-ui-blobs-tmp").toFile(),
     )
 
-    /** A repository over the stores above. [taskStore] can be swapped for a wrapper around the
-     *  real one — `CadenceViewModelUndoTest` gates a write that way to stand inside it. [clock]
-     *  defaults to the real one; a test pins it to assert against a fixed "now"/"today" instead
-     *  of reading the machine's own. */
+    /** A repository over the stores above. [taskStore] and [storeTransaction] can each be
+     *  swapped for a wrapper around the real one — `CadenceViewModelUndoTest` gates a write that
+     *  way to stand inside it. [clock] defaults to the real one; a test pins it to assert
+     *  against a fixed "now"/"today" instead of reading the machine's own. */
     fun repository(
         taskStore: TaskStore = this.taskStore,
+        storeTransaction: StoreTransaction = this.storeTransaction,
         clock: Clock = Clock.systemDefaultZone(),
     ): CadenceRepository = CadenceRepository(
         taskStore,
@@ -77,6 +81,7 @@ class TestStores(val database: CadenceDatabase = inMemoryDatabase()) {
         backupStore,
         attachmentStore,
         blobStore,
+        storeTransaction,
         Dispatchers.Unconfined,
         clock,
     )

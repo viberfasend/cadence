@@ -208,6 +208,97 @@ interface TagStore {
     suspend fun maxSortOrder(): Int?
 }
 
+/**
+ * The store operations [CadenceRepository] can reach *while inside* a [StoreTransaction] — plain,
+ * synchronous counterparts of the handful of [TaskStore]/[ProjectStore]/[AttachmentStore] calls
+ * that need to land together, so [StoreTransaction.run]'s block can compose them without itself
+ * being `suspend`.
+ *
+ * `suspend` is deliberately absent from every member here. The SQLDelight transaction
+ * [StoreTransaction.run] opens is one call, synchronous underneath — its own callback type is a
+ * plain `() -> T`, not a suspend one — so anything invoked from inside it has to be synchronous
+ * too, all the way down; a `suspend` member here would tempt a caller to await something that
+ * takes real time (another dispatcher, a lock, a genuinely asynchronous store), which would leave
+ * the transaction open for however long that takes and block whatever else wants the connection.
+ * [TaskStore]/[ProjectStore]/[AttachmentStore] stay `suspend` everywhere else, because outside a
+ * transaction that is exactly right — it is what lets a call move off the caller's thread.
+ */
+interface TransactionScope {
+    /** @return 1 when the row was open and is now done, 0 when it was already done or is gone —
+     *  see [TaskStore.completeIfOpen]. */
+    fun completeTaskIfOpen(id: String, completedAt: Instant): Int
+
+    /** The mirror of [completeTaskIfOpen] — see [TaskStore.reopenIfDone]. */
+    fun reopenTaskIfDone(id: String, updatedAt: Instant): Int
+
+    /** See [TaskStore.openSuccessorsOf]. */
+    fun openSuccessorsOf(id: String): List<String>
+
+    /** See [TaskStore.tombstoneWithSubtasks]. */
+    fun tombstoneTaskWithSubtasks(id: String, at: Instant)
+
+    /** See [TaskStore.byId]. */
+    fun taskById(id: String): Task?
+
+    /** See [TaskStore.subtasksOf]. */
+    fun subtasksOf(parentId: String): List<Task>
+
+    /** See [TaskStore.update]. */
+    fun updateTask(task: Task)
+
+    /** See [TaskStore.insert]. */
+    fun insertTask(task: Task)
+
+    /** See [AttachmentStore.forTask]. */
+    fun attachmentsForTask(taskId: String): List<Attachment>
+
+    /** See [AttachmentStore.insert]. */
+    fun insertAttachment(attachment: Attachment)
+
+    /** See [AttachmentStore.hashesForTasks]. */
+    fun hashesForTasks(taskIds: List<String>): List<String>
+
+    /** See [AttachmentStore.deleteForTasks]. */
+    fun deleteAttachmentsForTasks(taskIds: List<String>)
+
+    /** See [ProjectStore.taskIdsIn]. */
+    fun taskIdsInProject(projectId: String): List<String>
+
+    /** See [ProjectStore.tombstoneWithChildren]. */
+    fun tombstoneProjectWithChildren(id: String, deleteTasks: Boolean, at: Instant)
+}
+
+/**
+ * The one seam where [CadenceRepository] can ask storage to make several writes — across several
+ * of the ports above — land together: all of [block]'s writes commit, or (if it throws) none of
+ * them do.
+ *
+ * This exists because a handful of repository methods are a *chain* of otherwise-independent
+ * store calls that only make sense as a unit — completing a recurring task closes the finished
+ * row and inserts its successor, and a process killed between the two leaves a completed task
+ * with no successor, silently ending the recurrence. [run] is how the repository says "these
+ * calls are one write."
+ *
+ * [block] takes a [TransactionScope] rather than being handed the ordinary suspend ports: an
+ * earlier version of this seam tried to let [block] call [TaskStore]/[AttachmentStore] directly
+ * and bridged the suspend/non-suspend gap with a coroutine intrinsic, and a real test caught what
+ * that costs — a store call that genuinely suspends (in that test, a `CompletableDeferred` a
+ * production build will never see, but the mechanism does not know that) does not "come back
+ * later" inside a plain SQLDelight transaction callback; it leaves the transaction lambda with
+ * nothing to return, and the still-suspended coroutine finishes on its own afterwards, its writes
+ * landing nowhere near the transaction that already gave up on it. [TransactionScope] rules that
+ * out structurally: nothing reachable from inside [run] can suspend at all.
+ *
+ * A single method rather than one per repository operation, because the alternative is either a
+ * bespoke atomic method per call site (which the SQLDelight layer already has a precedent for —
+ * [de.andi1984.cadence.data.sync.SyncStore.mergeAndAdvance] — but which pulls the recurrence and
+ * subtask *rules* down into storage, where CLAUDE.md is explicit that they must not live) or this
+ * one seam the rules stay written next to.
+ */
+interface StoreTransaction {
+    suspend fun <T> run(block: TransactionScope.() -> T): T
+}
+
 interface BackupStore {
 
     /**

@@ -6,6 +6,7 @@ import de.andi1984.cadence.data.db.SqlDelightAttachmentStore
 import de.andi1984.cadence.data.db.SqlDelightBackupStore
 import de.andi1984.cadence.data.db.SqlDelightProjectStore
 import de.andi1984.cadence.data.db.SqlDelightSectionStore
+import de.andi1984.cadence.data.db.SqlDelightStoreTransaction
 import de.andi1984.cadence.data.db.SqlDelightSyncStore
 import de.andi1984.cadence.data.db.SqlDelightTagStore
 import de.andi1984.cadence.data.db.SqlDelightTaskStore
@@ -20,7 +21,7 @@ import java.io.File
 
 /**
  * The dependency graph the two shells used to build twice: the database, the blob store, the
- * seven-argument [CadenceRepository] over them, and the [CadenceSyncEngine] beside it — every
+ * eight-argument [CadenceRepository] over them, and the [CadenceSyncEngine] beside it — every
  * store a new feature adds used to mean a line in both `AppContainer`s, and it now means a line
  * here.
  *
@@ -64,6 +65,7 @@ class CadenceCore(
         backupStore = SqlDelightBackupStore(database),
         attachmentStore = SqlDelightAttachmentStore(database),
         blobStore = blobStore,
+        storeTransaction = SqlDelightStoreTransaction(database),
         ioDispatcher = ioDispatcher,
     )
 
