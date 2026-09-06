@@ -1,5 +1,6 @@
 package de.andi1984.cadence.ui
 
+import de.andi1984.cadence.data.TaskStore
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.domain.model.Project
 import de.andi1984.cadence.domain.model.Task
@@ -14,6 +15,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -38,10 +40,10 @@ import java.time.LocalTime
  */
 class CadenceViewModelUndoTest {
 
-    private val taskStore = FakeTaskStore()
-    private val projectStore = FakeProjectStore(taskStore)
-    private val sectionStore = FakeSectionStore()
-    private val repository = repositoryOver(taskStore, projectStore, sectionStore)
+    private val stores = TestStores()
+    /** The real task store behind a gate one test needs — see [GatedTaskStore]. */
+    private val taskStore = GatedTaskStore(stores.taskStore)
+    private val repository = stores.repository(taskStore)
     private val reminders = RecordingReminderScheduler()
     private val settings = FakeSettingsStore()
 
@@ -78,13 +80,15 @@ class CadenceViewModelUndoTest {
         due: LocalDate? = null,
     ) = Task(id = id, title = id, projectId = projectId, parentId = parentId, dueDate = due)
 
-    private fun liveTaskIds() = taskStore.allRows().filter { it.deletedAt == null }.map { it.id }
+    /** What the app can see: every read the store offers filters tombstones, so this is what a
+     *  committed delete takes away. A set — the question is which rows survive, never in what order. */
+    private suspend fun liveTaskIds() = stores.taskStore.getAll().map { it.id }.toSet()
 
     // ── Deleting a task ──────────────────────────────────────────────────────────────
 
     @Test
     fun `a deleted task disappears at once but is not written until the window elapses`() = runTest {
-        taskStore.seed(listOf(task("parent"), task("step", parentId = "parent"), task("other")))
+        stores.seedTasks(task("parent"), task("step", parentId = "parent"), task("other"))
         val viewModel = viewModel()
 
         viewModel.deleteTask(task("parent"))
@@ -93,18 +97,18 @@ class CadenceViewModelUndoTest {
         // Hidden immediately — the row and its steps — while the database still holds them.
         assertEquals(setOf("parent", "step"), viewModel.state.value.pendingDeleteIds)
         assertEquals(listOf("other"), viewModel.state.value.tasks.map { it.id })
-        assertEquals(listOf("parent", "step", "other"), liveTaskIds())
+        assertEquals(setOf("parent", "step", "other"), liveTaskIds())
 
         advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() + 1)
         runCurrent()
 
-        assertEquals(listOf("other"), liveTaskIds())
+        assertEquals(setOf("other"), liveTaskIds())
         assertTrue(viewModel.state.value.pendingDeleteIds.isEmpty())
     }
 
     @Test
     fun `undo inside the window writes nothing at all and brings the rows straight back`() = runTest {
-        taskStore.seed(listOf(task("parent"), task("step", parentId = "parent")))
+        stores.seedTasks(task("parent"), task("step", parentId = "parent"))
         val viewModel = viewModel()
 
         viewModel.deleteTask(task("parent"))
@@ -116,7 +120,7 @@ class CadenceViewModelUndoTest {
         advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() * 2)
         runCurrent()
 
-        assertEquals(listOf("parent", "step"), liveTaskIds())
+        assertEquals(setOf("parent", "step"), liveTaskIds())
         assertTrue(viewModel.state.value.pendingDeleteIds.isEmpty())
         assertNull(viewModel.state.value.snackbarMessage)
         assertEquals(emptyList<String>(), reminders.cancelled)
@@ -124,11 +128,9 @@ class CadenceViewModelUndoTest {
 
     @Test
     fun `committing a task delete cancels the alarms of the task and every step under it`() = runTest {
-        taskStore.seed(
-            listOf(
-                task("parent", due = LocalDate.of(2026, 8, 17)),
-                task("step", parentId = "parent", due = LocalDate.of(2026, 8, 18)),
-            ),
+        stores.seedTasks(
+            task("parent", due = LocalDate.of(2026, 8, 17)),
+            task("step", parentId = "parent", due = LocalDate.of(2026, 8, 18)),
         )
         val viewModel = viewModel()
 
@@ -144,7 +146,7 @@ class CadenceViewModelUndoTest {
 
     @Test
     fun `the snackbar carries the undo action and counts the rows it will take`() = runTest {
-        taskStore.seed(listOf(task("parent"), task("a", parentId = "parent"), task("b", parentId = "parent")))
+        stores.seedTasks(task("parent"), task("a", parentId = "parent"), task("b", parentId = "parent"))
         val viewModel = viewModel()
 
         viewModel.deleteTask(task("parent"))
@@ -160,32 +162,32 @@ class CadenceViewModelUndoTest {
 
     @Test
     fun `a second delete commits the first one out of band rather than racing it`() = runTest {
-        taskStore.seed(listOf(task("first"), task("second"), task("kept")))
+        stores.seedTasks(task("first"), task("second"), task("kept"))
         val viewModel = viewModel()
 
         viewModel.deleteTask(task("first"))
         runCurrent()
         // Well inside the first window: nothing has been written yet.
         advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() / 2)
-        assertEquals(listOf("first", "second", "kept"), liveTaskIds())
+        assertEquals(setOf("first", "second", "kept"), liveTaskIds())
 
         viewModel.deleteTask(task("second"))
         runCurrent()
 
         // The user moved on, so the first delete is settled now — without waiting out its window.
-        assertEquals(listOf("second", "kept"), liveTaskIds())
+        assertEquals(setOf("second", "kept"), liveTaskIds())
         assertEquals(setOf("second"), viewModel.state.value.pendingDeleteIds)
 
         advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() + 1)
         runCurrent()
 
-        assertEquals(listOf("kept"), liveTaskIds())
+        assertEquals(setOf("kept"), liveTaskIds())
         assertTrue(viewModel.state.value.pendingDeleteIds.isEmpty())
     }
 
     @Test
     fun `undo after a second delete only rescues the second — the first is already written`() = runTest {
-        taskStore.seed(listOf(task("first"), task("second")))
+        stores.seedTasks(task("first"), task("second"))
         val viewModel = viewModel()
 
         viewModel.deleteTask(task("first"))
@@ -196,7 +198,7 @@ class CadenceViewModelUndoTest {
         advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() * 2)
         runCurrent()
 
-        assertEquals(listOf("second"), liveTaskIds())
+        assertEquals(setOf("second"), liveTaskIds())
     }
 
     @Test
@@ -204,8 +206,9 @@ class CadenceViewModelUndoTest {
         // #114. The test above drains the out-of-band commit before undoing, which is exactly
         // what hid this: `undo()` used to clear the *whole* `pendingDeleteIds` flow, so the
         // first delete's rows came back on screen and then vanished again a moment later, once
-        // the write it never rescued landed. The gate below is what makes that moment reachable.
-        taskStore.seed(listOf(task("first"), task("second")))
+        // the write it never rescued landed. The gate below is what makes that moment reachable
+        // — the only place in these tests that stands between the repository and SQLite.
+        stores.seedTasks(task("first"), task("second"))
         val viewModel = viewModel()
 
         val reached = CompletableDeferred<Unit>()
@@ -230,13 +233,13 @@ class CadenceViewModelUndoTest {
         // nothing is rescuing it, so its row stays hidden rather than flashing back into
         // every list.
         assertEquals(setOf("first"), viewModel.state.value.pendingDeleteIds)
-        assertEquals(listOf("first", "second"), liveTaskIds())
+        assertEquals(setOf("first", "second"), liveTaskIds())
 
         release.complete(Unit)
         advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() * 2)
         runCurrent()
 
-        assertEquals(listOf("second"), liveTaskIds())
+        assertEquals(setOf("second"), liveTaskIds())
         assertTrue(viewModel.state.value.pendingDeleteIds.isEmpty())
     }
 
@@ -246,7 +249,7 @@ class CadenceViewModelUndoTest {
     fun `a validation message waits for the undo rather than replacing it`() = runTest {
         // #114. The two are not equals: a validation message is repeatable feedback about a form
         // still on screen, and the undo is a five-second, one-time chance to take a delete back.
-        taskStore.seed(listOf(task("doomed")))
+        stores.seedTasks(task("doomed"))
         val viewModel = viewModel()
 
         viewModel.deleteTask(task("doomed"))
@@ -264,7 +267,7 @@ class CadenceViewModelUndoTest {
 
         // Not dropped either — it lands the moment the slot frees.
         assertTrue(viewModel.state.value.snackbarMessage is SnackbarMessage.Text)
-        assertEquals(listOf("doomed"), liveTaskIds())
+        assertEquals(setOf("doomed"), liveTaskIds())
     }
 
     // ── Deleting a project ───────────────────────────────────────────────────────────
@@ -275,12 +278,10 @@ class CadenceViewModelUndoTest {
         // *subtask* of a task in the project is not in the list the UI can see — and an alarm
         // outlives the row unless something cancels it. The repository is the one that knows the
         // whole set, which is exactly why `deleteProject` returns it.
-        projectStore.seed(listOf(Project(id = "work", name = "Work")))
-        taskStore.seed(
-            listOf(
-                task("parent", projectId = "work", due = LocalDate.of(2026, 8, 17)),
-                task("step", projectId = "work", parentId = "parent", due = LocalDate.of(2026, 8, 18)),
-            ),
+        stores.seedProjects(Project(id = "work", name = "Work"))
+        stores.seedTasks(
+            task("parent", projectId = "work", due = LocalDate.of(2026, 8, 17)),
+            task("step", projectId = "work", parentId = "parent", due = LocalDate.of(2026, 8, 18)),
         )
         val viewModel = viewModel()
 
@@ -290,7 +291,7 @@ class CadenceViewModelUndoTest {
         runCurrent()
 
         assertEquals(setOf("parent", "step"), reminders.cancelled.toSet())
-        assertEquals(emptyList<String>(), liveTaskIds())
+        assertEquals(emptySet<String>(), liveTaskIds())
     }
 
     @Test
@@ -298,13 +299,11 @@ class CadenceViewModelUndoTest {
         // Same cause as above: the ids that hide rows and the ids that cancel alarms want the
         // same source. Today and Upcoming do not filter subtasks out, so a dated step whose
         // project is being deleted would otherwise stay on screen and then blink away.
-        projectStore.seed(listOf(Project(id = "work", name = "Work")))
-        taskStore.seed(
-            listOf(
-                task("parent", projectId = "work"),
-                task("step", projectId = "work", parentId = "parent"),
-                task("elsewhere"),
-            ),
+        stores.seedProjects(Project(id = "work", name = "Work"))
+        stores.seedTasks(
+            task("parent", projectId = "work"),
+            task("step", projectId = "work", parentId = "parent"),
+            task("elsewhere"),
         )
         val viewModel = viewModel()
 
@@ -318,8 +317,8 @@ class CadenceViewModelUndoTest {
     @Test
     fun `deleting a project without its tasks hides only the project, and files them in the Inbox`() =
         runTest {
-            projectStore.seed(listOf(Project(id = "work", name = "Work")))
-            taskStore.seed(listOf(task("kept", projectId = "work")))
+            stores.seedProjects(Project(id = "work", name = "Work"))
+            stores.seedTasks(task("kept", projectId = "work"))
             val viewModel = viewModel()
 
             viewModel.deleteProject(Project(id = "work", name = "Work"), deleteTasks = false)
@@ -331,15 +330,15 @@ class CadenceViewModelUndoTest {
             advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() + 1)
             runCurrent()
 
-            assertEquals(listOf("kept"), liveTaskIds())
-            assertNull(taskStore.allRows().first { it.id == "kept" }.projectId)
+            assertEquals(setOf("kept"), liveTaskIds())
+            assertNull(stores.taskStore.byId("kept")!!.projectId)
             assertEquals(emptyList<String>(), reminders.cancelled)
         }
 
     @Test
     fun `undoing a project delete leaves the project and its tasks exactly where they were`() = runTest {
-        projectStore.seed(listOf(Project(id = "work", name = "Work")))
-        taskStore.seed(listOf(task("kept", projectId = "work")))
+        stores.seedProjects(Project(id = "work", name = "Work"))
+        stores.seedTasks(task("kept", projectId = "work"))
         val viewModel = viewModel()
 
         viewModel.deleteProject(Project(id = "work", name = "Work"), deleteTasks = true)
@@ -348,17 +347,17 @@ class CadenceViewModelUndoTest {
         advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() * 2)
         runCurrent()
 
-        assertEquals(listOf("kept"), liveTaskIds())
+        assertEquals(setOf("kept"), liveTaskIds())
         assertEquals(listOf("work"), viewModel.state.value.projects.map { it.id })
-        assertEquals("work", taskStore.allRows().first { it.id == "kept" }.projectId)
+        assertEquals("work", stores.taskStore.byId("kept")!!.projectId)
     }
 
     // ── The danger zone ──────────────────────────────────────────────────────────────
 
     @Test
     fun `wiping everything empties the lists at once and tombstones after the window`() = runTest {
-        projectStore.seed(listOf(Project(id = "work", name = "Work")))
-        taskStore.seed(listOf(task("a", projectId = "work"), task("b")))
+        stores.seedProjects(Project(id = "work", name = "Work"))
+        stores.seedTasks(task("a", projectId = "work"), task("b"))
         val viewModel = viewModel()
 
         viewModel.wipeEverything()
@@ -366,12 +365,12 @@ class CadenceViewModelUndoTest {
 
         assertEquals(emptyList<String>(), viewModel.state.value.tasks.map { it.id })
         assertEquals(emptyList<String>(), viewModel.state.value.projects.map { it.id })
-        assertEquals(listOf("a", "b"), liveTaskIds())
+        assertEquals(setOf("a", "b"), liveTaskIds())
 
         advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() + 1)
         runCurrent()
 
-        assertEquals(emptyList<String>(), liveTaskIds())
+        assertEquals(emptySet<String>(), liveTaskIds())
         assertEquals(setOf("a", "b"), reminders.cancelled.toSet())
     }
 
@@ -391,14 +390,12 @@ class CadenceViewModelUndoTest {
     @Test
     fun `switching reminders off hands the scheduler the same tasks with their times stripped`() =
         runTest {
-            taskStore.seed(
-                listOf(
-                    Task(
-                        id = "a",
-                        title = "a",
-                        dueDate = LocalDate.of(2026, 8, 17),
-                        reminderTime = LocalTime.of(9, 0),
-                    ),
+            stores.seedTasks(
+                Task(
+                    id = "a",
+                    title = "a",
+                    dueDate = LocalDate.of(2026, 8, 17),
+                    reminderTime = LocalTime.of(9, 0),
                 ),
             )
             val viewModel = viewModel()
@@ -416,14 +413,12 @@ class CadenceViewModelUndoTest {
 
     @Test
     fun `switching reminders off strips a due time too, not just a manual reminder time`() = runTest {
-        taskStore.seed(
-            listOf(
-                Task(
-                    id = "a",
-                    title = "a",
-                    dueDate = LocalDate.of(2026, 8, 17),
-                    dueTime = LocalTime.of(18, 0),
-                ),
+        stores.seedTasks(
+            Task(
+                id = "a",
+                title = "a",
+                dueDate = LocalDate.of(2026, 8, 17),
+                dueTime = LocalTime.of(18, 0),
             ),
         )
         val viewModel = viewModel()
@@ -448,7 +443,7 @@ class CadenceViewModelUndoTest {
 
     @Test
     fun `dismissing the snackbar does not rush the write`() = runTest {
-        taskStore.seed(listOf(task("doomed")))
+        stores.seedTasks(task("doomed"))
         val viewModel = viewModel()
 
         viewModel.deleteTask(task("doomed"))
@@ -457,12 +452,31 @@ class CadenceViewModelUndoTest {
         runCurrent()
 
         assertNull(viewModel.state.value.snackbarMessage)
-        assertEquals(listOf("doomed"), liveTaskIds())
+        assertEquals(setOf("doomed"), liveTaskIds())
         assertFalse(viewModel.state.value.pendingDeleteIds.isEmpty())
 
         advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() + 1)
         runCurrent()
 
-        assertEquals(emptyList<String>(), liveTaskIds())
+        assertEquals(emptySet<String>(), liveTaskIds())
+    }
+}
+
+/**
+ * The real [TaskStore] with one hook in front of its tombstone write, and nothing else of its own.
+ *
+ * `CadenceViewModel`'s undo window has a state — *this* delete is being written while *that* one
+ * can still be taken back — that a test cannot otherwise stand inside: the store answers without
+ * ever yielding, so `runCurrent()` drains a settled delete to completion in the same breath as the
+ * one that settled it. Null by default, so every other call, and every other test, goes straight
+ * through to the database.
+ */
+private class GatedTaskStore(private val delegate: TaskStore) : TaskStore by delegate {
+
+    var beforeTombstone: (suspend () -> Unit)? = null
+
+    override suspend fun tombstoneWithSubtasks(id: String, at: Instant) {
+        beforeTombstone?.invoke()
+        delegate.tombstoneWithSubtasks(id, at)
     }
 }

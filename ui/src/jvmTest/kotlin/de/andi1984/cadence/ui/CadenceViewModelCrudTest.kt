@@ -33,18 +33,16 @@ import java.time.LocalTime
  * The rest of the ViewModel's public surface, beside the undo state machine
  * [CadenceViewModelUndoTest] already covers: plain task/project/section CRUD, quick-add and
  * backup. Same arrangement as that file for the same reason — a real [CadenceRepository] over
- * hand-written fakes, `jvmTest` because constructing a real [CadenceSyncEngine] needs no Android
+ * the real SQLDelight stores on an in-memory database ([TestStores]), with only the platform
+ * ports faked; `jvmTest` because constructing a real [CadenceSyncEngine] needs no Android
  * runtime that this compilation lacks.
  */
 class CadenceViewModelCrudTest {
 
-    private val taskStore = FakeTaskStore()
-    private val projectStore = FakeProjectStore(taskStore)
-    private val sectionStore = FakeSectionStore()
-    private val tagStore = FakeTagStore()
-    private val attachmentStore = FakeAttachmentStore()
-    private val repository =
-        repositoryOver(taskStore, projectStore, sectionStore, tagStore, attachmentStore)
+    private val stores = TestStores()
+    private val taskStore = stores.taskStore
+    private val tagStore = stores.tagStore
+    private val repository = stores.repository()
     private val reminders = RecordingReminderScheduler()
     private val settings = FakeSettingsStore()
     private val backupGateway = FakeBackupGateway()
@@ -72,13 +70,14 @@ class CadenceViewModelCrudTest {
         due: LocalDate? = null,
     ) = Task(id = id, title = title, projectId = projectId, dueDate = due)
 
-    private fun stored(id: String) = taskStore.allRows().first { it.id == id }
+    /** The live row, as the database holds it now. */
+    private suspend fun stored(id: String) = taskStore.byId(id) ?: error("no live task with id $id")
 
     // ── Tasks ────────────────────────────────────────────────────────────────────────
 
     @Test
     fun `toggling a task marks it done and toggling again reopens it`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
 
         viewModel.toggleTask(task("t1"))
@@ -92,7 +91,7 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `saving a task writes the edit straight through`() = runTest {
-        taskStore.seed(listOf(task("t1", title = "Old title")))
+        stores.seedTasks(task("t1", title = "Old title"))
         val viewModel = viewModel()
 
         viewModel.saveTask(task("t1", title = "New title"))
@@ -104,13 +103,13 @@ class CadenceViewModelCrudTest {
     @Test
     fun `adding a subtask files it under the parent with the next sort order`() = runTest {
         // One existing step under the parent, so the new one lands at sortOrder 1.
-        taskStore.seed(listOf(task("parent"), task("step0").copy(parentId = "parent", sortOrder = 0)))
+        stores.seedTasks(task("parent"), task("step0").copy(parentId = "parent", sortOrder = 0))
         val viewModel = viewModel()
 
         viewModel.addSubtask(task("parent"), "  Buy milk  ")
         runCurrent()
 
-        val added = taskStore.allRows().first { it.parentId == "parent" && it.title == "Buy milk" }
+        val added = taskStore.getAll().first { it.parentId == "parent" && it.title == "Buy milk" }
         assertEquals("parent", added.parentId)
         assertEquals(1, added.sortOrder)
         assertNull(viewModel.state.value.snackbarMessage)
@@ -118,20 +117,20 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `adding a subtask with a blank title shows a validation snackbar and writes nothing`() = runTest {
-        taskStore.seed(listOf(task("parent")))
+        stores.seedTasks(task("parent"))
         val viewModel = viewModel()
 
         viewModel.addSubtask(task("parent"), "   ")
         runCurrent()
 
-        assertEquals(1, taskStore.allRows().size)
+        assertEquals(1, taskStore.getAll().size)
         val message = viewModel.state.value.snackbarMessage as SnackbarMessage.Text
         assertNull(message.undoAction)
     }
 
     @Test
     fun `setPriority updates the task's priority`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
 
         viewModel.setPriority(task("t1"), Priority.P1)
@@ -142,7 +141,7 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `setDueDate updates the task's due date`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
         val due = LocalDate.of(2026, 9, 1)
 
@@ -154,7 +153,7 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `setDueTime updates the task's due time`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
 
         viewModel.setDueTime(task("t1"), LocalTime.of(14, 30))
@@ -165,7 +164,7 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `setReminder updates the task's reminder time`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
 
         viewModel.setReminder(task("t1"), LocalTime.of(9, 0))
@@ -176,7 +175,7 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `setRecurrence updates the task's recurrence rule`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
         val rule = RecurrenceRule(interval = 2, unit = RecurrenceUnit.DAY)
 
@@ -188,8 +187,8 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `setProject moves a task to another project`() = runTest {
-        projectStore.seed(listOf(Project(id = "work", name = "Work")))
-        taskStore.seed(listOf(task("t1")))
+        stores.seedProjects(Project(id = "work", name = "Work"))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
 
         viewModel.setProject(task("t1"), "work")
@@ -200,9 +199,9 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `setSection files a task under a section of its project`() = runTest {
-        projectStore.seed(listOf(Project(id = "work", name = "Work")))
-        sectionStore.seed(listOf(Section(id = "s1", projectId = "work", name = "This week")))
-        taskStore.seed(listOf(task("t1", projectId = "work")))
+        stores.seedProjects(Project(id = "work", name = "Work"))
+        stores.seedSections(Section(id = "s1", projectId = "work", name = "This week"))
+        stores.seedTasks(task("t1", projectId = "work"))
         val viewModel = viewModel()
 
         viewModel.setSection(task("t1", projectId = "work"), "s1")
@@ -213,7 +212,7 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `snooze shifts the due date forward by the given number of days`() = runTest {
-        taskStore.seed(listOf(task("t1", due = LocalDate.of(2999, 1, 1))))
+        stores.seedTasks(task("t1", due = LocalDate.of(2999, 1, 1)))
         val viewModel = viewModel()
 
         viewModel.snooze(task("t1", due = LocalDate.of(2999, 1, 1)), days = 3)
@@ -224,12 +223,10 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `rescheduleOverdue moves every overdue task to today`() = runTest {
-        taskStore.seed(
-            listOf(
-                task("overdue", due = LocalDate.of(2000, 1, 1)),
-                task("future", due = LocalDate.of(2999, 1, 1)),
-                task("undated"),
-            ),
+        stores.seedTasks(
+            task("overdue", due = LocalDate.of(2000, 1, 1)),
+            task("future", due = LocalDate.of(2999, 1, 1)),
+            task("undated"),
         )
         val viewModel = viewModel()
         val today = LocalDate.now()
@@ -253,7 +250,7 @@ class CadenceViewModelCrudTest {
             )
             runCurrent()
 
-            val added = taskStore.allRows().single()
+            val added = taskStore.getAll().single()
             assertEquals("Water the plants", added.title)
             assertEquals(Priority.P1, added.priority)
             assertEquals("home", added.projectId)
@@ -269,7 +266,7 @@ class CadenceViewModelCrudTest {
         )
         runCurrent()
 
-        assertEquals("finance", taskStore.allRows().single().projectId)
+        assertEquals("finance", taskStore.getAll().single().projectId)
     }
 
     @Test
@@ -279,14 +276,14 @@ class CadenceViewModelCrudTest {
         viewModel.addParsedTask(ParsedQuickAdd(title = "   "))
         runCurrent()
 
-        assertTrue(taskStore.allRows().isEmpty())
+        assertTrue(taskStore.getAll().isEmpty())
     }
 
     // ── Projects ─────────────────────────────────────────────────────────────────────
 
     @Test
     fun `addProject creates a project at the end of its siblings`() = runTest {
-        projectStore.seed(listOf(Project(id = "p1", name = "Existing", sortOrder = 0)))
+        stores.seedProjects(Project(id = "p1", name = "Existing", sortOrder = 0))
         val viewModel = viewModel()
 
         viewModel.addProject("New project", "#123456", null)
@@ -312,13 +309,11 @@ class CadenceViewModelCrudTest {
     @Test
     fun `editProject renames a project and recalculates its sort order when it moves to a new parent`() =
         runTest {
-            projectStore.seed(
-                listOf(
-                    Project(id = "root", name = "Root"),
-                    Project(id = "child-a", name = "A", parentId = "root", sortOrder = 0),
-                    Project(id = "child-b", name = "B", parentId = "root", sortOrder = 1),
-                    Project(id = "other-root", name = "Other root"),
-                ),
+            stores.seedProjects(
+                Project(id = "root", name = "Root"),
+                Project(id = "child-a", name = "A", parentId = "root", sortOrder = 0),
+                Project(id = "child-b", name = "B", parentId = "root", sortOrder = 1),
+                Project(id = "other-root", name = "Other root"),
             )
             val viewModel = viewModel()
 
@@ -340,7 +335,7 @@ class CadenceViewModelCrudTest {
     @Test
     fun `editProject with a blank name shows a validation snackbar and writes nothing`() = runTest {
         val original = Project(id = "p1", name = "Original")
-        projectStore.seed(listOf(original))
+        stores.seedProjects(original)
         val viewModel = viewModel()
 
         viewModel.editProject(original, name = " ", colorHex = "#000000", parentId = null)
@@ -353,8 +348,8 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `addSection appends a band to the end of a project's sections`() = runTest {
-        projectStore.seed(listOf(Project(id = "work", name = "Work")))
-        sectionStore.seed(listOf(Section(id = "s1", projectId = "work", name = "Existing", sortOrder = 0)))
+        stores.seedProjects(Project(id = "work", name = "Work"))
+        stores.seedSections(Section(id = "s1", projectId = "work", name = "Existing", sortOrder = 0))
         val viewModel = viewModel()
 
         viewModel.addSection("work", "  New band  ")
@@ -366,7 +361,7 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `addSection with a blank name shows a validation snackbar and creates nothing`() = runTest {
-        projectStore.seed(listOf(Project(id = "work", name = "Work")))
+        stores.seedProjects(Project(id = "work", name = "Work"))
         val viewModel = viewModel()
 
         viewModel.addSection("work", "   ")
@@ -379,8 +374,8 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `renameSection updates the section's name`() = runTest {
-        projectStore.seed(listOf(Project(id = "work", name = "Work")))
-        sectionStore.seed(listOf(Section(id = "s1", projectId = "work", name = "Old name")))
+        stores.seedProjects(Project(id = "work", name = "Work"))
+        stores.seedSections(Section(id = "s1", projectId = "work", name = "Old name"))
         val viewModel = viewModel()
 
         viewModel.renameSection(Section(id = "s1", projectId = "work", name = "Old name"), "  New name  ")
@@ -390,18 +385,21 @@ class CadenceViewModelCrudTest {
     }
 
     @Test
-    fun `deleteSection removes the heading and leaves its tasks in the project`() = runTest {
-        projectStore.seed(listOf(Project(id = "work", name = "Work")))
-        sectionStore.seed(listOf(Section(id = "s1", projectId = "work", name = "Band")))
-        taskStore.seed(listOf(task("t1", projectId = "work").copy(sectionId = "s1")))
+    fun `deleteSection removes the heading and leaves its tasks in the project, ungrouped`() = runTest {
+        stores.seedProjects(Project(id = "work", name = "Work"))
+        stores.seedSections(Section(id = "s1", projectId = "work", name = "Band"))
+        stores.seedTasks(task("t1", projectId = "work").copy(sectionId = "s1"))
         val viewModel = viewModel()
 
         viewModel.deleteSection(Section(id = "s1", projectId = "work", name = "Band"))
         runCurrent()
 
         assertTrue(viewModel.state.value.sections.isEmpty())
+        // Still in the project, one band higher: `Section.sq`'s tombstone frees the tasks it
+        // grouped in the same transaction. (An in-memory fake used to leave `s1` on the row here,
+        // and this test pinned the fake rather than the store.)
         assertEquals("work", stored("t1").projectId)
-        assertEquals("s1", stored("t1").sectionId)
+        assertNull(stored("t1").sectionId)
     }
 
     // ── Backup ───────────────────────────────────────────────────────────────────────
@@ -464,17 +462,15 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `duplicating a task copies its checklist, unticked, as new work`() = runTest {
-        taskStore.seed(
-            listOf(
-                task("t1", title = "Ship it").copy(
-                    priority = Priority.P1,
-                    completedAt = Instant.EPOCH,
-                    spawnedFromId = "older-occurrence",
-                ),
-                task("s1", title = "Write the notes").copy(
-                    parentId = "t1",
-                    completedAt = Instant.EPOCH,
-                ),
+        stores.seedTasks(
+            task("t1", title = "Ship it").copy(
+                priority = Priority.P1,
+                completedAt = Instant.EPOCH,
+                spawnedFromId = "older-occurrence",
+            ),
+            task("s1", title = "Write the notes").copy(
+                parentId = "t1",
+                completedAt = Instant.EPOCH,
             ),
         )
         val viewModel = viewModel()
@@ -482,13 +478,13 @@ class CadenceViewModelCrudTest {
         viewModel.duplicateTask(stored("t1"), "Ship it (copy)")
         runCurrent()
 
-        val copy = taskStore.allRows().single { it.title == "Ship it (copy)" }
+        val copy = taskStore.getAll().single { it.title == "Ship it (copy)" }
         assertEquals(Priority.P1, copy.priority)
         // New work: not finished, and not part of anyone's recurrence chain — a copy that claimed
         // to replace an occurrence would take the original's place in every undated list.
         assertNull(copy.completedAt)
         assertNull(copy.spawnedFromId)
-        val copiedStep = taskStore.allRows().single { it.parentId == copy.id }
+        val copiedStep = taskStore.getAll().single { it.parentId == copy.id }
         assertEquals("Write the notes", copiedStep.title)
         assertNull(copiedStep.completedAt)
     }
@@ -497,9 +493,9 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `a drop that moves a task into another project's band does both writes`() = runTest {
-        taskStore.seed(listOf(task("t1", projectId = "home")))
-        projectStore.seed(listOf(Project(id = "home", name = "Home"), Project(id = "work", name = "Work")))
-        sectionStore.seed(listOf(Section(id = "band", projectId = "work", name = "Band")))
+        stores.seedTasks(task("t1", projectId = "home"))
+        stores.seedProjects(Project(id = "home", name = "Home"), Project(id = "work", name = "Work"))
+        stores.seedSections(Section(id = "band", projectId = "work", name = "Band"))
         val viewModel = viewModel()
 
         viewModel.applyDropIntent(DropIntent.MoveTask("t1", "work", "band"))
@@ -513,12 +509,10 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `a drop that reorders writes the order it was handed`() = runTest {
-        taskStore.seed(
-            listOf(
-                task("a").copy(sortOrder = 0),
-                task("b").copy(sortOrder = 1),
-                task("c").copy(sortOrder = 2),
-            ),
+        stores.seedTasks(
+            task("a").copy(sortOrder = 0),
+            task("b").copy(sortOrder = 1),
+            task("c").copy(sortOrder = 2),
         )
         val viewModel = viewModel()
 
@@ -532,7 +526,7 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `a rejected drop writes nothing`() = runTest {
-        taskStore.seed(listOf(task("t1", projectId = "home")))
+        stores.seedTasks(task("t1", projectId = "home"))
         val viewModel = viewModel()
         val before = stored("t1")
 
@@ -544,11 +538,9 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `a drop that nests a project keeps its name and colour`() = runTest {
-        projectStore.seed(
-            listOf(
-                Project(id = "home", name = "Home", colorHex = "#123456"),
-                Project(id = "work", name = "Work"),
-            ),
+        stores.seedProjects(
+            Project(id = "home", name = "Home", colorHex = "#123456"),
+            Project(id = "work", name = "Work"),
         )
         val viewModel = viewModel()
 
@@ -569,18 +561,18 @@ class CadenceViewModelCrudTest {
 
         viewModel.addTag("Errand", "#BA1A1A")
         runCurrent()
-        assertEquals(listOf("Errand"), tagStore.rows().map { it.name })
+        assertEquals(listOf("Errand"), tagStore.getAll().map { it.name })
 
         viewModel.addTag("errand", "#006A60")
         runCurrent()
-        assertEquals(1, tagStore.rows().size)
+        assertEquals(1, tagStore.getAll().size)
         assertTrue(viewModel.state.value.snackbarMessage != null)
     }
 
     @Test
     fun `toggling a tag on a task adds it and toggling again removes it`() = runTest {
-        taskStore.seed(listOf(task("t1")))
-        val tag = tagStore.put(Tag(name = "Errand"))
+        stores.seedTasks(task("t1"))
+        val tag = stores.putTag(Tag(name = "Errand"))
         val viewModel = viewModel()
 
         viewModel.toggleTag(stored("t1"), tag.id)
@@ -596,15 +588,15 @@ class CadenceViewModelCrudTest {
      *  there is nothing for an undo to give back. */
     @Test
     fun `deleting a tag takes effect at once and leaves the task's other labels`() = runTest {
-        val errand = tagStore.put(Tag(id = "g1", name = "Errand"))
-        tagStore.put(Tag(id = "g2", name = "Waiting"))
-        taskStore.seed(listOf(task("t1").copy(tagIds = listOf("g1", "g2"))))
+        val errand = stores.putTag(Tag(id = "g1", name = "Errand"))
+        stores.putTag(Tag(id = "g2", name = "Waiting"))
+        stores.seedTasks(task("t1").copy(tagIds = listOf("g1", "g2")))
         val viewModel = viewModel()
 
         viewModel.deleteTag(errand)
         runCurrent()
 
-        assertEquals(listOf("g2"), tagStore.rows().map { it.id })
+        assertEquals(listOf("g2"), tagStore.getAll().map { it.id })
         // The id stays on the row; the read side is what drops it.
         assertEquals(listOf("g1", "g2"), stored("t1").tagIds)
         assertEquals(listOf("g2"), viewModel.state.value.tagsOf(stored("t1")).map { it.id })
@@ -619,9 +611,9 @@ class CadenceViewModelCrudTest {
      */
     @Test
     fun `a task dropped on a tag keeps the labels it already had`() = runTest {
-        tagStore.put(Tag(id = "g1", name = "Errand"))
-        tagStore.put(Tag(id = "g2", name = "Waiting"))
-        taskStore.seed(listOf(task("t1").copy(tagIds = listOf("g2"))))
+        stores.putTag(Tag(id = "g1", name = "Errand"))
+        stores.putTag(Tag(id = "g2", name = "Waiting"))
+        stores.seedTasks(task("t1").copy(tagIds = listOf("g2")))
         val viewModel = viewModel()
 
         viewModel.applyDropIntent(DropIntent.TagTask("t1", "g1"))
@@ -632,14 +624,14 @@ class CadenceViewModelCrudTest {
 
     @Test
     fun `dragging a tag into a gap writes the new order`() = runTest {
-        tagStore.put(Tag(id = "g1", name = "Errand", sortOrder = 0))
-        tagStore.put(Tag(id = "g2", name = "Waiting", sortOrder = 1))
+        stores.putTag(Tag(id = "g1", name = "Errand", sortOrder = 0))
+        stores.putTag(Tag(id = "g2", name = "Waiting", sortOrder = 1))
         val viewModel = viewModel()
 
         viewModel.applyDropIntent(DropIntent.ReorderTags(listOf("g2", "g1")))
         runCurrent()
 
-        assertEquals(listOf("g2", "g1"), tagStore.rows().map { it.id })
+        assertEquals(listOf("g2", "g1"), tagStore.getAll().map { it.id })
     }
 
     /**
@@ -648,7 +640,7 @@ class CadenceViewModelCrudTest {
      */
     @Test
     fun `a quick-add handle that matches nothing creates the tag and applies it`() = runTest {
-        val known = tagStore.put(Tag(id = "g1", name = "Errand"))
+        val known = stores.putTag(Tag(id = "g1", name = "Errand"))
         val viewModel = viewModel()
 
         viewModel.addParsedTask(
@@ -660,16 +652,16 @@ class CadenceViewModelCrudTest {
         )
         runCurrent()
 
-        assertEquals(listOf("Errand", "waiting"), tagStore.rows().map { it.name })
-        val created = tagStore.rows().first { it.name == "waiting" }
-        assertEquals(listOf("g1", created.id), taskStore.allRows().single().tagIds)
+        assertEquals(listOf("Errand", "waiting"), tagStore.getAll().map { it.name })
+        val created = tagStore.getAll().first { it.name == "waiting" }
+        assertEquals(listOf("g1", created.id), taskStore.getAll().single().tagIds)
     }
 
     /** A name that cannot be saved is left off the task rather than failing the capture — the
      *  point of quick-add is that the task lands. */
     @Test
     fun `a quick-add handle that clashes with an existing tag still files the task`() = runTest {
-        tagStore.put(Tag(id = "g1", name = "Errand"))
+        stores.putTag(Tag(id = "g1", name = "Errand"))
         val viewModel = viewModel()
 
         viewModel.addParsedTask(
@@ -677,22 +669,22 @@ class CadenceViewModelCrudTest {
         )
         runCurrent()
 
-        assertEquals(1, tagStore.rows().size)
-        assertEquals("Post the parcel", taskStore.allRows().single().title)
-        assertEquals(emptyList<String>(), taskStore.allRows().single().tagIds)
+        assertEquals(1, tagStore.getAll().size)
+        assertEquals("Post the parcel", taskStore.getAll().single().title)
+        assertEquals(emptyList<String>(), taskStore.getAll().single().tagIds)
     }
 
     // ── Attachments ──────────────────────────────────────────────────────────────────
 
     @Test
     fun `a link is filed on the task and shows up in the state`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
 
         viewModel.addLinkAttachment(task("t1"), "https://example.org/receipt", "Receipt")
         runCurrent()
 
-        val stored = attachmentStore.rows().single()
+        val stored = stores.attachments().single()
         assertEquals(AttachmentKind.LINK, stored.kind)
         assertEquals("https://example.org/receipt", stored.url)
         assertEquals("Receipt", stored.name)
@@ -703,19 +695,19 @@ class CadenceViewModelCrudTest {
     /** The repository refuses it; the ViewModel is what says so out loud. */
     @Test
     fun `a blank link is refused with a message rather than filed`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
 
         viewModel.addLinkAttachment(task("t1"), "   ", "Receipt")
         runCurrent()
 
-        assertTrue(attachmentStore.rows().isEmpty())
+        assertTrue(stores.attachments().isEmpty())
         assertNotNull(viewModel.state.value.snackbarMessage)
     }
 
     @Test
     fun `a picked file is copied in, and its bytes are read exactly once`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
         var opened = 0
 
@@ -729,7 +721,7 @@ class CadenceViewModelCrudTest {
         runCurrent()
 
         assertEquals(1, opened)
-        val stored = attachmentStore.rows().single()
+        val stored = stores.attachments().single()
         assertEquals("invoice.pdf", stored.name)
         assertEquals(3L, stored.sizeBytes)
         assertNotNull(stored.sha256)
@@ -743,7 +735,7 @@ class CadenceViewModelCrudTest {
      */
     @Test
     fun `a file whose bytes cannot be opened raises a message instead of throwing`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
 
         viewModel.addFileAttachment(
@@ -754,32 +746,32 @@ class CadenceViewModelCrudTest {
         )
         runCurrent()
 
-        assertTrue(attachmentStore.rows().isEmpty())
+        assertTrue(stores.attachments().isEmpty())
         assertNotNull(viewModel.state.value.snackbarMessage)
     }
 
     @Test
     fun `removing an attachment takes the row with it`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
         viewModel.addLinkAttachment(task("t1"), "https://example.org", "Receipt")
         runCurrent()
 
-        viewModel.deleteAttachment(attachmentStore.rows().single())
+        viewModel.deleteAttachment(stores.attachments().single())
         runCurrent()
 
-        assertTrue(attachmentStore.rows().isEmpty())
+        assertTrue(stores.attachments().isEmpty())
         assertEquals(0, viewModel.state.value.attachmentCount("t1"))
     }
 
     @Test
     fun `opening a link hands it to the platform`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
         viewModel.addLinkAttachment(task("t1"), "https://example.org", "Receipt")
         runCurrent()
 
-        viewModel.openAttachment(attachmentStore.rows().single())
+        viewModel.openAttachment(stores.attachments().single())
 
         assertEquals(listOf("https://example.org"), attachmentOpener.openedLinks)
         assertNull(viewModel.state.value.snackbarMessage)
@@ -789,13 +781,13 @@ class CadenceViewModelCrudTest {
      *  a tap that does nothing at all reads as a broken row. */
     @Test
     fun `a machine that opens nothing says so`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
         viewModel.addLinkAttachment(task("t1"), "https://example.org", "Receipt")
         runCurrent()
         attachmentOpener.canOpen = false
 
-        viewModel.openAttachment(attachmentStore.rows().single())
+        viewModel.openAttachment(stores.attachments().single())
         runCurrent()
 
         assertNotNull(viewModel.state.value.snackbarMessage)
@@ -805,7 +797,7 @@ class CadenceViewModelCrudTest {
      *  the row it hangs off for the length of the undo window. */
     @Test
     fun `a pending task delete hides its attachments too`() = runTest {
-        taskStore.seed(listOf(task("t1")))
+        stores.seedTasks(task("t1"))
         val viewModel = viewModel()
         viewModel.addLinkAttachment(task("t1"), "https://example.org", "Receipt")
         runCurrent()
@@ -816,6 +808,6 @@ class CadenceViewModelCrudTest {
 
         assertEquals(0, viewModel.state.value.attachmentCount("t1"))
         // Still in the database: nothing has been committed yet, and an undo brings both back.
-        assertEquals(1, attachmentStore.rows().size)
+        assertEquals(1, stores.attachments().size)
     }
 }

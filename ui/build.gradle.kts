@@ -50,6 +50,12 @@ kotlin {
             implementation(libs.test.junit)
             implementation(libs.kotlinx.coroutines.test)
             implementation(kotlin("test"))
+            // The ViewModel tests drive a real `CadenceRepository` over the real SQLDelight stores
+            // on an in-memory SQLite database, the same way `:core`'s do — the store contract is
+            // written once, in SQL, and no test carries a second copy of it. Both compilations
+            // need the driver: sqlite-jdbc's native library runs on the host JVM in Android unit
+            // tests too, which `:core:testDebugUnitTest` already relies on.
+            implementation(libs.sqldelight.sqlite.driver)
         }
     }
 }

@@ -70,8 +70,9 @@ kotlin {
             implementation(libs.test.junit)
             implementation(libs.kotlinx.coroutines.test)
             implementation(kotlin("test"))
-            // The JVM tests exercise the real SQLDelight-backed stores against a throwaway file,
-            // not fakes, wherever a store's own logic (not the repository's) is under test.
+            // Every test that touches storage runs the real SQLDelight-backed stores over an
+            // in-memory database (`TestDatabase.kt`), the repository tests included — the store
+            // contract lives in SQL once, and no fake carries a second copy of it.
             implementation(libs.sqldelight.sqlite.driver)
             // The sync engine's tests feed it hand-written responses through Ktor's own fake
             // engine — the HTTP-shaped version of the fakes behind every port.
