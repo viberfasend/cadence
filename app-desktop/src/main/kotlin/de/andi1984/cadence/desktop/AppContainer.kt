@@ -1,17 +1,7 @@
 package de.andi1984.cadence.desktop
 
-import de.andi1984.cadence.data.BlobStore
-import de.andi1984.cadence.data.CadenceRepository
-import de.andi1984.cadence.data.db.CadenceDatabase
+import de.andi1984.cadence.data.CadenceCore
 import de.andi1984.cadence.data.db.DatabaseDriverFactory
-import de.andi1984.cadence.data.db.SqlDelightAttachmentStore
-import de.andi1984.cadence.data.db.SqlDelightBackupStore
-import de.andi1984.cadence.data.db.SqlDelightProjectStore
-import de.andi1984.cadence.data.db.SqlDelightSectionStore
-import de.andi1984.cadence.data.db.SqlDelightSyncStore
-import de.andi1984.cadence.data.db.SqlDelightTagStore
-import de.andi1984.cadence.data.db.SqlDelightTaskStore
-import de.andi1984.cadence.data.sync.CadenceSyncEngine
 import de.andi1984.cadence.desktop.data.DesktopAttachmentOpener
 import de.andi1984.cadence.desktop.data.DesktopBackupFilePicker
 import de.andi1984.cadence.desktop.data.DesktopBackupIo
@@ -19,40 +9,31 @@ import de.andi1984.cadence.desktop.data.DesktopReminderScheduler
 import de.andi1984.cadence.desktop.data.DesktopSettingsStore
 import de.andi1984.cadence.desktop.data.createReminderTrayIcon
 import de.andi1984.cadence.desktop.platform.PlatformDirs
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import java.io.File
+import de.andi1984.cadence.ui.ViewModelAdapters
+import java.awt.TrayIcon
 
 /** Hand-rolled dependency graph, same idea as `:app-android`'s `AppContainer`: the app is small
  *  enough not to need a DI framework. Lives for the whole process — Compose Desktop has no
- *  Application class to build it in, so [main] constructs one and keeps it alive. */
+ *  Application class to build it in, so [main] constructs one and keeps it alive.
+ *
+ *  The database, the blob store, the repository and the sync engine are built once, in
+ *  [CadenceCore], for both shells; what is left here is the desktop's own adapters — a JSON
+ *  settings file, `java.awt.Desktop`, `JFileChooser`, the tray icon poll — plus [close], the one
+ *  exit path both `onCloseRequest` and the tray's Quit call. */
 class AppContainer {
 
     private val dataDir = PlatformDirs.dataDir()
 
-    private val database = CadenceDatabase(DatabaseDriverFactory(dataDir).createDriver())
-
-    private val blobStore = BlobStore(
-        root = File(dataDir, "attachments"),
-        tmp = File(dataDir, "attachments-tmp"),
+    val core = CadenceCore(
+        driver = DatabaseDriverFactory(dataDir).createDriver(),
+        dataDir = dataDir,
     )
 
-    val repository = CadenceRepository(
-        taskStore = SqlDelightTaskStore(database),
-        projectStore = SqlDelightProjectStore(database),
-        sectionStore = SqlDelightSectionStore(database),
-        tagStore = SqlDelightTagStore(database),
-        backupStore = SqlDelightBackupStore(database),
-        attachmentStore = SqlDelightAttachmentStore(database),
-        blobStore = blobStore,
-    )
+    val repository = core.repository
 
-    /** Outlives every window: the same reasoning as the Android container's application-scoped
-     *  backup sync — the write that starts as the user quits must not hang off a scope that is
-     *  already being torn down. */
-    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** [CadenceCore.applicationScope], named here too — the desktop's writes (settings, the
+     *  reminder scheduler) used to reach a field declared directly on this class. */
+    val applicationScope = core.applicationScope
 
     /** On [applicationScope] because its writes are, and declared after it for the same reason —
      *  a field initialiser can only read what is already built. */
@@ -68,10 +49,7 @@ class AppContainer {
 
     /** Same shape as `:app-android`'s, because sync is not a platform difference (ADR 0002,
      *  decision 7): the same class over the same database, on the process-wide scope. */
-    val syncEngine = CadenceSyncEngine(
-        store = SqlDelightSyncStore(database),
-        scope = applicationScope,
-    )
+    val syncEngine = core.syncEngine
 
     /**
      * The tray icon, or null where there is no tray (a headless run, and several Linux desktops
@@ -81,14 +59,37 @@ class AppContainer {
      * scheduler's: `main()` hangs the tray menu — show, new task, sync, quit — off the same icon,
      * and two icons would mean two Cadences in the tray.
      */
-    val trayIcon = createReminderTrayIcon()
+    val trayIcon: TrayIcon? = createReminderTrayIcon()
 
     val reminderScheduler = DesktopReminderScheduler(
         scope = applicationScope,
         trayIcon = trayIcon,
     )
 
-    init {
-        applicationScope.launch { repository.sweepOrphanBlobs() }
+    /** Handed to [de.andi1984.cadence.ui.cadenceViewModel] by `main()` so the seven-argument
+     *  `CadenceViewModel` constructor is written once, in `:ui`. */
+    val viewModelAdapters = ViewModelAdapters(
+        settingsStore = settingsStore,
+        reminderScheduler = reminderScheduler,
+        backupGateway = backupIo,
+        attachmentOpener = attachmentOpener,
+    )
+
+    /**
+     * The one exit path (CLAUDE.md, "SettingsStore's setters are not suspend"): both
+     * `onCloseRequest` and the tray menu's Quit call this, in the order that rule requires —
+     * a last, fire-and-forget sync while there is still a process to run it, then the settings
+     * flush `exitApplication()` must not race, then [CadenceCore.close] to cancel the
+     * application scope and close the database driver.
+     *
+     * Sync stays fire-and-forget on [applicationScope] rather than being awaited: the window
+     * must not hesitate on the way out, and a push that misses this moment ships on the next
+     * start (ADR 0002, decision 11) — which is also why it runs *before* the scope it needs is
+     * cancelled, not after.
+     */
+    fun shutdown() {
+        syncEngine.syncInBackground()
+        settingsStore.flush()
+        core.close()
     }
 }
