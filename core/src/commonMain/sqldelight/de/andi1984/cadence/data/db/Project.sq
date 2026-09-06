@@ -69,9 +69,9 @@ UPDATE projectRow SET name = :name, colorHex = :colorHex, parentId = :parentId,
     sortOrder = :sortOrder, updatedAt = :revivedAt, deletedAt = NULL
 WHERE id = :id AND deletedAt IS NOT NULL;
 
+-- `VALUES ?` binds the generated `ProjectRow` whole — see `taskRow.insertIfAbsent`.
 insertIfAbsent:
-INSERT OR IGNORE INTO projectRow(id, name, colorHex, parentId, sortOrder, updatedAt, deletedAt)
-VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT OR IGNORE INTO projectRow VALUES ?;
 
 -- Everything filed under the project, including its subprojects — nesting is one level.
 -- A tombstoned subproject is not "under" anything any more, so it is excluded on both sides.

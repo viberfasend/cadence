@@ -54,9 +54,9 @@ UPDATE sectionRow SET projectId = :projectId, name = :name, sortOrder = :sortOrd
     updatedAt = :revivedAt, deletedAt = NULL
 WHERE id = :id AND deletedAt IS NOT NULL;
 
+-- `VALUES ?` binds the generated `SectionRow` whole — see `taskRow.insertIfAbsent`.
 insertIfAbsent:
-INSERT OR IGNORE INTO sectionRow(id, projectId, name, sortOrder, updatedAt, deletedAt)
-VALUES (?, ?, ?, ?, ?, ?);
+INSERT OR IGNORE INTO sectionRow VALUES ?;
 
 -- Deleting a section. `deletedAt IS NULL` keeps it idempotent, the same way every other tombstone
 -- in this schema does: deleting twice must not restamp the row.

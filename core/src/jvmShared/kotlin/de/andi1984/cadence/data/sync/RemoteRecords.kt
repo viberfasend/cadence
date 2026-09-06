@@ -9,6 +9,7 @@ import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
+import de.andi1984.cadence.domain.parseOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -264,17 +265,15 @@ private fun RecurrenceRule.toRemote() = RemoteRecurrence(
     nthDayOfWeek = nthDayOfWeek?.name,
 )
 
-private fun RemoteRecurrence.toDomain() = RecurrenceRule(
-    mode = RecurrenceMode.entries.firstOrNull { it.name == mode } ?: RecurrenceMode.SCHEDULE,
-    interval = interval.coerceAtLeast(1),
-    unit = RecurrenceUnit.entries.firstOrNull { it.name == unit } ?: RecurrenceUnit.WEEK,
-    daysOfWeek = daysOfWeek.mapNotNull { name -> DayOfWeek.entries.firstOrNull { it.name == name } }
-        .toSet(),
-    monthlyMode = MonthlyMode.entries.firstOrNull { it.name == monthlyMode }
-        ?: MonthlyMode.DAY_OF_MONTH,
+private fun RemoteRecurrence.toDomain() = RecurrenceRule.fromNames(
+    mode = mode,
+    interval = interval,
+    unit = unit,
+    daysOfWeek = daysOfWeek,
+    monthlyMode = monthlyMode,
     dayOfMonth = dayOfMonth,
     nthWeek = nthWeek,
-    nthDayOfWeek = nthDayOfWeek?.let { name -> DayOfWeek.entries.firstOrNull { it.name == name } },
+    nthDayOfWeek = nthDayOfWeek,
 )
 
 /**
@@ -286,6 +285,3 @@ private fun String?.parseInstantOrNull(): Instant? = parseOrNull {
     runCatching { OffsetDateTime.parse(it).toInstant() }.getOrElse { _ -> Instant.parse(it) }
         .truncatedTo(ChronoUnit.MILLIS)
 }
-
-private fun <T> String?.parseOrNull(parse: (String) -> T): T? =
-    this?.takeIf { it.isNotBlank() }?.let { runCatching { parse(it) }.getOrNull() }
