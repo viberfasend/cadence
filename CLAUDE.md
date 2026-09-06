@@ -547,7 +547,11 @@ than reaching for `!!`.
     (or, for the next-task widget, blank) first frame on every cold update and filled it in a
     frame later — when WorkManager, the database and the recomposer's next tick all got there
     before the process was taken, which on a phone is "usually". `widgetSnapshot()` +
-    `widgetUiState(container, initial)` is the pair; keep it a pair.
+    `widgetUiState(container, initial)` is the pair, and `widget/CadenceStateWidget.kt`'s
+    `final override suspend fun provideGlance` is now the *one* place it runs — `TaskListWidget`
+    and `CadenceNextTaskWidget` each used to write this method out by hand and only ever
+    override `Content(context, state, today)`, so a widget can no longer read one half of the
+    pair without the other.
   - **The list widgets scroll, and a scrolling widget is a `ListView` — its rows are RemoteViews
     collection items, and only `actionStartActivity` reliably escapes one.** A collection item
     owns no `PendingIntent`: the platform offers one template on the list plus a per-item fill-in
@@ -584,12 +588,19 @@ than reaching for `!!`.
     keeps a 15-minute `SyncWorker` periodic alive — the desktop's poll interval, applied to the
     one surface that is always visible — and cancels it when either condition ends. Rows a round
     merges reach the widget through the container's collector like any other write.
-  - **A write made from a widget does its own aftercare.** `ToggleTaskCallback` runs in a
-    broadcast on a process nothing keeps alive, so it calls `WidgetUpdater.refreshAll` itself and
-    hands the push to the server to `sync/SyncWorker` — a one-shot WorkManager job with a network
-    constraint, the single WorkManager use in the app and not the poll ADR 0002 rejected (it
-    never runs unprompted; it carries one write). In-app writes need neither: the container's
-    collector redraws and the ViewModel's debounce pushes.
+  - **A write made from a widget does its own aftercare, and the aftercare lives in the write, not
+    in its callers.** `AppContainer.toggleTaskFromWidget` — the write `ToggleTaskCallback` and
+    `WidgetToggleActivity` both call, on a broadcast or an Activity, either way on a process
+    nothing keeps alive — calls `WidgetUpdater.refreshAll` and hands the push to the server to
+    `sync/SyncWorker` itself, sequenced after `setCompleted`'s transaction returns: a one-shot
+    WorkManager job with a network constraint, the single WorkManager use in the app and not the
+    poll ADR 0002 rejected (it never runs unprompted; it carries one write). Enqueuing ahead of
+    the write races it — WorkManager runs a job with satisfied constraints immediately,
+    in-process, so a round that won that race pushed everything above the watermark before the
+    toggle was in it and did not fire again until the next one. The two call sites used to each
+    repeat both calls in that order themselves; now they are one line with nothing to get wrong.
+    In-app writes need neither: the container's collector redraws and the ViewModel's debounce
+    pushes.
   - **Today turns over at midnight with nothing written**, so `WidgetMidnightRefresh` arms an
     inexact alarm from every `provideGlance` and every `refreshAll` while a task widget exists —
     the widget's version of the screen's midnight `LaunchedEffect` (#115).

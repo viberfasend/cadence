@@ -14,31 +14,20 @@ import kotlinx.coroutines.flow.first
  * `actionRunCallback`. Only that widget can use this route: its circle sits on a plain surface,
  * while a list row is a RemoteViews collection item, from which `actionRunCallback` never
  * arrived on a real device — the lists go through [WidgetToggleActivity] instead. Same write,
- * same aftercare, different door.
+ * same aftercare — [AppContainer.toggleTaskFromWidget] itself now — different door.
  *
  * Runs inside Glance's `ActionCallbackBroadcastReceiver`, i.e. in a broadcast's `goAsync` window
  * of about ten seconds, which a read, a write and two enqueues spend a few milliseconds of. The
  * process may well have been started by this very broadcast: everything here reaches the
  * database through [AppContainer], which `CadenceApplication.onCreate` builds before any receiver
  * runs, so a cold process and a warm one take the same path.
- *
- * It does exactly what [de.andi1984.cadence.ui.CadenceViewModel.toggleTask] does, bar the
- * debounce — that method arms the ViewModel's two-second sync timer, and there is no ViewModel
- * here to hold one — and then does the two things a write made *outside* the app has to do for
- * itself: push the widgets a redraw, and hand the push to the server to a [SyncWorker] rather than
- * to a coroutine on a process nothing is keeping alive.
  */
 class ToggleTaskCallback : ActionCallback {
 
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val taskId = parameters[TASK_ID] ?: return
         val container = (context.applicationContext as? CadenceApplication)?.container ?: return
-        container.toggleTaskFromWidget(taskId)
-        // The container's own collector does this on the emission the write just caused, too;
-        // asking directly as well costs a no-op event on a running session and makes the redraw
-        // not depend on that collector having started yet in a process this broadcast created.
-        WidgetUpdater.refreshAll(context)
-        SyncWorker.enqueue(context)
+        container.toggleTaskFromWidget(context, taskId)
     }
 
     companion object {
@@ -46,8 +35,21 @@ class ToggleTaskCallback : ActionCallback {
     }
 }
 
-/** The write both widget toggle routes share — [ToggleTaskCallback] and [WidgetToggleActivity]. */
-internal suspend fun AppContainer.toggleTaskFromWidget(taskId: String) {
+/**
+ * The write both widget toggle routes share — [ToggleTaskCallback] and [WidgetToggleActivity] —
+ * plus its own aftercare, so neither caller can get the ordering wrong or forget it.
+ *
+ * It does exactly what [de.andi1984.cadence.ui.CadenceViewModel.toggleTask] does, bar the
+ * debounce — that method arms the ViewModel's two-second sync timer, and there is no ViewModel
+ * here to hold one — and then does the two things a write made *outside* the app has to do for
+ * itself: push the widgets a redraw, and hand the push to the server to a [SyncWorker] rather than
+ * to a coroutine on a process nothing is keeping alive. Both run only *after* [setCompleted]'s
+ * transaction returns: [WidgetUpdater.refreshAll] would otherwise redraw from a row not yet
+ * written, and [SyncWorker] runs an enqueued job with satisfied constraints immediately, in
+ * process — enqueued ahead of the write, it would push everything above the watermark before the
+ * toggle was in it, then not fire again until the next round.
+ */
+internal suspend fun AppContainer.toggleTaskFromWidget(context: Context, taskId: String) {
     // Read the row back rather than trust what the widget was drawn from — the widget may have
     // been rendered before an edit, and it is the same reason `CadenceRepository.setCompleted`
     // itself re-reads before spawning a successor.
@@ -55,4 +57,9 @@ internal suspend fun AppContainer.toggleTaskFromWidget(taskId: String) {
     // Reopening a recurring task takes the occurrence its completion inserted back out, and an
     // alarm outlives the row it belongs to unless it is cancelled here.
     repository.setCompleted(task, !task.isDone).forEach { reminderScheduler.cancel(it) }
+    // The container's own collector does this on the emission the write just caused, too;
+    // asking directly as well costs a no-op event on a running session and makes the redraw
+    // not depend on that collector having started yet in a process this write created.
+    WidgetUpdater.refreshAll(context)
+    SyncWorker.enqueue(context)
 }

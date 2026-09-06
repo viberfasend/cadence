@@ -3,18 +3,15 @@ package de.andi1984.cadence.widget
 import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
-import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.action.clickable
-import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.action.actionParametersOf
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.appWidgetBackground
 import androidx.glance.appwidget.cornerRadius
-import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
@@ -25,8 +22,8 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
-import de.andi1984.cadence.CadenceApplication
 import de.andi1984.cadence.R
+import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.TaskView
 import de.andi1984.cadence.ui.taskList
 import java.time.LocalDate
@@ -42,62 +39,48 @@ import java.time.LocalDate
  * [SizeMode.Single]: one row fills whatever size it is given, so there is nothing to recompose
  * for on a resize — and a widget that never asks to be recomposed for its size never needs the
  * process for it ([TaskListWidget] explains the same choice for the lists).
+ *
+ * The session mechanics live once in [CadenceStateWidget]; this class only says what to draw.
  */
-class CadenceNextTaskWidget : GlanceAppWidget() {
+class CadenceNextTaskWidget : CadenceStateWidget() {
 
     override val sizeMode = SizeMode.Single
 
-    override suspend fun provideGlance(context: Context, id: GlanceId) {
-        // `as?` for the same reason [TaskListWidget] uses it: a crashed widget is a worse failure
-        // than an empty one, and the empty state here still opens quick-add.
-        val container = (context.applicationContext as? CadenceApplication)?.container
+    @Composable
+    override fun Content(context: Context, state: CadenceUiState?, today: LocalDate) {
+        // The head of the same list [CadenceTodayWidget] draws, minus anything already ticked
+        // off: "what's next" is a question a finished task cannot answer, and Today keeps a
+        // completed task on screen for the rest of the day when `showCompleted` is on.
+        val next = state
+            ?.taskList(TaskView.Today, today)
+            ?.tasks
+            ?.firstOrNull { !it.isDone }
 
-        // Frame one from a snapshot, every later frame from the flow — [widgetSnapshot] and
-        // [widgetUiState] say why a widget needs both.
-        val initial = container.widgetSnapshot()
-        WidgetMidnightRefresh.schedule(context)
-        // Same stale-guarded round as [TaskListWidget] — a redraw is a look at the home screen.
-        container?.syncEngine?.syncInBackgroundIfStale(WIDGET_STALENESS)
-
-        provideContent {
-            val state = widgetUiState(container, initial)
-            val today = LocalDate.now()
-            // The head of the same list [CadenceTodayWidget] draws, minus anything already ticked
-            // off: "what's next" is a question a finished task cannot answer, and Today keeps a
-            // completed task on screen for the rest of the day when `showCompleted` is on.
-            val next = state
-                ?.taskList(TaskView.Today, today)
-                ?.tasks
-                ?.firstOrNull { !it.isDone }
-
-            GlanceTheme(colors = CadenceWidgetColors) {
-                Box(
-                    modifier = GlanceModifier
-                        .fillMaxSize()
-                        .appWidgetBackground()
-                        .background(GlanceTheme.colors.widgetBackground)
-                        .cornerRadius(16.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    when {
-                        // No container to read from — saying "all clear" would be a guess.
-                        state == null -> Spacer(GlanceModifier.fillMaxSize())
-                        next == null -> EmptyContent(context)
-                        else ->
-                            TaskWidgetRow(
-                                context,
-                                next,
-                                today,
-                                // A plain surface, not a collection item, so the circle can take
-                                // the broadcast route — no window, no activity start.
-                                toggleAction = actionRunCallback<ToggleTaskCallback>(
-                                    actionParametersOf(ToggleTaskCallback.TASK_ID to next.id),
-                                ),
-                                modifier = GlanceModifier.fillMaxSize(),
-                                card = false,
-                            )
-                    }
-                }
+        Box(
+            modifier = GlanceModifier
+                .fillMaxSize()
+                .appWidgetBackground()
+                .background(GlanceTheme.colors.widgetBackground)
+                .cornerRadius(16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                // No container to read from — saying "all clear" would be a guess.
+                state == null -> Spacer(GlanceModifier.fillMaxSize())
+                next == null -> EmptyContent(context)
+                else ->
+                    TaskWidgetRow(
+                        context,
+                        next,
+                        today,
+                        // A plain surface, not a collection item, so the circle can take
+                        // the broadcast route — no window, no activity start.
+                        toggleAction = actionRunCallback<ToggleTaskCallback>(
+                            actionParametersOf(ToggleTaskCallback.TASK_ID to next.id),
+                        ),
+                        modifier = GlanceModifier.fillMaxSize(),
+                        card = false,
+                    )
             }
         }
     }
