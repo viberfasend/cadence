@@ -136,6 +136,36 @@ class SqlDelightSyncStoreTest {
         assertEquals("2026-08-11T09:00:01Z", store.state().sectionCursor)
     }
 
+    /**
+     * The other half of last-writer-wins, the one the Postgres trigger mirrors: a pulled row
+     * stamped exactly as new as the stored one changes nothing. Without it a row this device
+     * pushed and pulled straight back would rewrite itself every round.
+     */
+    @Test
+    fun `a pulled row with the same updatedAt as the stored one keeps the stored row`() = runTest {
+        val database = newDatabase()
+        val tasks = SqlDelightTaskStore(database, Dispatchers.Unconfined)
+        val projects = SqlDelightProjectStore(database, Dispatchers.Unconfined)
+        val store = syncStore(database)
+        tasks.insert(Task(id = "t1", title = "Local", createdAt = now, updatedAt = now))
+        projects.insert(Project(id = "p1", name = "Local", updatedAt = now))
+
+        store.mergeAndAdvance(
+            projects = listOf(Project(id = "p1", name = "Remote", updatedAt = now)),
+            sections = emptyList(),
+            tags = emptyList(),
+            tasks = listOf(Task(id = "t1", title = "Remote", createdAt = now, updatedAt = now)),
+            taskCursor = "2026-08-11T09:00:01Z",
+            projectCursor = "2026-08-11T09:00:01Z",
+            tagCursor = null,
+            sectionCursor = null,
+        )
+
+        assertEquals("Local", tasks.byId("t1")?.title)
+        assertEquals("Local", projects.getAll().single().name)
+        assertEquals("2026-08-11T09:00:01Z", store.state().taskCursor)
+    }
+
     /** Sections are pushed like anything else: the third view over the same watermark. */
     @Test
     fun `sections written after the watermark are pushed, tombstones included`() = runTest {
