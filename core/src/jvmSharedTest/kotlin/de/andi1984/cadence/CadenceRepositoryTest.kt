@@ -1,16 +1,9 @@
 package de.andi1984.cadence
 
-import de.andi1984.cadence.data.AttachmentStore
-import de.andi1984.cadence.data.BackupStore
-import de.andi1984.cadence.data.BlobStore
 import de.andi1984.cadence.data.CadenceRepository
 import de.andi1984.cadence.data.MAX_ATTACHMENTS_PER_TASK
-import de.andi1984.cadence.data.ProjectStore
 import de.andi1984.cadence.data.RepositoryResult
-import de.andi1984.cadence.data.SectionStore
 import de.andi1984.cadence.data.StoreResult
-import de.andi1984.cadence.data.TagStore
-import de.andi1984.cadence.data.TaskStore
 import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Priority
@@ -20,11 +13,7 @@ import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -33,7 +22,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
-import java.nio.file.Files
 import java.time.Instant
 import java.time.LocalDate
 
@@ -41,40 +29,49 @@ import java.time.LocalDate
  * Completion is where recurrence turns into rows, so this is where a duplicate can be created.
  * The rows the UI hands back are snapshots, and the same open snapshot arrives again on a second
  * tap — every test here works with a deliberately stale [Task].
+ *
+ * The repository runs over the real SQLDelight stores on an in-memory database ([TestStores]),
+ * not over fakes: the rules under test are the repository's, but half of them lean on what the
+ * store guarantees — `completeIfOpen` reporting 0 the second time, a tombstone hiding from every
+ * read — and a fake that restated those guarantees was a second copy of the contract that
+ * nothing pinned.
  */
 class CadenceRepositoryTest {
 
     private val fortnightly = RecurrenceRule(interval = 2, unit = RecurrenceUnit.WEEK)
     private val today = LocalDate.of(2026, 8, 7)
 
-    private val taskStore = FakeTaskStore()
-    private val attachmentStore = FakeAttachmentStore()
-    private val blobStore = BlobStore(
-        root = Files.createTempDirectory("cadence-blobs").toFile(),
-        tmp = Files.createTempDirectory("cadence-blobs-tmp").toFile(),
-    )
-    private val projectStore = FakeProjectStore()
-    private val sectionStore = FakeSectionStore(taskStore)
-    private val tagStore = FakeTagStore()
-    private val repository = CadenceRepository(
-        taskStore,
-        projectStore,
-        sectionStore,
-        tagStore,
-        FakeBackupStore(),
-        attachmentStore,
-        blobStore,
-        // Unconfined, so the blob work stays on the test's own scheduler — see `Fakes.kt`.
-        Dispatchers.Unconfined,
-    )
+    private val stores = TestStores()
+    private val taskStore = stores.taskStore
+    private val projectStore = stores.projectStore
+    private val sectionStore = stores.sectionStore
+    private val tagStore = stores.tagStore
+    private val attachmentStore = stores.attachmentStore
+    private val blobStore = stores.blobStore
+    private val repository = stores.repository()
 
-    private fun store(task: Task): Task = taskStore.row(taskStore.put(task))
+    private var nextId = 1
+
+    /**
+     * Inserts [task] — minting an id when it carries none, as the repository does for a real
+     * insert — and returns the row **as stored**: timestamps come back truncated to millis, so a
+     * later "was this row written?" comparison has to start from what the database holds.
+     */
+    private suspend fun store(task: Task): Task {
+        val id = task.id.ifBlank { "task-${nextId++}" }
+        taskStore.insert(task.copy(id = id))
+        return taskRow(id)
+    }
+
+    /** The raw row, tombstone included — how a test asserts a delete stamped rather than removed. */
+    private suspend fun taskRow(id: String): Task = stores.taskRow(id)
 
     /** Stores [bytes] as a FILE attachment on [taskId] and returns the hash it landed at. */
-    private fun attach(taskId: String, bytes: ByteArray = byteArrayOf(1, 2, 3)): String {
+    private suspend fun attach(taskId: String, bytes: ByteArray = byteArrayOf(1, 2, 3)): String {
         val result = blobStore.store(ByteArrayInputStream(bytes), maxBytes = 1024) as StoreResult.Ok
-        attachmentStore.put(
+        attachmentStore.insert(
             Attachment(
+                id = "attachment-${nextId++}",
                 taskId = taskId,
                 kind = AttachmentKind.FILE,
                 name = "file.bin",
@@ -86,7 +83,7 @@ class CadenceRepositoryTest {
         return result.sha256
     }
 
-    private fun rowsTitled(title: String) = taskStore.rows().filter { it.title == title }
+    private suspend fun rowsTitled(title: String) = taskStore.getAll().filter { it.title == title }
 
     /** The task from the bug report: fortnightly, in the Inbox, due today. */
     private fun recurring(
@@ -152,7 +149,7 @@ class CadenceRepositoryTest {
         val drawn = store(recurring(due = LocalDate.of(2026, 8, 1), priority = Priority.P3))
         // The detail screen moved the task while the list still showed the old row.
         val edited = drawn.copy(priority = Priority.P1, dueDate = LocalDate.of(2026, 8, 5))
-        taskStore.put(edited)
+        taskStore.update(edited)
 
         repository.setCompleted(drawn, true, today)
 
@@ -292,9 +289,9 @@ class CadenceRepositoryTest {
         repository.deleteSection(sectionId)
 
         // The heading is gone and the work is not: it is still in the project, one band higher.
-        assertNotNull(sectionStore.row(sectionId).deletedAt)
-        assertTrue(sectionStore.rows().isEmpty())
-        val freed = taskStore.row(task.id)
+        assertNotNull(stores.sectionRow(sectionId).deletedAt)
+        assertTrue(sectionStore.getAll().isEmpty())
+        val freed = taskRow(task.id)
         assertNull(freed.sectionId)
         assertEquals("p1", freed.projectId)
         assertNull(freed.deletedAt)
@@ -305,10 +302,10 @@ class CadenceRepositoryTest {
         val sectionId = section()
 
         repository.deleteSection(sectionId)
-        val stamped = sectionStore.row(sectionId).deletedAt
+        val stamped = stores.sectionRow(sectionId).deletedAt
         repository.deleteSection(sectionId)
 
-        assertEquals(stamped, sectionStore.row(sectionId).deletedAt)
+        assertEquals(stamped, stores.sectionRow(sectionId).deletedAt)
     }
 
     @Test
@@ -317,14 +314,14 @@ class CadenceRepositoryTest {
         val task = store(Task(title = "Send the invoice", projectId = "p1", sectionId = sectionId))
         val step = store(Task(title = "Find the receipt", parentId = task.id, projectId = "p1", sectionId = sectionId))
 
-        repository.moveToProject(taskStore.row(task.id), "p2")
+        repository.moveToProject(taskRow(task.id), "p2")
 
         // A section belongs to one project, so the heading means nothing in the new one — and the
         // checklist follows its task rather than staying behind under a band it no longer shares.
-        assertEquals("p2", taskStore.row(task.id).projectId)
-        assertNull(taskStore.row(task.id).sectionId)
-        assertEquals("p2", taskStore.row(step.id).projectId)
-        assertNull(taskStore.row(step.id).sectionId)
+        assertEquals("p2", taskRow(task.id).projectId)
+        assertNull(taskRow(task.id).sectionId)
+        assertEquals("p2", taskRow(step.id).projectId)
+        assertNull(taskRow(step.id).sectionId)
     }
 
     @Test
@@ -333,10 +330,10 @@ class CadenceRepositoryTest {
         val task = store(Task(title = "Send the invoice", projectId = "p1"))
         val step = store(Task(title = "Find the receipt", parentId = task.id, projectId = "p1"))
 
-        repository.moveToSection(taskStore.row(task.id), sectionId)
+        repository.moveToSection(taskRow(task.id), sectionId)
 
-        assertEquals(sectionId, taskStore.row(task.id).sectionId)
-        assertEquals(sectionId, taskStore.row(step.id).sectionId)
+        assertEquals(sectionId, taskRow(task.id).sectionId)
+        assertEquals(sectionId, taskRow(step.id).sectionId)
     }
 
     @Test
@@ -344,10 +341,10 @@ class CadenceRepositoryTest {
         val sectionId = section()
         val task = store(Task(title = "Send the invoice"))
 
-        repository.moveToSection(taskStore.row(task.id), sectionId)
+        repository.moveToSection(taskRow(task.id), sectionId)
 
         // There is nowhere for it to be grouped: the Inbox draws no headings.
-        assertNull(taskStore.row(task.id).sectionId)
+        assertNull(taskRow(task.id).sectionId)
     }
 
     @Test
@@ -355,7 +352,7 @@ class CadenceRepositoryTest {
         val result = repository.upsertSection(Section(projectId = "p1", name = "   "))
 
         assertTrue(result is RepositoryResult.ValidationError)
-        assertTrue(sectionStore.rows().isEmpty())
+        assertTrue(sectionStore.getAll().isEmpty())
     }
 
     @Test
@@ -364,25 +361,27 @@ class CadenceRepositoryTest {
 
         repository.deleteEverything()
 
-        assertNotNull(sectionStore.row(sectionId).deletedAt)
-        assertTrue(sectionStore.rows().isEmpty())
+        assertNotNull(stores.sectionRow(sectionId).deletedAt)
+        assertTrue(sectionStore.getAll().isEmpty())
     }
 
     // ── Attachments ────────────────────────────────────────────────────────────────
 
     @Test
     fun `the danger zone tombstones every task and project rather than removing rows`() = runTest {
-        val first = store(Task(title = "Send the invoice"))
-        val second = store(Task(title = "Book flights", parentId = first.id))
+        projectStore.insert(Project(id = "p1", name = "Bills"))
+        val first = store(Task(title = "Send the invoice", projectId = "p1"))
+        val second = store(Task(title = "Book flights", parentId = first.id, projectId = "p1"))
 
         val wiped = repository.deleteEverything()
 
         assertEquals(setOf(first.id, second.id), wiped.toSet())
-        assertTrue(taskStore.rows().isEmpty())
-        // A hard delete would look identical to the list above and lose the deletion on sync.
-        assertNotNull(taskStore.row(first.id).deletedAt)
-        assertNotNull(taskStore.row(second.id).deletedAt)
-        assertNotNull(projectStore.wipedAt)
+        assertTrue(taskStore.getAll().isEmpty())
+        assertTrue(projectStore.getAll().isEmpty())
+        // A hard delete would look identical to the two lines above and lose the deletion on sync.
+        assertNotNull(taskRow(first.id).deletedAt)
+        assertNotNull(taskRow(second.id).deletedAt)
+        assertNotNull(stores.projectRow("p1").deletedAt)
     }
 
     @Test
@@ -401,10 +400,10 @@ class CadenceRepositoryTest {
         val task = store(Task(title = "Send the invoice"))
 
         repository.deleteEverything()
-        val stamped = taskStore.row(task.id).deletedAt
+        val stamped = taskRow(task.id).deletedAt
         repository.deleteEverything()
 
-        assertEquals(stamped, taskStore.row(task.id).deletedAt)
+        assertEquals(stamped, taskRow(task.id).deletedAt)
     }
 
     @Test
@@ -444,41 +443,27 @@ class CadenceRepositoryTest {
 
     @Test
     fun `deleting a project with its tasks reclaims their attachments`() = runTest {
-        val task = store(Task(title = "Send the invoice"))
+        projectStore.insert(Project(id = "p1", name = "Bills"))
+        val task = store(Task(title = "Send the invoice", projectId = "p1"))
         val hash = attach(task.id)
-        val projectStore = FakeProjectStore(tasksIn = listOf(task.id))
-        val withProject = CadenceRepository(
-            taskStore,
-            projectStore,
-            sectionStore,
-            tagStore,
-            FakeBackupStore(),
-            attachmentStore,
-            blobStore,
-        )
 
-        withProject.deleteProject(id = "p1", deleteTasks = true)
+        repository.deleteProject(id = "p1", deleteTasks = true)
 
+        assertNotNull(taskRow(task.id).deletedAt)
+        assertTrue(attachmentStore.forTask(task.id).isEmpty())
         assertNull(blobStore.file(hash))
     }
 
     @Test
     fun `moving a project's tasks to the Inbox keeps their attachments`() = runTest {
-        val task = store(Task(title = "Send the invoice"))
+        projectStore.insert(Project(id = "p1", name = "Bills"))
+        val task = store(Task(title = "Send the invoice", projectId = "p1"))
         val hash = attach(task.id)
-        val projectStore = FakeProjectStore(tasksIn = listOf(task.id))
-        val withProject = CadenceRepository(
-            taskStore,
-            projectStore,
-            sectionStore,
-            tagStore,
-            FakeBackupStore(),
-            attachmentStore,
-            blobStore,
-        )
 
-        withProject.deleteProject(id = "p1", deleteTasks = false)
+        repository.deleteProject(id = "p1", deleteTasks = false)
 
+        assertNull(taskRow(task.id).projectId)
+        assertNull(taskRow(task.id).deletedAt)
         assertNotNull(blobStore.file(hash))
         assertEquals(1, attachmentStore.forTask(task.id).size)
     }
@@ -610,9 +595,9 @@ class CadenceRepositoryTest {
 
         repository.reorderTasks(listOf(c.id, a.id, b.id))
 
-        assertEquals(0, taskStore.row(c.id).sortOrder)
-        assertEquals(1, taskStore.row(a.id).sortOrder)
-        assertEquals(2, taskStore.row(b.id).sortOrder)
+        assertEquals(0, taskRow(c.id).sortOrder)
+        assertEquals(1, taskRow(a.id).sortOrder)
+        assertEquals(2, taskRow(b.id).sortOrder)
     }
 
     @Test
@@ -627,9 +612,9 @@ class CadenceRepositoryTest {
 
         // The push reads `updatedAt`, so an untouched row must keep its old one or a drag ships
         // the whole list to the other device.
-        assertEquals(stale, taskStore.row(a.id).updatedAt)
-        assertTrue(taskStore.row(b.id).updatedAt.isAfter(stale))
-        assertTrue(taskStore.row(c.id).updatedAt.isAfter(stale))
+        assertEquals(stale, taskRow(a.id).updatedAt)
+        assertTrue(taskRow(b.id).updatedAt.isAfter(stale))
+        assertTrue(taskRow(c.id).updatedAt.isAfter(stale))
     }
 
     @Test
@@ -640,8 +625,8 @@ class CadenceRepositoryTest {
         // A row deleted by a pull while the list was being dragged.
         repository.reorderTasks(listOf(b.id, "ghost", a.id))
 
-        assertEquals(0, taskStore.row(b.id).sortOrder)
-        assertEquals(2, taskStore.row(a.id).sortOrder)
+        assertEquals(0, taskRow(b.id).sortOrder)
+        assertEquals(2, taskRow(a.id).sortOrder)
     }
 
     @Test
@@ -651,7 +636,7 @@ class CadenceRepositoryTest {
 
         val id = repository.upsertTask(Task(title = "Third", projectId = "p1"))
 
-        assertEquals(2, taskStore.row(id).sortOrder)
+        assertEquals(2, taskRow(id).sortOrder)
     }
 
     @Test
@@ -660,7 +645,7 @@ class CadenceRepositoryTest {
 
         val id = repository.upsertTask(Task(title = "In the Inbox"))
 
-        assertEquals(0, taskStore.row(id).sortOrder)
+        assertEquals(0, taskRow(id).sortOrder)
     }
 
     @Test
@@ -671,11 +656,11 @@ class CadenceRepositoryTest {
 
         repository.reorderProjects(parentId = null, orderedIds = listOf("root-b", "child", "root-a"))
 
-        assertEquals(0, projectStore.row("root-b").sortOrder)
+        assertEquals(0, stores.projectRow("root-b").sortOrder)
         // Ordered *after* the ignored id, so the caller's relative order survives the filter.
-        assertEquals(1, projectStore.row("root-a").sortOrder)
+        assertEquals(1, stores.projectRow("root-a").sortOrder)
         // A subproject dragged into the root list is a move, not a reorder — untouched here.
-        assertEquals(0, projectStore.row("child").sortOrder)
+        assertEquals(0, stores.projectRow("child").sortOrder)
     }
 
     @Test
@@ -686,7 +671,7 @@ class CadenceRepositoryTest {
         val result = repository.upsertProject(Project(name = "C"))
 
         val id = (result as RepositoryResult.Success).data
-        assertEquals(2, projectStore.row(id).sortOrder)
+        assertEquals(2, stores.projectRow(id).sortOrder)
     }
 
     @Test
@@ -697,9 +682,9 @@ class CadenceRepositoryTest {
 
         repository.reorderSections(projectId = "p1", orderedIds = listOf("s2", "other", "s1"))
 
-        assertEquals(0, sectionStore.row("s2").sortOrder)
-        assertEquals(1, sectionStore.row("s1").sortOrder)
-        assertEquals(0, sectionStore.row("other").sortOrder)
+        assertEquals(0, stores.sectionRow("s2").sortOrder)
+        assertEquals(1, stores.sectionRow("s1").sortOrder)
+        assertEquals(0, stores.sectionRow("other").sortOrder)
     }
 
     @Test
@@ -709,7 +694,7 @@ class CadenceRepositoryTest {
         val result = repository.upsertSection(Section(projectId = "p1", name = "Two"))
 
         val id = (result as RepositoryResult.Success).data
-        assertEquals(1, sectionStore.row(id).sortOrder)
+        assertEquals(1, stores.sectionRow(id).sortOrder)
     }
 
     // ── Tags ───────────────────────────────────────────────────────────────────────
@@ -720,8 +705,8 @@ class CadenceRepositoryTest {
         val second = repository.upsertTag(Tag(name = "Waiting")) as RepositoryResult.Success
 
         assertTrue(first.data.isNotBlank())
-        assertEquals(0, tagStore.row(first.data).sortOrder)
-        assertEquals(1, tagStore.row(second.data).sortOrder)
+        assertEquals(0, stores.tagRow(first.data).sortOrder)
+        assertEquals(1, stores.tagRow(second.data).sortOrder)
     }
 
     /**
@@ -735,7 +720,7 @@ class CadenceRepositoryTest {
         val clash = repository.upsertTag(Tag(name = "  errand  "))
 
         assertTrue(clash is RepositoryResult.Error)
-        assertEquals(1, tagStore.rows().size)
+        assertEquals(1, tagStore.getAll().size)
     }
 
     /** Renaming is not a clash with itself. */
@@ -743,10 +728,10 @@ class CadenceRepositoryTest {
     fun `recolouring a tag under its own name is allowed`() = runTest {
         val id = (repository.upsertTag(Tag(name = "Errand")) as RepositoryResult.Success).data
 
-        val again = repository.upsertTag(tagStore.row(id).copy(colorHex = "#BA1A1A"))
+        val again = repository.upsertTag(stores.tagRow(id).copy(colorHex = "#BA1A1A"))
 
         assertTrue(again is RepositoryResult.Success)
-        assertEquals("#BA1A1A", tagStore.row(id).colorHex)
+        assertEquals("#BA1A1A", stores.tagRow(id).colorHex)
     }
 
     @Test
@@ -764,25 +749,25 @@ class CadenceRepositoryTest {
     fun `deleting a tag writes one row and leaves every task alone`() = runTest {
         val id = (repository.upsertTag(Tag(name = "Errand")) as RepositoryResult.Success).data
         val task = store(Task(title = "Post the parcel", tagIds = listOf(id)))
-        val before = taskStore.row(task.id).updatedAt
+        val before = taskRow(task.id).updatedAt
 
         repository.deleteTag(id)
 
-        assertTrue(tagStore.rows().isEmpty())
-        assertEquals(listOf(id), taskStore.row(task.id).tagIds)
-        assertEquals(before, taskStore.row(task.id).updatedAt)
+        assertTrue(tagStore.getAll().isEmpty())
+        assertEquals(listOf(id), taskRow(task.id).tagIds)
+        assertEquals(before, taskRow(task.id).updatedAt)
     }
 
     @Test
     fun `setTaskTags dedupes, drops blanks and does not write an unchanged list`() = runTest {
         val task = store(Task(title = "Post the parcel", tagIds = listOf("a")))
-        val before = taskStore.row(task.id).updatedAt
+        val before = taskRow(task.id).updatedAt
 
-        repository.setTaskTags(taskStore.row(task.id), listOf("a"))
-        assertEquals(before, taskStore.row(task.id).updatedAt)
+        repository.setTaskTags(taskRow(task.id), listOf("a"))
+        assertEquals(before, taskRow(task.id).updatedAt)
 
-        repository.setTaskTags(taskStore.row(task.id), listOf("a", "", "b", "a"))
-        assertEquals(listOf("a", "b"), taskStore.row(task.id).tagIds)
+        repository.setTaskTags(taskRow(task.id), listOf("a", "", "b", "a"))
+        assertEquals(listOf("a", "b"), taskRow(task.id).tagIds)
     }
 
     /**
@@ -796,18 +781,18 @@ class CadenceRepositoryTest {
 
         repository.setTaskTags(task, listOf("not-a-tag-yet"))
 
-        assertEquals(listOf("not-a-tag-yet"), taskStore.row(task.id).tagIds)
+        assertEquals(listOf("not-a-tag-yet"), taskRow(task.id).tagIds)
     }
 
     @Test
     fun `toggling adds a tag the task lacks and removes one it has`() = runTest {
         val task = store(Task(title = "Post the parcel"))
 
-        repository.toggleTaskTag(taskStore.row(task.id), "a")
-        assertEquals(listOf("a"), taskStore.row(task.id).tagIds)
+        repository.toggleTaskTag(taskRow(task.id), "a")
+        assertEquals(listOf("a"), taskRow(task.id).tagIds)
 
-        repository.toggleTaskTag(taskStore.row(task.id), "a")
-        assertEquals(emptyList<String>(), taskStore.row(task.id).tagIds)
+        repository.toggleTaskTag(taskRow(task.id), "a")
+        assertEquals(emptyList<String>(), taskRow(task.id).tagIds)
     }
 
     /** A label on the parent says nothing about its checklist — unlike a project or a section,
@@ -816,11 +801,11 @@ class CadenceRepositoryTest {
     fun `tagging a parent leaves its subtasks untagged`() = runTest {
         val parent = store(Task(title = "Move house"))
         repository.addSubtask(parent, "Book the van")
-        val step = taskStore.rows().single { it.parentId == parent.id }
+        val step = taskStore.getAll().single { it.parentId == parent.id }
 
         repository.setTaskTags(parent, listOf("a"))
 
-        assertEquals(emptyList<String>(), taskStore.row(step.id).tagIds)
+        assertEquals(emptyList<String>(), taskRow(step.id).tagIds)
     }
 
     /** A recurring task's labels are part of the work, so the next occurrence inherits them —
@@ -843,352 +828,6 @@ class CadenceRepositoryTest {
 
         repository.deleteEverything()
 
-        assertTrue(tagStore.rows().isEmpty())
+        assertTrue(tagStore.getAll().isEmpty())
     }
-}
-
-/** An in-memory [TaskStore] with SQLite's semantics for the guarded writes. */
-private class FakeTaskStore : TaskStore {
-
-    private val table = MutableStateFlow<Map<String, Task>>(emptyMap())
-    private var nextId = 1
-
-    /**
-     * Test-only setup helper: mints an id when [task] does not carry one, the way
-     * [de.andi1984.cadence.data.CadenceRepository] does for a real insert — [TaskStore.insert]
-     * itself now only ever receives a task that already has its final id.
-     */
-    fun put(task: Task): String {
-        val id = task.id.ifBlank { "fake-task-${nextId++}" }
-        table.value = table.value + (id to task.copy(id = id))
-        return id
-    }
-
-    /** The raw row, tombstone included — how a test asserts that a delete stamped rather than removed. */
-    fun row(id: String): Task = table.value[id] ?: error("no task with id $id")
-
-    /** What the app can see. Every read below goes through this, as `deletedAt IS NULL` does in SQL. */
-    fun rows(): List<Task> = table.value.values.filter { it.deletedAt == null }
-
-    override fun observeAll(): Flow<List<Task>> = table.map { m -> m.values.filter { it.deletedAt == null } }
-
-    override fun observeById(id: String): Flow<Task?> = table.map { m -> m[id]?.takeIf { it.deletedAt == null } }
-
-    override suspend fun getAll(): List<Task> = rows()
-
-    override suspend fun byId(id: String): Task? = table.value[id]?.takeIf { it.deletedAt == null }
-
-    override suspend fun subtasksOf(parentId: String): List<Task> = rows()
-        .filter { it.parentId == parentId }
-        .sortedWith(compareBy({ it.sortOrder }, { it.id }))
-
-    override suspend fun insert(task: Task) {
-        put(task)
-    }
-
-    override suspend fun update(task: Task) {
-        if (table.value.containsKey(task.id)) table.value = table.value + (task.id to task)
-    }
-
-    override suspend fun tombstoneWithSubtasks(id: String, at: Instant) {
-        // Models the store faithfully: the row stays, stamped, and every read below hides it —
-        // a fake that removed the row would let a tombstone bug through unnoticed.
-        table.value = table.value.mapValues { (_, task) ->
-            if ((task.id == id || task.parentId == id) && task.deletedAt == null) {
-                task.copy(deletedAt = at, updatedAt = at)
-            } else {
-                task
-            }
-        }
-    }
-
-    override suspend fun tombstoneAll(at: Instant) {
-        table.value = table.value.mapValues { (_, task) ->
-            if (task.deletedAt == null) task.copy(deletedAt = at, updatedAt = at) else task
-        }
-    }
-
-    override suspend fun completeIfOpen(id: String, completedAt: Instant): Int {
-        val task = table.value[id]?.takeIf { it.deletedAt == null } ?: return 0
-        if (task.completedAt != null) return 0
-        table.value = table.value + (id to task.copy(completedAt = completedAt, updatedAt = completedAt))
-        return 1
-    }
-
-    override suspend fun reopenIfDone(id: String, updatedAt: Instant): Int {
-        val task = table.value[id]?.takeIf { it.deletedAt == null } ?: return 0
-        if (task.completedAt == null) return 0
-        table.value = table.value + (id to task.copy(completedAt = null, updatedAt = updatedAt))
-        return 1
-    }
-
-    /** `Section.sq`'s `clearTasksIn`, which the store runs beside the section's own tombstone. */
-    fun clearSection(sectionId: String, at: Instant) {
-        table.value = table.value.mapValues { (_, task) ->
-            if (task.sectionId == sectionId && task.deletedAt == null) {
-                task.copy(sectionId = null, updatedAt = at)
-            } else {
-                task
-            }
-        }
-    }
-
-    override suspend fun openSuccessorsOf(id: String): List<String> = rows()
-        .filter { it.spawnedFromId == id && it.completedAt == null }
-        .map { it.id }
-
-    /**
-     * `Task.sq`'s `updateSortOrder`, guard included: a row whose position is already the one it
-     * would be given is *not* written. A fake that restamped it would hide the rule the sync push
-     * depends on — that a drag puts the rows that moved on the wire, and nothing else.
-     */
-    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant) {
-        var next = table.value
-        orders.forEach { (id, position) ->
-            val task = next[id]?.takeIf { it.deletedAt == null } ?: return@forEach
-            if (task.sortOrder == position) return@forEach
-            next = next + (id to task.copy(sortOrder = position, updatedAt = at))
-        }
-        table.value = next
-    }
-
-    override suspend fun maxSortOrder(projectId: String?): Int? = rows()
-        .filter { it.parentId == null && it.projectId == projectId }
-        .maxOfOrNull { it.sortOrder }
-}
-
-/**
- * An in-memory [ProjectStore].
- *
- * It used to answer `emptyList()` to everything and exist only to satisfy the constructor. It
- * holds rows now because manual order is a fact about a *list* — "the projects under this parent"
- * — and a store with no rows cannot tell one bucket from another.
- */
-private class FakeProjectStore(private val tasksIn: List<String> = emptyList()) : ProjectStore {
-
-    private val table = MutableStateFlow<Map<String, Project>>(emptyMap())
-
-    fun rows(): List<Project> = table.value.values.filter { it.deletedAt == null }
-
-    fun row(id: String): Project = table.value[id] ?: error("no project with id $id")
-
-    override fun observeAll(): Flow<List<Project>> =
-        table.map { m -> m.values.filter { it.deletedAt == null } }
-
-    override suspend fun getAll(): List<Project> = rows()
-
-    override suspend fun insert(project: Project) {
-        table.value = table.value + (project.id to project)
-    }
-
-    override suspend fun update(project: Project) = insert(project)
-
-    override suspend fun taskIdsIn(id: String): List<String> = tasksIn
-
-    override suspend fun tombstoneWithChildren(id: String, deleteTasks: Boolean, at: Instant) {
-        table.value = table.value.mapValues { (_, project) ->
-            if ((project.id == id || project.parentId == id) && project.deletedAt == null) {
-                project.copy(deletedAt = at, updatedAt = at)
-            } else {
-                project
-            }
-        }
-    }
-
-    /** Records the wipe so a test can assert the repository reached both tables, not just one. */
-    var wipedAt: Instant? = null
-        private set
-
-    override suspend fun tombstoneAll(at: Instant) {
-        wipedAt = at
-        table.value = table.value.mapValues { (_, project) ->
-            if (project.deletedAt == null) project.copy(deletedAt = at, updatedAt = at) else project
-        }
-    }
-
-    /** See [FakeTaskStore.reorder] for why the unchanged rows are left alone. */
-    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant) {
-        var next = table.value
-        orders.forEach { (id, position) ->
-            val project = next[id]?.takeIf { it.deletedAt == null } ?: return@forEach
-            if (project.sortOrder == position) return@forEach
-            next = next + (id to project.copy(sortOrder = position, updatedAt = at))
-        }
-        table.value = next
-    }
-
-    override suspend fun maxSortOrder(parentId: String?): Int? = rows()
-        .filter { it.parentId == parentId }
-        .maxOfOrNull { it.sortOrder }
-}
-
-private class FakeBackupStore : BackupStore {
-
-    override suspend fun mergeAll(
-        projects: List<Project>,
-        sections: List<Section>,
-        tags: List<Tag>,
-        tasks: List<Task>,
-        revivedAt: Instant,
-    ) = Unit
-}
-
-/**
- * An in-memory [TagStore].
- *
- * Shorter than [FakeSectionStore] by exactly the thing that makes a tag a tag: `tombstone` writes
- * one row and touches no task, because membership lives on the other side of the link.
- */
-private class FakeTagStore : TagStore {
-
-    private val table = MutableStateFlow<Map<String, Tag>>(emptyMap())
-
-    fun row(id: String): Tag = table.value[id] ?: error("no tag with id $id")
-
-    fun rows(): List<Tag> = table.value.values.filter { it.deletedAt == null }
-
-    override fun observeAll(): Flow<List<Tag>> =
-        table.map { m -> m.values.filter { it.deletedAt == null }.sortedBy { it.sortOrder } }
-
-    override suspend fun getAll(): List<Tag> = rows().sortedBy { it.sortOrder }
-
-    override suspend fun insert(tag: Tag) {
-        table.value = table.value + (tag.id to tag)
-    }
-
-    override suspend fun update(tag: Tag) {
-        table.value = table.value + (tag.id to tag)
-    }
-
-    override suspend fun tombstone(id: String, at: Instant) {
-        val tag = table.value[id] ?: return
-        if (tag.deletedAt != null) return
-        table.value = table.value + (id to tag.copy(deletedAt = at, updatedAt = at))
-    }
-
-    override suspend fun tombstoneAll(at: Instant) {
-        table.value = table.value.mapValues { (_, tag) ->
-            if (tag.deletedAt == null) tag.copy(deletedAt = at, updatedAt = at) else tag
-        }
-    }
-
-    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant) {
-        var next = table.value
-        orders.forEach { (id, position) ->
-            val tag = next[id]?.takeIf { it.deletedAt == null } ?: return@forEach
-            if (tag.sortOrder == position) return@forEach
-            next = next + (id to tag.copy(sortOrder = position, updatedAt = at))
-        }
-        table.value = next
-    }
-
-    override suspend fun maxSortOrder(): Int? = rows().maxOfOrNull { it.sortOrder }
-}
-
-/**
- * An in-memory [SectionStore], holding a [FakeTaskStore] because the real one does too.
- *
- * `tombstone` is two writes in one transaction in SQL — stamp the row, free its tasks — and a fake
- * that only stamped would let "deleting a section leaves its tasks pointing at a heading nothing
- * answers to" through unnoticed.
- */
-private class FakeSectionStore(private val tasks: FakeTaskStore) : SectionStore {
-
-    private val table = MutableStateFlow<Map<String, Section>>(emptyMap())
-
-    /** The raw row, tombstone included — how a test asserts a delete stamped rather than removed. */
-    fun row(id: String): Section = table.value[id] ?: error("no section with id $id")
-
-    fun rows(): List<Section> = table.value.values.filter { it.deletedAt == null }
-
-    override fun observeAll(): Flow<List<Section>> =
-        table.map { m -> m.values.filter { it.deletedAt == null } }
-
-    override suspend fun getAll(): List<Section> = rows()
-
-    override suspend fun insert(section: Section) {
-        table.value = table.value + (section.id to section)
-    }
-
-    override suspend fun update(section: Section) {
-        table.value = table.value + (section.id to section)
-    }
-
-    override suspend fun tombstone(id: String, at: Instant) {
-        tasks.clearSection(id, at)
-        val section = table.value[id] ?: return
-        if (section.deletedAt != null) return
-        table.value = table.value + (id to section.copy(deletedAt = at, updatedAt = at))
-    }
-
-    override suspend fun tombstoneAll(at: Instant) {
-        table.value = table.value.mapValues { (_, section) ->
-            if (section.deletedAt == null) section.copy(deletedAt = at, updatedAt = at) else section
-        }
-    }
-
-    /** See [FakeTaskStore.reorder] for why the unchanged rows are left alone. */
-    override suspend fun reorder(orders: List<Pair<String, Int>>, at: Instant) {
-        var next = table.value
-        orders.forEach { (id, position) ->
-            val section = next[id]?.takeIf { it.deletedAt == null } ?: return@forEach
-            if (section.sortOrder == position) return@forEach
-            next = next + (id to section.copy(sortOrder = position, updatedAt = at))
-        }
-        table.value = next
-    }
-
-    override suspend fun maxSortOrder(projectId: String): Int? = rows()
-        .filter { it.projectId == projectId }
-        .maxOfOrNull { it.sortOrder }
-}
-
-/** An in-memory [AttachmentStore] mirroring [FakeTaskStore]'s shape. */
-private class FakeAttachmentStore : AttachmentStore {
-
-    private val table = MutableStateFlow<Map<String, Attachment>>(emptyMap())
-    private var nextId = 1
-
-    fun put(attachment: Attachment): String {
-        val id = attachment.id.ifBlank { "fake-attachment-${nextId++}" }
-        table.value = table.value + (id to attachment.copy(id = id))
-        return id
-    }
-
-    override fun observeAll(): Flow<List<Attachment>> = table.map { it.values.toList() }
-
-    override suspend fun byId(id: String): Attachment? = table.value[id]
-
-    override suspend fun forTask(taskId: String): List<Attachment> = table.value.values
-        .filter { it.taskId == taskId }
-        .sortedWith(compareBy({ it.sortOrder }, { it.id }))
-
-    override suspend fun insert(attachment: Attachment) {
-        put(attachment)
-    }
-
-    override suspend fun update(attachment: Attachment) {
-        put(attachment)
-    }
-
-    override suspend fun delete(id: String) {
-        table.value = table.value - id
-    }
-
-    override suspend fun deleteForTasks(taskIds: List<String>) {
-        table.value = table.value.filterValues { it.taskId !in taskIds }
-    }
-
-    override suspend fun hashesForTasks(taskIds: List<String>): List<String> = table.value.values
-        .filter { it.taskId in taskIds }
-        .mapNotNull { it.sha256 }
-        .distinct()
-
-    override suspend fun stillReferenced(hashes: List<String>): List<String> {
-        val named = table.value.values.mapNotNull { it.sha256 }.toSet()
-        return hashes.filter { it in named }
-    }
-
-    override suspend fun referencedHashes(): List<String> =
-        table.value.values.mapNotNull { it.sha256 }.distinct()
 }

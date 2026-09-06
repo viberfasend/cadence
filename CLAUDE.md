@@ -81,7 +81,10 @@ tests moved with it.
 `:ui`'s tests live in a `jvmSharedTest` source set mirroring `jvmShared`, and cover the part of
 the module that is plain JVM Kotlin: the `CadenceUiState` derivations, `sortedFor`, and
 `CadenceViewModel`'s undo state machine (a `StandardTestDispatcher` sharing `runTest`'s scheduler,
-so the five-second undo window costs no wall clock). The ViewModel runs on `runTest`'s
+so the five-second undo window costs no wall clock). The ViewModel tests drive a real
+`CadenceRepository` over the real SQLDelight stores on an in-memory SQLite database
+(`jvmSharedTest`'s `TestDatabase.kt`, the same recipe as `:core`'s), with only the platform ports
+faked (`Fakes.kt`). The ViewModel runs on `runTest`'s
 `backgroundScope` rather than on the test coroutine — its `init` starts collectors that never
 finish, and `runTest` waits for its own children — and the test subscribes to `state`, because
 `stateIn(WhileSubscribed)` keeps the upstream cold until something reads it. The ViewModel test
@@ -116,10 +119,22 @@ it is both the shorter code and the only correct one. `CadenceViewModelUndoTest`
 `CadenceViewModelCrudTest` and `DesktopReminderSchedulerTest` all take their scope from it.
 
 **No mocking library, and no second test framework.** JUnit 4 + `org.junit.Assert` +
-`kotlin.test` + `kotlinx-coroutines-test`, with hand-written fakes for every port —
-`CadenceRepositoryTest`'s style, and `:ui`'s `Fakes.kt` in the same shape. The fakes back a
-*real* `CadenceRepository`, because the rules under test are the repository's; faking it would
-assert only that the ViewModel called what the test told it to expect.
+`kotlin.test` + `kotlinx-coroutines-test`, with hand-written fakes for the *platform* ports —
+`ReminderScheduler`, `BackupGateway`, `AttachmentOpener`, `SettingsStore`, the sync session — in
+`:ui`'s `Fakes.kt`. **The store ports are never faked**: every test that touches storage, the
+repository's and the ViewModel's included, runs the real `SqlDelight*Store`s over an in-memory
+SQLite database (`TestDatabase.kt` in each module's `jvmSharedTest`, `Dispatchers.Unconfined`
+throughout so nothing leaves `runTest`'s scheduler). The store contract — tombstones hidden from
+every read, `completeIfOpen`'s idempotence, the `sortOrder != position` guard, a section delete
+freeing its tasks — used to be implemented three times, once in SQL and twice in fakes, and only
+the SQL was pinned; a `:ui` test was found asserting the fake's behaviour where it contradicted
+the store's. The store ports therefore remain a seam with exactly one adapter, kept for their
+vocabulary (`Task` and `Project`, not rows), not so that a test can plug something else in. The
+fakes that remain back a *real* `CadenceRepository` for the same reason: the rules under test are
+the repository's, and faking it would assert only that the ViewModel called what the test told it
+to expect. The one place a test stands between the repository and SQLite is
+`CadenceViewModelUndoTest`'s `GatedTaskStore`, a delegating wrapper with a hook before the
+tombstone write, which is how the #114 "undo leaves a settled delete hidden" state is reached.
 
 JDK 17, compileSdk/targetSdk 35, minSdk 26. No lint or format task is wired up.
 
