@@ -18,6 +18,7 @@ import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.Dispatchers
 import java.nio.file.Files
+import java.time.Clock
 import java.time.Instant
 
 /**
@@ -61,8 +62,13 @@ class TestStores(val database: CadenceDatabase = inMemoryDatabase()) {
     )
 
     /** A repository over the stores above. [taskStore] can be swapped for a wrapper around the
-     *  real one — a test that needs to stand inside a write gates it that way. */
-    fun repository(taskStore: TaskStore = this.taskStore): CadenceRepository = CadenceRepository(
+     *  real one — a test that needs to stand inside a write gates it that way. [clock] defaults
+     *  to the real one; a test pins it to assert against a fixed "now"/"today" instead of reading
+     *  the machine's own. */
+    fun repository(
+        taskStore: TaskStore = this.taskStore,
+        clock: Clock = Clock.systemDefaultZone(),
+    ): CadenceRepository = CadenceRepository(
         taskStore,
         projectStore,
         sectionStore,
@@ -71,6 +77,7 @@ class TestStores(val database: CadenceDatabase = inMemoryDatabase()) {
         attachmentStore,
         blobStore,
         Dispatchers.Unconfined,
+        clock,
     )
 
     // Raw rows, tombstones included — read through sync's view, the only queries in the schema

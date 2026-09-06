@@ -403,7 +403,12 @@ than reaching for `!!`.
   of it", and puts it back. Two consequences when adding a query: filter tombstones unless you are
   sync, and use `selectByIdIncludingDeleted` when you need to compare against one. `updatedAt` is
   stamped by `CadenceRepository.now()`, truncated to milliseconds so a row cannot ping-pong against
-  Postgres's microsecond timestamps.
+  Postgres's microsecond timestamps. `now()` and the private `today()` both read a `Clock`
+  constructor parameter (`Clock.systemDefaultZone()` by default) rather than calling
+  `Instant.now()`/`LocalDate.now()` directly, which is also where `setCompleted`'s recurrence
+  step, `shiftDueDate`'s snooze base and `rescheduleOverdueToToday`'s target default from — so a
+  test can pin a fixed clock and assert an actual timestamp instead of only comparing one stamp to
+  another.
 - `taskRow` stores dates as **epoch day** (`Long`) and times as **second of day** (`Long`);
   conversion to `LocalDate`/`LocalTime` happens in the private mappers in
   `data/db/SqlDelightStores.kt`. Nothing outside that file should touch the raw numbers.

@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.InputStream
+import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -64,6 +65,12 @@ class CadenceRepository(
     /** Where the blob store's filesystem work runs — every other port already dispatches its
      *  own I/O, and [BlobStore] is a plain `java.io` class with no dispatcher of its own. */
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** What "now"/"today" means for every write this repository makes — [now] and [today]
+     *  both derive from it rather than calling `Instant.now()`/`LocalDate.now()` themselves, so
+     *  a test can pin the clock a chain of recurring completions runs against instead of reading
+     *  the machine's own date to build its expectation. Defaults to the real clock, so every
+     *  existing call site outside tests is unchanged. */
+    private val clock: Clock = Clock.systemDefaultZone(),
 ) {
 
     val tasks: Flow<List<Task>> = taskStore.observeAll()
@@ -288,7 +295,7 @@ class CadenceRepository(
     suspend fun setCompleted(
         task: Task,
         completed: Boolean,
-        today: LocalDate = LocalDate.now(),
+        today: LocalDate = today(),
     ): List<String> {
         if (!completed) {
             if (taskStore.reopenIfDone(task.id, now()) == 0) return emptyList()
@@ -349,7 +356,7 @@ class CadenceRepository(
     }
 
     /** Moves a task's due date by [days], used by snooze and the overdue triage action. */
-    suspend fun shiftDueDate(task: Task, days: Long, from: LocalDate = LocalDate.now()) {
+    suspend fun shiftDueDate(task: Task, days: Long, from: LocalDate = today()) {
         val base = task.dueDate?.takeIf { it.isAfter(from) } ?: from
         taskStore.update(task.copy(dueDate = base.plusDays(days), updatedAt = now()))
     }
@@ -359,7 +366,7 @@ class CadenceRepository(
     }
 
     /** "Reschedule all" on the overdue block: everything overdue lands on today. */
-    suspend fun rescheduleOverdueToToday(today: LocalDate = LocalDate.now()) {
+    suspend fun rescheduleOverdueToToday(today: LocalDate = today()) {
         val now = now()
         taskStore.getAll()
             .filter { it.isOverdue(today) }
@@ -834,6 +841,14 @@ class CadenceRepository(
      * overwrites it, which bumps `updatedAt`, which pushes it again, forever. Truncating at the
      * source is what makes the database, the wire and the merge agree exactly
      * (docs/adr/0002-supabase-sync.md, decision 8).
+     *
+     * Reads [clock] rather than calling `Instant.now()` directly, so a test can pin what "now"
+     * means for a whole chain of writes.
      */
-    private fun now(): Instant = Instant.now().truncatedTo(ChronoUnit.MILLIS)
+    private fun now(): Instant = Instant.now(clock).truncatedTo(ChronoUnit.MILLIS)
+
+    /** What "today" means for a write that lands on it — [setCompleted]'s recurrence step,
+     *  [shiftDueDate]'s snooze base, [rescheduleOverdueToToday]'s target — read from [clock]
+     *  rather than `LocalDate.now()`, for the same reason [now] is. */
+    private fun today(): LocalDate = LocalDate.now(clock)
 }

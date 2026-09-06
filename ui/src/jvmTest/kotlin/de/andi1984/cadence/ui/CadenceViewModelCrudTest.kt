@@ -25,9 +25,11 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
+import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneOffset
 
 /**
  * The rest of the ViewModel's public surface, beside the undo state machine
@@ -39,10 +41,15 @@ import java.time.LocalTime
  */
 class CadenceViewModelCrudTest {
 
+    /** Fixed rather than the machine's own clock, so `rescheduleOverdue`'s "today" is a value the
+     *  test already knows instead of one it has to read `LocalDate.now()` to find out. */
+    private val today: LocalDate = LocalDate.of(2026, 8, 7)
+    private val clock: Clock = Clock.fixed(today.atTime(12, 0).toInstant(ZoneOffset.UTC), ZoneOffset.UTC)
+
     private val stores = TestStores()
     private val taskStore = stores.taskStore
     private val tagStore = stores.tagStore
-    private val repository = stores.repository()
+    private val repository = stores.repository(clock = clock)
     private val reminders = RecordingReminderScheduler()
     private val settings = FakeSettingsStore()
     private val backupGateway = FakeBackupGateway()
@@ -229,7 +236,6 @@ class CadenceViewModelCrudTest {
             task("undated"),
         )
         val viewModel = viewModel()
-        val today = LocalDate.now()
 
         viewModel.rescheduleOverdue()
         runCurrent()

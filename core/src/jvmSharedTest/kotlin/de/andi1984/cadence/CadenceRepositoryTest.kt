@@ -22,8 +22,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
+import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneOffset
 
 /**
  * Completion is where recurrence turns into rows, so this is where a duplicate can be created.
@@ -41,6 +43,12 @@ class CadenceRepositoryTest {
     private val fortnightly = RecurrenceRule(interval = 2, unit = RecurrenceUnit.WEEK)
     private val today = LocalDate.of(2026, 8, 7)
 
+    /** What the repository under test calls "now": fixed, rather than the machine's own clock,
+     *  so a completion chain's timestamps can be asserted exactly instead of merely compared to
+     *  each other — and so [today] above needs no `LocalDate.now()` counterpart to agree with. */
+    private val fixedNow: Instant = today.atTime(12, 0).toInstant(ZoneOffset.UTC)
+    private val clock: Clock = Clock.fixed(fixedNow, ZoneOffset.UTC)
+
     private val stores = TestStores()
     private val taskStore = stores.taskStore
     private val projectStore = stores.projectStore
@@ -48,7 +56,7 @@ class CadenceRepositoryTest {
     private val tagStore = stores.tagStore
     private val attachmentStore = stores.attachmentStore
     private val blobStore = stores.blobStore
-    private val repository = stores.repository()
+    private val repository = stores.repository(clock = clock)
 
     private var nextId = 1
 
@@ -95,7 +103,7 @@ class CadenceRepositoryTest {
     fun `completing a recurring task leaves the finished row and one successor`() = runTest {
         val task = store(recurring())
 
-        repository.setCompleted(task, true, today)
+        repository.setCompleted(task, true)
 
         val rows = rowsTitled("Rat poison")
         assertEquals(2, rows.size)
@@ -112,8 +120,8 @@ class CadenceRepositoryTest {
 
         // Both calls carry the row as it was drawn — open — because the list has not
         // re-composed between the two taps.
-        repository.setCompleted(task, true, today)
-        repository.setCompleted(task, true, today)
+        repository.setCompleted(task, true)
+        repository.setCompleted(task, true)
 
         val rows = rowsTitled("Rat poison")
         assertEquals(2, rows.size)
@@ -124,8 +132,8 @@ class CadenceRepositoryTest {
     fun `completing a task with no recurrence twice only closes it`() = runTest {
         val task = store(Task(title = "Call the vet"))
 
-        repository.setCompleted(task, true, today)
-        repository.setCompleted(task, true, today)
+        repository.setCompleted(task, true)
+        repository.setCompleted(task, true)
 
         val rows = rowsTitled("Call the vet")
         assertEquals(1, rows.size)
@@ -135,13 +143,38 @@ class CadenceRepositoryTest {
     @Test
     fun `the completion time of a closed task is not overwritten by a later tap`() = runTest {
         val task = store(recurring(due = null))
-        repository.setCompleted(task, true, today)
+        repository.setCompleted(task, true)
         val closedAt = rowsTitled("Rat poison").single { it.completedAt != null }.completedAt
 
-        repository.setCompleted(task, true, today)
+        repository.setCompleted(task, true)
 
         val stillClosedAt = rowsTitled("Rat poison").single { it.completedAt != null }.completedAt
         assertEquals(closedAt, stillClosedAt)
+    }
+
+    /**
+     * The repository's clock is injected, so — unlike every other test here, which only ever
+     * compares one stamp to another — this one can pin down what the stamp actually *is*.
+     */
+    @Test
+    fun `completing a task stamps completedAt and updatedAt from the injected clock`() = runTest {
+        val task = store(Task(title = "Call the vet"))
+
+        repository.setCompleted(task, true)
+
+        val closed = rowsTitled("Call the vet").single()
+        assertEquals(fixedNow, closed.completedAt)
+        assertEquals(fixedNow, closed.updatedAt)
+    }
+
+    /** Same guarantee on the other stamp a device-local write leaves: a tombstone. */
+    @Test
+    fun `deleting a task stamps the tombstone from the injected clock`() = runTest {
+        val task = store(Task(title = "Send the invoice"))
+
+        repository.deleteTask(task.id)
+
+        assertEquals(fixedNow, taskRow(task.id).deletedAt)
     }
 
     @Test
@@ -151,7 +184,7 @@ class CadenceRepositoryTest {
         val edited = drawn.copy(priority = Priority.P1, dueDate = LocalDate.of(2026, 8, 5))
         taskStore.update(edited)
 
-        repository.setCompleted(drawn, true, today)
+        repository.setCompleted(drawn, true)
 
         val next = rowsTitled("Rat poison").single { !it.isDone }
         assertEquals(LocalDate.of(2026, 8, 19), next.dueDate)
@@ -169,8 +202,8 @@ class CadenceRepositoryTest {
             ),
         )
 
-        repository.setCompleted(parent, true, today)
-        repository.setCompleted(parent, true, today)
+        repository.setCompleted(parent, true)
+        repository.setCompleted(parent, true)
 
         val steps = rowsTitled("Check the traps")
         assertEquals(2, steps.size)
@@ -209,7 +242,7 @@ class CadenceRepositoryTest {
     fun `the successor records which occurrence it replaces`() = runTest {
         val task = store(recurring())
 
-        repository.setCompleted(task, true, today)
+        repository.setCompleted(task, true)
 
         val next = rowsTitled("Rat poison").single { !it.isDone }
         assertEquals(task.id, next.spawnedFromId)
@@ -218,10 +251,10 @@ class CadenceRepositoryTest {
     @Test
     fun `reopening a recurring task takes the occurrence it created with it`() = runTest {
         val task = store(recurring())
-        repository.setCompleted(task, true, today)
+        repository.setCompleted(task, true)
         val next = rowsTitled("Rat poison").single { it.completedAt == null }
 
-        val removed = repository.setCompleted(task, false, today)
+        val removed = repository.setCompleted(task, false)
 
         assertEquals(listOf(next.id), removed)
         val rows = rowsTitled("Rat poison")
@@ -233,12 +266,12 @@ class CadenceRepositoryTest {
     @Test
     fun `reopening leaves a successor that has itself been ticked off`() = runTest {
         val first = store(recurring())
-        repository.setCompleted(first, true, today)
+        repository.setCompleted(first, true)
         val second = rowsTitled("Rat poison").single { it.completedAt == null }
         // The chain moved on: the second occurrence is done and has a successor of its own.
         repository.setCompleted(second, true, LocalDate.of(2026, 8, 21))
 
-        val removed = repository.setCompleted(first, false, today)
+        val removed = repository.setCompleted(first, false)
 
         assertTrue(removed.isEmpty())
         assertEquals(3, rowsTitled("Rat poison").size)
@@ -248,9 +281,9 @@ class CadenceRepositoryTest {
     fun `reopening a recurring task also removes the successor's checklist`() = runTest {
         val parent = store(recurring())
         store(Task(title = "Check the traps", parentId = parent.id))
-        repository.setCompleted(parent, true, today)
+        repository.setCompleted(parent, true)
 
-        repository.setCompleted(parent, false, today)
+        repository.setCompleted(parent, false)
 
         // The handed-over copy is gone with its occurrence; the original step stays put.
         val steps = rowsTitled("Check the traps")
@@ -261,11 +294,11 @@ class CadenceRepositoryTest {
     @Test
     fun `reopening clears the completion and reopening again is a no-op`() = runTest {
         val task = store(Task(title = "Call the vet"))
-        repository.setCompleted(task, true, today)
+        repository.setCompleted(task, true)
         val done = rowsTitled("Call the vet").single()
 
-        repository.setCompleted(done, false, today)
-        repository.setCompleted(done, false, today)
+        repository.setCompleted(done, false)
+        repository.setCompleted(done, false)
 
         val rows = rowsTitled("Call the vet")
         assertEquals(1, rows.size)
@@ -473,7 +506,7 @@ class CadenceRepositoryTest {
         val task = store(recurring())
         val hash = attach(task.id)
 
-        repository.setCompleted(task, true, today)
+        repository.setCompleted(task, true)
 
         val next = rowsTitled("Rat poison").single { !it.isDone }
         val done = rowsTitled("Rat poison").single { it.isDone }
@@ -814,7 +847,7 @@ class CadenceRepositoryTest {
     fun `the next occurrence of a recurring task keeps its tags`() = runTest {
         val task = store(recurring().copy(tagIds = listOf("a", "b")))
 
-        repository.setCompleted(task, true, today)
+        repository.setCompleted(task, true)
 
         val next = rowsTitled("Rat poison").single { !it.isDone }
         assertEquals(listOf("a", "b"), next.tagIds)
