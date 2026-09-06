@@ -6,13 +6,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.ColorFilter
-import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.action.clickable
-import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.LinearProgressIndicator
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.actionStartActivity
@@ -20,7 +18,6 @@ import androidx.glance.appwidget.appWidgetBackground
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.itemsIndexed
-import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
@@ -36,10 +33,10 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
-import de.andi1984.cadence.CadenceApplication
 import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Task
 import de.andi1984.cadence.ui.BandHeading
+import de.andi1984.cadence.ui.CadenceUiState
 import de.andi1984.cadence.ui.TaskList
 import de.andi1984.cadence.ui.TaskView
 import de.andi1984.cadence.ui.taskList
@@ -101,44 +98,20 @@ enum class TaskListScope(
  *
  * [SizeMode.Single], because a scrolling list is the same composition at every size — it simply
  * shows more or fewer rows — so no resize or rotation ever needs the process for a new layout.
+ *
+ * The session mechanics — the snapshot-then-flow pair, the midnight rearm, the staleness-guarded
+ * sync — live once in [CadenceStateWidget]; this class only ever says what to draw from the state
+ * it is handed.
  */
-abstract class TaskListWidget(private val scope: TaskListScope) : GlanceAppWidget() {
+abstract class TaskListWidget(private val scope: TaskListScope) : CadenceStateWidget() {
 
     override val sizeMode = SizeMode.Single
 
-    override suspend fun provideGlance(context: Context, id: GlanceId) {
-        // `as?` rather than a hard cast: a widget that throws is reported by the launcher as a
-        // crashed widget, so an impossible-in-practice failure degrades to the empty state —
-        // which is still a working quick-add button — instead of a broken tile.
-        val container = (context.applicationContext as? CadenceApplication)?.container
-
-        // Frame one is drawn from a snapshot read here, and every later frame from the flow
-        // collected inside the composition — see [widgetSnapshot] and [widgetUiState] for why
-        // each half is needed and what each was once the whole fix for.
-        val initial = container.widgetSnapshot()
-
-        // Today's list changes at midnight whether or not anything was written; the alarm armed
-        // here is what redraws it then while the process is not around to notice.
-        WidgetMidnightRefresh.schedule(context)
-
-        // A widget being drawn is the moment to ask the server what the other devices did (ADR
-        // 0002, amendment 1) — stale-guarded, because most sessions are started by this app's own
-        // writes and refreshes, and each of those would otherwise become a request. Fire-and-
-        // forget: whatever a round merges lands in the flow this composition collects.
-        container?.syncEngine?.syncInBackgroundIfStale(WIDGET_STALENESS)
-
-        provideContent {
-            val state = widgetUiState(container, initial)
-            val today = LocalDate.now()
-            GlanceTheme(colors = CadenceWidgetColors) {
-                TaskListContent(context, scope, state?.taskList(scope.view, today), today)
-            }
-        }
+    @Composable
+    override fun Content(context: Context, state: CadenceUiState?, today: LocalDate) {
+        TaskListContent(context, scope, state?.taskList(scope.view, today), today)
     }
 }
-
-/** How old the last round may be before a widget redraw asks the server again. */
-internal val WIDGET_STALENESS: java.time.Duration = java.time.Duration.ofMinutes(5)
 
 class CadenceTodayWidget : TaskListWidget(TaskListScope.TODAY)
 
