@@ -753,7 +753,8 @@ than reaching for `!!`.
   (`UndoSlot.hiddenIds`, read into `CadenceUiState.pendingDeleteIds`) and writes nothing for the
   window `UndoSlot` is constructed with (`CadenceViewModel.UNDO_WINDOW`); undo cancels the job, so
   it costs no transaction at all. `CadenceViewModel` only supplies the `commit` lambda —
-  `commitPendingDelete`, the repository write, cancelling reminders and arming sync — and the
+  `commitPendingDelete`, the repository write and cancelling reminders, with the write itself
+  ticking `repository.localWrites` (and so arming sync) on its own — and the
   three call sites (`deleteTask`, `deleteProject`, `wipeEverything`) that hand `UndoSlot.offer` a
   fresh `UndoAction`; the *when* is entirely `UndoSlot`'s. Two rules fall out of there being *one*
   pending action but possibly more than one set of held ids (#114), and both are pinned in
@@ -838,12 +839,19 @@ than reaching for `!!`.
   exists and a session is stored, `SyncWorker` also runs a 15-minute periodic pull beside its
   one-shot post-write push (ADR 0002, amendment 1; see the widget notes). Three things to know
   before adding a trigger or a list:
-  - **The debounce is armed by the mutation, not by the task flow.** `CadenceViewModel.armSync()`
-    is called from each task and project mutation; a row merged *in* from a pull lands in
-    `repository.tasks` exactly like a local edit does, and a debounce watching that flow would
-    have two devices pushing each other awake forever. Settings never arm it — they are
-    per-device. A new mutation method therefore has to call `armSync()` itself — which the ones
-    ADR 0003 added (`duplicateTask`, the three `reorder*` passes, `applyDropIntent`) all do.
+  - **The debounce is armed by `CadenceRepository.localWrites`, not by the task flow.** The
+    ViewModel used to call `armSync()` from each mutation itself; the repository announces "this
+    device wrote" now, through a private `write { }` wrapper every mutating method routes through,
+    and `startWriteDebounce` collects that flow instead. The reason hasn't moved: a row merged
+    *in* from a pull lands in `repository.tasks` exactly like a local edit does, and a debounce
+    watching that flow would have two devices pushing each other awake forever — but a pull can
+    no longer tick `localWrites` even by accident, because `SqlDelightSyncStore.mergeAndAdvance`
+    writes straight to the database and never calls through `CadenceRepository` at all. Settings
+    still never arm it — they are per-device, and `SettingsStore` doesn't touch the repository. A
+    new mutation method therefore has to route its write through `write { }` itself, matching
+    "arm on `Success` only" for one that returns a `RepositoryResult` — the rule is tested now
+    (`CadenceRepositoryTest`'s `localWrites` section), not just a convention every call site had
+    to remember.
   - **The lifecycle triggers hang off the shell, not the ViewModel**, and go through
     `CadenceSyncEngine.syncInBackground()`, which runs on the *application* scope:
     `:app-android`'s `CadenceApplication` observes `ProcessLifecycleOwner` (the Activity's

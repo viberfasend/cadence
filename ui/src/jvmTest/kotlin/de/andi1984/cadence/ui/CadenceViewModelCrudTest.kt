@@ -1,6 +1,7 @@
 package de.andi1984.cadence.ui
 
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
+import de.andi1984.cadence.data.sync.SyncStatus
 import de.andi1984.cadence.domain.backup.BackupFailure
 import de.andi1984.cadence.domain.backup.BackupOutcome
 import de.andi1984.cadence.domain.model.AttachmentKind
@@ -15,8 +16,11 @@ import de.andi1984.cadence.domain.parse.ParsedQuickAdd
 import de.andi1984.cadence.ui.dnd.DropIntent
 import de.andi1984.cadence.ui.platform.BackupTarget
 import de.andi1984.cadence.ui.platform.PickedFile
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -25,6 +29,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
+import java.io.IOException
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -815,5 +820,55 @@ class CadenceViewModelCrudTest {
         assertEquals(0, viewModel.state.value.attachmentCount("t1"))
         // Still in the database: nothing has been committed yet, and an undo brings both back.
         assertEquals(1, stores.attachments().size)
+    }
+
+    // ── Sync ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The debounce now collects [de.andi1984.cadence.data.CadenceRepository.localWrites] rather
+     * than being armed by each mutation directly (see `startWriteDebounce`), so this proves the
+     * wiring survived the move: a save reaches [CadenceSyncEngine.syncOnce] only after
+     * [CadenceViewModel.WRITE_DEBOUNCE] elapses, not before.
+     *
+     * [FakeSyncStore] used everywhere else in this file reports signed-out, and a signed-out
+     * round returns before making a request or touching [CadenceSyncEngine.status] at all — which
+     * proves nothing about whether the debounce actually called it. So this engine is signed in
+     * instead, against a [MockEngine] that answers every request with a network error: `syncOnce`
+     * moves [CadenceSyncEngine.status] to [SyncStatus.Syncing] before it does anything else, and
+     * that transition — away from the [SyncStatus.Idle] the engine starts in — is the observable
+     * proof a round actually ran, without the test having to wait out the mocked round's own
+     * (real, not virtual) failure to reach [SyncStatus.Failed].
+     */
+    @Test
+    fun `a mutation schedules a sync round after the write debounce`() = runTest {
+        stores.seedTasks(task("t1"))
+        val syncStore = FakeSyncStore()
+        syncStore.setSession(
+            """{"accessToken":"not-a-jwt","sessionCookie":"c=1","email":"me@example.org"}""",
+        )
+        val http = HttpClient(MockEngine { throw IOException("no network in this test") })
+        val syncEngine = CadenceSyncEngine(syncStore, backgroundScope, http)
+        val viewModel = CadenceViewModel(
+            repository = repository,
+            settingsStore = settings,
+            reminderScheduler = reminders,
+            backupGateway = backupGateway,
+            attachmentOpener = attachmentOpener,
+            syncEngine = syncEngine,
+            scope = backgroundScope,
+        )
+        backgroundScope.launch { viewModel.state.collect { } }
+        runCurrent()
+        assertEquals(SyncStatus.Idle("me@example.org", null), syncEngine.status.value)
+
+        viewModel.saveTask(task("t1", title = "Renamed"))
+        runCurrent()
+        // Not yet: the debounce has not let two seconds pass.
+        assertEquals(SyncStatus.Idle("me@example.org", null), syncEngine.status.value)
+
+        advanceTimeBy(CadenceViewModel.WRITE_DEBOUNCE.toMillis() + 1)
+        runCurrent()
+
+        assertEquals(SyncStatus.Syncing("me@example.org"), syncEngine.status.value)
     }
 }

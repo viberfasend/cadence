@@ -43,10 +43,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -405,8 +403,9 @@ class CadenceViewModel(
     /**
      * The undo/deferred-delete machine (#114) — see [UndoSlot]'s own doc for the two rules it
      * keeps. [commitPendingDelete] is the dispatch it runs once a window elapses (or a second
-     * delete settles this one out of band): the repository write, cancelling reminders and
-     * arming sync are still this ViewModel's job, and the *when* of it all belongs to the slot.
+     * delete settles this one out of band): the repository write and cancelling reminders are
+     * still this ViewModel's job — the write ticks `localWrites` on its own, so there is nothing
+     * left to arm explicitly — and the *when* of it all belongs to the slot.
      */
     private val undoSlot = UndoSlot(
         scope = scope,
@@ -510,19 +509,6 @@ class CadenceViewModel(
         initialValue = CadenceUiState(),
     )
 
-    /**
-     * A write happened here — arm the debounce (ADR 0002, decision 11).
-     *
-     * Deliberately a signal every mutation *sends*, rather than something derived from
-     * `repository.tasks`: a row merged in from a pull lands in that flow exactly like a local
-     * edit does, and a debounce watching it would have the two devices pushing each other awake
-     * forever.
-     */
-    private val writes = MutableSharedFlow<Unit>(
-        extraBufferCapacity = 1,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
-
     /** One event per failed round, for the shell to raise a snackbar from. */
     val syncFailures: Flow<SyncFailure> = syncEngine.failures
 
@@ -550,12 +536,10 @@ class CadenceViewModel(
         // an alarm outlives the row it belongs to unless it is cancelled here — sync only ever
         // sees the tasks that still exist.
         repository.setCompleted(task, !task.isDone).forEach { reminderScheduler.cancel(it) }
-        armSync()
     }
 
     fun saveTask(task: Task) = scope.launch {
         repository.upsertTask(task)
-        armSync()
     }
 
     /**
@@ -565,7 +549,7 @@ class CadenceViewModel(
      * [CadenceUiState.pendingDeleteIds]), but the actual tombstone write is held back for
      * [UNDO_WINDOW]: an undo in that window only cancels the pending job, so it costs no database
      * transaction at all. Only when the window elapses does [commitPendingDelete] run the real
-     * delete and arm sync.
+     * delete, which ticks [CadenceRepository.localWrites] and arms the sync debounce on its own.
      */
     fun deleteTask(task: Task) = scope.launch {
         val subtasks = state.value.subtasks(task.id)
@@ -578,9 +562,8 @@ class CadenceViewModel(
     fun addSubtask(parent: Task, title: String) = scope.launch {
         when (val result = repository.addSubtask(parent, title)) {
             is RepositoryResult.Success -> {
-                // Success - the subtask was added
-                // No action needed as the Flow will update automatically
-                armSync()
+                // Success - the subtask was added; the Flow updates on its own, and the
+                // repository already ticked localWrites for us.
             }
             is RepositoryResult.Error -> {
                 showSnackbar(Res.string.snackbar_error, listOf(result.message))
@@ -595,7 +578,6 @@ class CadenceViewModel(
 
     fun setDueDate(task: Task, dueDate: LocalDate?) = scope.launch {
         repository.setDueDate(task, dueDate)
-        armSync()
     }
 
     fun setDueTime(task: Task, dueTime: LocalTime?) = saveTask(task.copy(dueTime = dueTime))
@@ -606,26 +588,22 @@ class CadenceViewModel(
 
     fun setProject(task: Task, projectId: String?) = scope.launch {
         repository.moveToProject(task, projectId)
-        armSync()
     }
 
     /** Files a task under one of its project's sections, or under none. The steps follow it. */
     fun setSection(task: Task, sectionId: String?) = scope.launch {
         repository.moveToSection(task, sectionId)
-        armSync()
     }
 
     /** Replaces a task's labels. The steps deliberately do not follow — see
      *  [CadenceRepository.setTaskTags]. */
     fun setTags(task: Task, tagIds: List<String>) = scope.launch {
         repository.setTaskTags(task, tagIds)
-        armSync()
     }
 
     /** Adds the tag if the task lacks it, removes it if it has it — what tapping a chip does. */
     fun toggleTag(task: Task, tagId: String) = scope.launch {
         repository.toggleTaskTag(task, tagId)
-        armSync()
     }
 
     /**
@@ -638,12 +616,10 @@ class CadenceViewModel(
      */
     fun applyTag(task: Task, tagId: String) = scope.launch {
         repository.setTaskTags(task, task.tagIds + tagId)
-        armSync()
     }
 
     fun snooze(task: Task, days: Long = 1L) = scope.launch {
         repository.shiftDueDate(task, days)
-        armSync()
     }
 
     /**
@@ -679,29 +655,26 @@ class CadenceViewModel(
                 ),
             )
         }
-        armSync()
     }
 
     // ── Manual order ─────────────────────────────────────────────────────────────────
     //
     // One method per list kind, each a thin pass to the repository — the drag kernel has already
     // decided what the new order is (`dnd/DragModel.kt`), and `applyDropIntent` below is the only
-    // caller in the app. They arm sync like every other mutation: a reorder that stayed local
-    // would be undone by the other device's next push.
+    // caller in the app. They arm sync like every other mutation, through the repository's own
+    // `localWrites` tick: a reorder that stayed local would be undone by the other device's next
+    // push.
 
     fun reorderTasks(orderedIds: List<String>) = scope.launch {
         repository.reorderTasks(orderedIds)
-        armSync()
     }
 
     fun reorderProjects(parentId: String?, orderedIds: List<String>) = scope.launch {
         repository.reorderProjects(parentId, orderedIds)
-        armSync()
     }
 
     fun reorderSections(projectId: String, orderedIds: List<String>) = scope.launch {
         repository.reorderSections(projectId, orderedIds)
-        armSync()
     }
 
     /**
@@ -740,7 +713,6 @@ class CadenceViewModel(
                     }
                 }
                 repository.reorderTasks(intent.orderedIds)
-                armSync()
             }
 
             is DropIntent.ReorderTags -> reorderTags(intent.orderedIds)
@@ -762,12 +734,10 @@ class CadenceViewModel(
             val moved = repository.taskById(move.taskId) ?: return@launch
             repository.moveToSection(moved, move.sectionId)
         }
-        armSync()
     }
 
     fun rescheduleOverdue() = scope.launch {
         repository.rescheduleOverdueToToday()
-        armSync()
     }
 
     /**
@@ -797,7 +767,6 @@ class CadenceViewModel(
                     recurrence = parsed.recurrence,
                 ),
             )
-            armSync()
         }
 
     // ── Projects ─────────────────────────────────────────────────────────────────────
@@ -812,10 +781,7 @@ class CadenceViewModel(
         val project = Project(name = name.trim(), colorHex = colorHex, parentId = parentId, sortOrder = order)
 
         when (val result = repository.upsertProject(project)) {
-            is RepositoryResult.Success -> {
-                // Success - project was created
-                armSync()
-            }
+            is RepositoryResult.Success -> Unit // The repository already ticked localWrites.
             is RepositoryResult.Error -> {
                 showSnackbar(Res.string.snackbar_error, listOf(result.message))
             }
@@ -846,10 +812,7 @@ class CadenceViewModel(
         )
 
         when (val result = repository.upsertProject(updatedProject)) {
-            is RepositoryResult.Success -> {
-                // Success - project was updated
-                armSync()
-            }
+            is RepositoryResult.Success -> Unit // The repository already ticked localWrites.
             is RepositoryResult.Error -> {
                 showSnackbar(Res.string.snackbar_error, listOf(result.message))
             }
@@ -889,7 +852,7 @@ class CadenceViewModel(
         val order = state.value.sectionsIn(projectId).size
         val section = Section(projectId = projectId, name = name.trim(), sortOrder = order)
         when (val result = repository.upsertSection(section)) {
-            is RepositoryResult.Success -> armSync()
+            is RepositoryResult.Success -> Unit // The repository already ticked localWrites.
             is RepositoryResult.Error -> showSnackbar(Res.string.snackbar_error, listOf(result.message))
             RepositoryResult.ValidationError -> showSnackbar(Res.string.snackbar_section_name_empty)
         }
@@ -901,7 +864,7 @@ class CadenceViewModel(
             return@launch
         }
         when (val result = repository.upsertSection(section.copy(name = name.trim()))) {
-            is RepositoryResult.Success -> armSync()
+            is RepositoryResult.Success -> Unit // The repository already ticked localWrites.
             is RepositoryResult.Error -> showSnackbar(Res.string.snackbar_error, listOf(result.message))
             RepositoryResult.ValidationError -> showSnackbar(Res.string.snackbar_section_name_empty)
         }
@@ -917,7 +880,6 @@ class CadenceViewModel(
      */
     fun deleteSection(section: Section) = scope.launch {
         repository.deleteSection(section.id)
-        armSync()
     }
 
     // ── Tags ─────────────────────────────────────────────────────────────────────────
@@ -936,7 +898,7 @@ class CadenceViewModel(
             return
         }
         when (val result = repository.upsertTag(tag)) {
-            is RepositoryResult.Success -> armSync()
+            is RepositoryResult.Success -> Unit // The repository already ticked localWrites.
             is RepositoryResult.Error -> showSnackbar(Res.string.snackbar_tag_duplicate, listOf(tag.name.trim()))
             RepositoryResult.ValidationError -> showSnackbar(Res.string.snackbar_tag_name_empty)
         }
@@ -953,12 +915,10 @@ class CadenceViewModel(
      */
     fun deleteTag(tag: Tag) = scope.launch {
         repository.deleteTag(tag.id)
-        armSync()
     }
 
     fun reorderTags(orderedIds: List<String>) = scope.launch {
         repository.reorderTags(orderedIds)
-        armSync()
     }
 
     // ── Attachments ──────────────────────────────────────────────────────────────────
@@ -1124,7 +1084,11 @@ class CadenceViewModel(
      * transaction, and one unreadable file among twenty must not cost the other nineteen. The
      * counts are added up so Settings still reports a single sentence, and the files that could
      * not be read are counted rather than swallowed. A run where *nothing* could be read reports
-     * the first failure itself — "0 tasks imported" would say nothing about why.
+     * the first failure itself — "0 tasks imported" would say nothing about why. Nothing here
+     * arms the sync debounce directly any more: a readable file reaches
+     * [CadenceRepository.restore], which ticks `localWrites` itself, so a run where every file
+     * failed to parse — and [CadenceRepository.restore] was therefore never called — schedules no
+     * round, which is the correct answer for a run that wrote nothing at all.
      */
     fun importBackup(targets: List<BackupTarget>) = scope.launch {
         if (targets.isEmpty()) return@launch
@@ -1141,7 +1105,6 @@ class CadenceViewModel(
                 unreadableFiles = outcomes.size - imported.size,
             )
         }
-        armSync()
     }
 
     fun clearBackupOutcome() {
@@ -1176,15 +1139,17 @@ class CadenceViewModel(
      * Waits for the writing to stop and then syncs once, rather than syncing per keystroke.
      *
      * [debounce] restarts its timer on every signal, so a burst of edits — three checkboxes, a
-     * triage pass — costs one round two seconds after the last of them.
+     * triage pass — costs one round two seconds after the last of them. The signal is
+     * [CadenceRepository.localWrites] rather than something derived from `repository.tasks`: a
+     * row merged in from a pull lands in that flow exactly like a local edit does, and a debounce
+     * watching it would have the two devices pushing each other awake forever. The repository is
+     * what can tell "this device wrote" from "a pull landed" apart — a pull bypasses it entirely
+     * (`SqlDelightSyncStore.mergeAndAdvance` writes straight to the database) — so it is the one
+     * that ticks, and every mutating method now does that itself.
      */
     @OptIn(FlowPreview::class)
     private fun startWriteDebounce() = scope.launch {
-        writes.debounce(WRITE_DEBOUNCE.toMillis()).collect { syncEngine.syncOnce() }
-    }
-
-    private fun armSync() {
-        writes.tryEmit(Unit)
+        repository.localWrites.debounce(WRITE_DEBOUNCE.toMillis()).collect { syncEngine.syncOnce() }
     }
 
     /** Signs out. Nothing local is deleted — the database on this device is the source of
@@ -1202,7 +1167,9 @@ class CadenceViewModel(
     // band — and the three call sites above that hand it a fresh `UndoAction`.
 
     /**
-     * Runs the real destructive write [undoSlot] was holding back, then arms sync.
+     * Runs the real destructive write [undoSlot] was holding back — every branch below goes
+     * through a [CadenceRepository] method that ticks `localWrites` on its own, so there is
+     * nothing left here to arm explicitly.
      *
      * Unhiding the ids and clearing the snackbar, if it is still showing this action, are
      * [undoSlot]'s to do once this returns — the tombstone this write just made keeps the rows
@@ -1228,7 +1195,6 @@ class CadenceViewModel(
                 repository.deleteEverything().forEach { reminderScheduler.cancel(it) }
             }
         }
-        armSync()
     }
 
     /** Undo the delete [undoSlot] is still holding back — see its own doc for what "only this
