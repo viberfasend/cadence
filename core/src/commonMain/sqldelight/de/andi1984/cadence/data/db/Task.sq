@@ -118,13 +118,11 @@ UPDATE taskRow SET title = :title, notes = :notes, priority = :priority, project
     sortOrder = :sortOrder, recurrence = :recurrence, updatedAt = :revivedAt, deletedAt = NULL
 WHERE id = :id AND deletedAt IS NOT NULL;
 
+-- `VALUES ?` binds the generated `TaskRow` whole, so the column list is the table's own and
+-- `Task.toRow()` in `SqlDelightStores.kt` is the one place a domain value becomes a column —
+-- the same single place `toTask` is on the way back.
 insertIfAbsent:
-INSERT OR IGNORE INTO taskRow(
-    id, title, notes, priority, projectId, sectionId, tagIds, parentId, spawnedFromId,
-    dueDate, dueTime, reminderTime, completedAt, createdAt, sortOrder, recurrence,
-    updatedAt, deletedAt
-)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT OR IGNORE INTO taskRow VALUES ?;
 
 -- Closes a task only if it is still open. Follow with `changes` to learn whether this call was
 -- the one that did it — the guard the whole idempotent-completion rule depends on.

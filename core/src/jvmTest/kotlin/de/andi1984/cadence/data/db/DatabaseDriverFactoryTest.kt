@@ -32,10 +32,12 @@ class DatabaseDriverFactoryTest {
     fun `opening an existing database again neither re-creates nor re-migrates it`() {
         val first = DatabaseDriverFactory(folder.root).createDriver()
         CadenceDatabase(first).taskQueries.insertIfAbsent(
-            id = "t1", title = "Survives", notes = null, priority = 2, projectId = null,
-            sectionId = null, tagIds = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
-            reminderTime = null, completedAt = null, createdAt = 0, sortOrder = 0,
-            recurrence = null, updatedAt = 0, deletedAt = null,
+            TaskRow(
+                id = "t1", title = "Survives", notes = null, priority = 2, projectId = null,
+                sectionId = null, tagIds = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
+                reminderTime = null, completedAt = null, createdAt = 0, sortOrder = 0,
+                recurrence = null, updatedAt = 0, deletedAt = null,
+            ),
         )
         first.close()
 
@@ -55,10 +57,12 @@ class DatabaseDriverFactoryTest {
     fun `a version-1 install from before user_version was tracked is migrated, not re-created`() {
         val setup = DatabaseDriverFactory(folder.root).createDriver()
         CadenceDatabase(setup).taskQueries.insertIfAbsent(
-            id = "t1", title = "Older than sync", notes = null, priority = 2, projectId = null,
-            sectionId = null, tagIds = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
-            reminderTime = null, completedAt = null, createdAt = 0, sortOrder = 0,
-            recurrence = null, updatedAt = 0, deletedAt = null,
+            TaskRow(
+                id = "t1", title = "Older than sync", notes = null, priority = 2, projectId = null,
+                sectionId = null, tagIds = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
+                reminderTime = null, completedAt = null, createdAt = 0, sortOrder = 0,
+                recurrence = null, updatedAt = 0, deletedAt = null,
+            ),
         )
         // Wind the file back to what a phase-1 install looks like on disk. `taskRow` may keep its
         // extra columns — `2.sqm` rebuilds it from a named column list either way — but a table
@@ -130,10 +134,12 @@ class DatabaseDriverFactoryTest {
         assertEquals(1, database.attachmentQueries.selectAll { _, _, _, _, _, _, _, _, _, _ -> Unit }.executeAsList().size)
         // The row a pull can now deliver before the project it names.
         database.taskQueries.insertIfAbsent(
-            id = "t2", title = "Not pulled yet", notes = null, priority = 2, projectId = "ghost",
-            sectionId = null, tagIds = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
-            reminderTime = null, completedAt = null, createdAt = 0, sortOrder = 0,
-            recurrence = null, updatedAt = 1, deletedAt = null,
+            TaskRow(
+                id = "t2", title = "Not pulled yet", notes = null, priority = 2, projectId = "ghost",
+                sectionId = null, tagIds = null, parentId = null, spawnedFromId = null, dueDate = null, dueTime = null,
+                reminderTime = null, completedAt = null, createdAt = 0, sortOrder = 0,
+                recurrence = null, updatedAt = 1, deletedAt = null,
+            ),
         )
         assertEquals(2, database.taskQueries.selectAll(::toTask).executeAsList().size)
         migrated.close()
@@ -176,8 +182,10 @@ class DatabaseDriverFactoryTest {
         // The column the migration appended: absent from the old row, and readable as null.
         assertEquals(null, task.sectionId)
         database.sectionQueries.insertIfAbsent(
-            id = "s1", projectId = "p1", name = "This week", sortOrder = 0, updatedAt = 1,
-            deletedAt = null,
+            SectionRow(
+                id = "s1", projectId = "p1", name = "This week", sortOrder = 0, updatedAt = 1,
+                deletedAt = null,
+            ),
         )
         assertEquals(1, database.sectionQueries.selectAll(::toSection).executeAsList().size)
         migrated.close()
@@ -221,8 +229,10 @@ class DatabaseDriverFactoryTest {
         // as a task wearing no labels rather than as a broken row.
         assertEquals(emptyList<String>(), task.tagIds)
         database.tagQueries.insertIfAbsent(
-            id = "g1", name = "Errand", colorHex = "#3E6373", sortOrder = 0, updatedAt = 1,
-            deletedAt = null,
+            TagRow(
+                id = "g1", name = "Errand", colorHex = "#3E6373", sortOrder = 0, updatedAt = 1,
+                deletedAt = null,
+            ),
         )
         assertEquals(1, database.tagQueries.selectAll(::toTag).executeAsList().size)
         // The cursor the migration appended, on a device that had already synced the other three.

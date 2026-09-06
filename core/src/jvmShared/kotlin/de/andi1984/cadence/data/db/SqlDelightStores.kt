@@ -429,27 +429,28 @@ internal fun CadenceDatabase.mergeRecords(
  * REPLACE did to a task's checklist. The caller runs both statements in one transaction.
  */
 internal fun TaskQueries.upsertRow(task: Task) {
+    val row = task.toRow()
     updateRow(
-        title = task.title,
-        notes = task.notes,
-        priority = task.priority.level.toLong(),
-        projectId = task.projectId,
-        sectionId = task.sectionId,
-        tagIds = TagIdsCodec.encode(task.tagIds),
-        parentId = task.parentId,
-        spawnedFromId = task.spawnedFromId,
-        dueDate = task.dueDate?.toEpochDay(),
-        dueTime = task.dueTime?.toSecondOfDay()?.toLong(),
-        reminderTime = task.reminderTime?.toSecondOfDay()?.toLong(),
-        completedAt = task.completedAt?.toEpochMilli(),
-        createdAt = task.createdAt.toEpochMilli(),
-        sortOrder = task.sortOrder.toLong(),
-        recurrence = RecurrenceCodec.encode(task.recurrence),
-        updatedAt = task.updatedAt.toEpochMilli(),
-        deletedAt = task.deletedAt?.toEpochMilli(),
-        id = task.id,
+        title = row.title,
+        notes = row.notes,
+        priority = row.priority,
+        projectId = row.projectId,
+        sectionId = row.sectionId,
+        tagIds = row.tagIds,
+        parentId = row.parentId,
+        spawnedFromId = row.spawnedFromId,
+        dueDate = row.dueDate,
+        dueTime = row.dueTime,
+        reminderTime = row.reminderTime,
+        completedAt = row.completedAt,
+        createdAt = row.createdAt,
+        sortOrder = row.sortOrder,
+        recurrence = row.recurrence,
+        updatedAt = row.updatedAt,
+        deletedAt = row.deletedAt,
+        id = row.id,
     )
-    insertIfAbsent(task)
+    insertIfAbsent(row)
 }
 
 /**
@@ -462,214 +463,226 @@ internal fun TaskQueries.upsertRow(task: Task) {
  * that is not tombstoned.
  */
 internal fun TaskQueries.mergeRow(task: Task, revivedAt: Instant? = null) {
-    if (revivedAt != null && task.deletedAt == null) {
+    val row = task.toRow()
+    if (revivedAt != null && row.deletedAt == null) {
         reviveIfDeleted(
-            title = task.title,
-            notes = task.notes,
-            priority = task.priority.level.toLong(),
-            projectId = task.projectId,
-            sectionId = task.sectionId,
-        tagIds = TagIdsCodec.encode(task.tagIds),
-            parentId = task.parentId,
-            spawnedFromId = task.spawnedFromId,
-            dueDate = task.dueDate?.toEpochDay(),
-            dueTime = task.dueTime?.toSecondOfDay()?.toLong(),
-            reminderTime = task.reminderTime?.toSecondOfDay()?.toLong(),
-            completedAt = task.completedAt?.toEpochMilli(),
-            createdAt = task.createdAt.toEpochMilli(),
-            sortOrder = task.sortOrder.toLong(),
-            recurrence = RecurrenceCodec.encode(task.recurrence),
+            title = row.title,
+            notes = row.notes,
+            priority = row.priority,
+            projectId = row.projectId,
+            sectionId = row.sectionId,
+            tagIds = row.tagIds,
+            parentId = row.parentId,
+            spawnedFromId = row.spawnedFromId,
+            dueDate = row.dueDate,
+            dueTime = row.dueTime,
+            reminderTime = row.reminderTime,
+            completedAt = row.completedAt,
+            createdAt = row.createdAt,
+            sortOrder = row.sortOrder,
+            recurrence = row.recurrence,
             revivedAt = revivedAt.toEpochMilli(),
-            id = task.id,
+            id = row.id,
         )
     }
     updateIfOlder(
-        title = task.title,
-        notes = task.notes,
-        priority = task.priority.level.toLong(),
-        projectId = task.projectId,
-        sectionId = task.sectionId,
-        tagIds = TagIdsCodec.encode(task.tagIds),
-        parentId = task.parentId,
-        spawnedFromId = task.spawnedFromId,
-        dueDate = task.dueDate?.toEpochDay(),
-        dueTime = task.dueTime?.toSecondOfDay()?.toLong(),
-        reminderTime = task.reminderTime?.toSecondOfDay()?.toLong(),
-        completedAt = task.completedAt?.toEpochMilli(),
-        createdAt = task.createdAt.toEpochMilli(),
-        sortOrder = task.sortOrder.toLong(),
-        recurrence = RecurrenceCodec.encode(task.recurrence),
-        updatedAt = task.updatedAt.toEpochMilli(),
-        deletedAt = task.deletedAt?.toEpochMilli(),
-        id = task.id,
+        title = row.title,
+        notes = row.notes,
+        priority = row.priority,
+        projectId = row.projectId,
+        sectionId = row.sectionId,
+        tagIds = row.tagIds,
+        parentId = row.parentId,
+        spawnedFromId = row.spawnedFromId,
+        dueDate = row.dueDate,
+        dueTime = row.dueTime,
+        reminderTime = row.reminderTime,
+        completedAt = row.completedAt,
+        createdAt = row.createdAt,
+        sortOrder = row.sortOrder,
+        recurrence = row.recurrence,
+        updatedAt = row.updatedAt,
+        deletedAt = row.deletedAt,
+        id = row.id,
     )
-    insertIfAbsent(task)
-}
-
-private fun TaskQueries.insertIfAbsent(task: Task) {
-    insertIfAbsent(
-        id = task.id,
-        title = task.title,
-        notes = task.notes,
-        priority = task.priority.level.toLong(),
-        projectId = task.projectId,
-        sectionId = task.sectionId,
-        tagIds = TagIdsCodec.encode(task.tagIds),
-        parentId = task.parentId,
-        spawnedFromId = task.spawnedFromId,
-        dueDate = task.dueDate?.toEpochDay(),
-        dueTime = task.dueTime?.toSecondOfDay()?.toLong(),
-        reminderTime = task.reminderTime?.toSecondOfDay()?.toLong(),
-        completedAt = task.completedAt?.toEpochMilli(),
-        createdAt = task.createdAt.toEpochMilli(),
-        sortOrder = task.sortOrder.toLong(),
-        recurrence = RecurrenceCodec.encode(task.recurrence),
-        updatedAt = task.updatedAt.toEpochMilli(),
-        deletedAt = task.deletedAt?.toEpochMilli(),
-    )
+    insertIfAbsent(row)
 }
 
 /** The project half of the same pair — see [upsertRow]. */
 internal fun ProjectQueries.upsertRow(project: Project) {
+    val row = project.toRow()
     updateRow(
-        name = project.name,
-        colorHex = project.colorHex,
-        parentId = project.parentId,
-        sortOrder = project.sortOrder.toLong(),
-        updatedAt = project.updatedAt.toEpochMilli(),
-        deletedAt = project.deletedAt?.toEpochMilli(),
-        id = project.id,
+        name = row.name,
+        colorHex = row.colorHex,
+        parentId = row.parentId,
+        sortOrder = row.sortOrder,
+        updatedAt = row.updatedAt,
+        deletedAt = row.deletedAt,
+        id = row.id,
     )
-    insertIfAbsent(project)
+    insertIfAbsent(row)
 }
 
 /** The project half of the merge, [revivedAt] included — see [TaskQueries.mergeRow]. */
 internal fun ProjectQueries.mergeRow(project: Project, revivedAt: Instant? = null) {
-    if (revivedAt != null && project.deletedAt == null) {
+    val row = project.toRow()
+    if (revivedAt != null && row.deletedAt == null) {
         reviveIfDeleted(
-            name = project.name,
-            colorHex = project.colorHex,
-            parentId = project.parentId,
-            sortOrder = project.sortOrder.toLong(),
+            name = row.name,
+            colorHex = row.colorHex,
+            parentId = row.parentId,
+            sortOrder = row.sortOrder,
             revivedAt = revivedAt.toEpochMilli(),
-            id = project.id,
+            id = row.id,
         )
     }
     updateIfOlder(
-        name = project.name,
-        colorHex = project.colorHex,
-        parentId = project.parentId,
-        sortOrder = project.sortOrder.toLong(),
-        updatedAt = project.updatedAt.toEpochMilli(),
-        deletedAt = project.deletedAt?.toEpochMilli(),
-        id = project.id,
+        name = row.name,
+        colorHex = row.colorHex,
+        parentId = row.parentId,
+        sortOrder = row.sortOrder,
+        updatedAt = row.updatedAt,
+        deletedAt = row.deletedAt,
+        id = row.id,
     )
-    insertIfAbsent(project)
-}
-
-private fun ProjectQueries.insertIfAbsent(project: Project) {
-    insertIfAbsent(
-        id = project.id,
-        name = project.name,
-        colorHex = project.colorHex,
-        parentId = project.parentId,
-        sortOrder = project.sortOrder.toLong(),
-        updatedAt = project.updatedAt.toEpochMilli(),
-        deletedAt = project.deletedAt?.toEpochMilli(),
-    )
+    insertIfAbsent(row)
 }
 
 /** The section half of the same pair — see [upsertRow]. */
 internal fun SectionQueries.upsertRow(section: Section) {
+    val row = section.toRow()
     updateRow(
-        projectId = section.projectId,
-        name = section.name,
-        sortOrder = section.sortOrder.toLong(),
-        updatedAt = section.updatedAt.toEpochMilli(),
-        deletedAt = section.deletedAt?.toEpochMilli(),
-        id = section.id,
+        projectId = row.projectId,
+        name = row.name,
+        sortOrder = row.sortOrder,
+        updatedAt = row.updatedAt,
+        deletedAt = row.deletedAt,
+        id = row.id,
     )
-    insertIfAbsent(section)
+    insertIfAbsent(row)
 }
 
 /** The section half of the merge, [revivedAt] included — see [TaskQueries.mergeRow]. */
 internal fun SectionQueries.mergeRow(section: Section, revivedAt: Instant? = null) {
-    if (revivedAt != null && section.deletedAt == null) {
+    val row = section.toRow()
+    if (revivedAt != null && row.deletedAt == null) {
         reviveIfDeleted(
-            projectId = section.projectId,
-            name = section.name,
-            sortOrder = section.sortOrder.toLong(),
+            projectId = row.projectId,
+            name = row.name,
+            sortOrder = row.sortOrder,
             revivedAt = revivedAt.toEpochMilli(),
-            id = section.id,
+            id = row.id,
         )
     }
     updateIfOlder(
-        projectId = section.projectId,
-        name = section.name,
-        sortOrder = section.sortOrder.toLong(),
-        updatedAt = section.updatedAt.toEpochMilli(),
-        deletedAt = section.deletedAt?.toEpochMilli(),
-        id = section.id,
+        projectId = row.projectId,
+        name = row.name,
+        sortOrder = row.sortOrder,
+        updatedAt = row.updatedAt,
+        deletedAt = row.deletedAt,
+        id = row.id,
     )
-    insertIfAbsent(section)
-}
-
-private fun SectionQueries.insertIfAbsent(section: Section) {
-    insertIfAbsent(
-        id = section.id,
-        projectId = section.projectId,
-        name = section.name,
-        sortOrder = section.sortOrder.toLong(),
-        updatedAt = section.updatedAt.toEpochMilli(),
-        deletedAt = section.deletedAt?.toEpochMilli(),
-    )
+    insertIfAbsent(row)
 }
 
 /** The tag half of the same pair — see [upsertRow]. */
 internal fun TagQueries.upsertRow(tag: Tag) {
+    val row = tag.toRow()
     updateRow(
-        name = tag.name,
-        colorHex = tag.colorHex,
-        sortOrder = tag.sortOrder.toLong(),
-        updatedAt = tag.updatedAt.toEpochMilli(),
-        deletedAt = tag.deletedAt?.toEpochMilli(),
-        id = tag.id,
+        name = row.name,
+        colorHex = row.colorHex,
+        sortOrder = row.sortOrder,
+        updatedAt = row.updatedAt,
+        deletedAt = row.deletedAt,
+        id = row.id,
     )
-    insertIfAbsent(tag)
+    insertIfAbsent(row)
 }
 
 /** The tag half of the merge, [revivedAt] included — see [TaskQueries.mergeRow]. */
 internal fun TagQueries.mergeRow(tag: Tag, revivedAt: Instant? = null) {
-    if (revivedAt != null && tag.deletedAt == null) {
+    val row = tag.toRow()
+    if (revivedAt != null && row.deletedAt == null) {
         reviveIfDeleted(
-            name = tag.name,
-            colorHex = tag.colorHex,
-            sortOrder = tag.sortOrder.toLong(),
+            name = row.name,
+            colorHex = row.colorHex,
+            sortOrder = row.sortOrder,
             revivedAt = revivedAt.toEpochMilli(),
-            id = tag.id,
+            id = row.id,
         )
     }
     updateIfOlder(
-        name = tag.name,
-        colorHex = tag.colorHex,
-        sortOrder = tag.sortOrder.toLong(),
-        updatedAt = tag.updatedAt.toEpochMilli(),
-        deletedAt = tag.deletedAt?.toEpochMilli(),
-        id = tag.id,
+        name = row.name,
+        colorHex = row.colorHex,
+        sortOrder = row.sortOrder,
+        updatedAt = row.updatedAt,
+        deletedAt = row.deletedAt,
+        id = row.id,
     )
-    insertIfAbsent(tag)
+    insertIfAbsent(row)
 }
 
-private fun TagQueries.insertIfAbsent(tag: Tag) {
-    insertIfAbsent(
-        id = tag.id,
-        name = tag.name,
-        colorHex = tag.colorHex,
-        sortOrder = tag.sortOrder.toLong(),
-        updatedAt = tag.updatedAt.toEpochMilli(),
-        deletedAt = tag.deletedAt?.toEpochMilli(),
-    )
-}
+// ── Domain → column ────────────────────────────────────────────────────────────────
+//
+// One function per entity, and the only place a domain value becomes a column: epoch day,
+// second of day, epoch millis, the packed recurrence and the packed tag list are converted here
+// and nowhere else on the way in — `toTask`/`toProject`/`toSection`/`toTag` below are the same
+// single place on the way out. The UPDATE wrappers above forward the row's fields untouched and
+// `insertIfAbsent` binds the row whole (`VALUES ?`), so a new column is converted exactly twice
+// in this file: once in `toRow`, once in the read mapper.
+//
+// Named arguments, deliberately: the generated row class lists the table's columns in the
+// table's own order, which is *not* the domain order — `sectionId` and `tagIds` come last
+// because `3.sqm`/`4.sqm` could only append them (see the note on `taskRow.sectionId`).
+
+private fun Task.toRow() = TaskRow(
+    id = id,
+    title = title,
+    notes = notes,
+    priority = priority.level.toLong(),
+    projectId = projectId,
+    parentId = parentId,
+    spawnedFromId = spawnedFromId,
+    dueDate = dueDate?.toEpochDay(),
+    dueTime = dueTime?.toSecondOfDay()?.toLong(),
+    reminderTime = reminderTime?.toSecondOfDay()?.toLong(),
+    completedAt = completedAt?.toEpochMilli(),
+    createdAt = createdAt.toEpochMilli(),
+    sortOrder = sortOrder.toLong(),
+    recurrence = RecurrenceCodec.encode(recurrence),
+    updatedAt = updatedAt.toEpochMilli(),
+    deletedAt = deletedAt?.toEpochMilli(),
+    sectionId = sectionId,
+    tagIds = TagIdsCodec.encode(tagIds),
+)
+
+private fun Project.toRow() = ProjectRow(
+    id = id,
+    name = name,
+    colorHex = colorHex,
+    parentId = parentId,
+    sortOrder = sortOrder.toLong(),
+    updatedAt = updatedAt.toEpochMilli(),
+    deletedAt = deletedAt?.toEpochMilli(),
+)
+
+private fun Section.toRow() = SectionRow(
+    id = id,
+    projectId = projectId,
+    name = name,
+    sortOrder = sortOrder.toLong(),
+    updatedAt = updatedAt.toEpochMilli(),
+    deletedAt = deletedAt?.toEpochMilli(),
+)
+
+private fun Tag.toRow() = TagRow(
+    id = id,
+    name = name,
+    colorHex = colorHex,
+    sortOrder = sortOrder.toLong(),
+    updatedAt = updatedAt.toEpochMilli(),
+    deletedAt = deletedAt?.toEpochMilli(),
+)
 
 /** Attachments keep their `INSERT OR REPLACE`: no table references `attachmentRow`, so the
  *  delete-then-insert REPLACE performs cascades nowhere, and every id here is freshly minted. */

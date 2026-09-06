@@ -56,9 +56,9 @@ UPDATE tagRow SET name = :name, colorHex = :colorHex, sortOrder = :sortOrder,
     updatedAt = :revivedAt, deletedAt = NULL
 WHERE id = :id AND deletedAt IS NOT NULL;
 
+-- `VALUES ?` binds the generated `TagRow` whole — see `taskRow.insertIfAbsent`.
 insertIfAbsent:
-INSERT OR IGNORE INTO tagRow(id, name, colorHex, sortOrder, updatedAt, deletedAt)
-VALUES (?, ?, ?, ?, ?, ?);
+INSERT OR IGNORE INTO tagRow VALUES ?;
 
 -- Deleting a tag. `deletedAt IS NULL` keeps it idempotent, the same way every other tombstone in
 -- this schema does: deleting twice must not restamp the row.

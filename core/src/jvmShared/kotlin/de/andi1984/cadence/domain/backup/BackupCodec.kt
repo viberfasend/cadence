@@ -10,6 +10,7 @@ import de.andi1984.cadence.domain.model.RecurrenceUnit
 import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
+import de.andi1984.cadence.domain.parseOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.time.DayOfWeek
@@ -408,19 +409,13 @@ private fun RecurrenceRule.toBackup() = BackupRecurrence(
     nthDayOfWeek = nthDayOfWeek?.name,
 )
 
-private fun BackupRecurrence.toDomain() = RecurrenceRule(
-    mode = RecurrenceMode.entries.firstOrNull { it.name == mode } ?: RecurrenceMode.SCHEDULE,
-    interval = interval.coerceAtLeast(1),
-    unit = RecurrenceUnit.entries.firstOrNull { it.name == unit } ?: RecurrenceUnit.WEEK,
-    daysOfWeek = daysOfWeek.mapNotNull { name -> DayOfWeek.entries.firstOrNull { it.name == name } }
-        .toSet(),
-    monthlyMode = MonthlyMode.entries.firstOrNull { it.name == monthlyMode }
-        ?: MonthlyMode.DAY_OF_MONTH,
+private fun BackupRecurrence.toDomain() = RecurrenceRule.fromNames(
+    mode = mode,
+    interval = interval,
+    unit = unit,
+    daysOfWeek = daysOfWeek,
+    monthlyMode = monthlyMode,
     dayOfMonth = dayOfMonth,
     nthWeek = nthWeek,
-    nthDayOfWeek = nthDayOfWeek?.let { name -> DayOfWeek.entries.firstOrNull { it.name == name } },
+    nthDayOfWeek = nthDayOfWeek,
 )
-
-/** A single unreadable date must not fail the whole restore — that field simply goes empty. */
-private fun <T> String?.parseOrNull(parse: (String) -> T): T? =
-    this?.takeIf { it.isNotBlank() }?.let { runCatching { parse(it) }.getOrNull() }

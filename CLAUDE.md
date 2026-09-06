@@ -358,7 +358,11 @@ than reaching for `!!`.
   used to work under Room. **A column added from now on goes last in its `.sq` file**: `ALTER
   TABLE … ADD COLUMN` can only append, every read is a `SELECT *`, and the generated mapper takes
   its arguments positionally — so a fresh database that declared `taskRow.tagIds` anywhere but at
-  the end would hand that mapper a different column than a migrated one does. `AndroidSqliteDriver` runs migrations from its callback; the desktop's
+  the end would hand that mapper a different column than a migrated one does. Once it is in the
+  schema, a column is converted in exactly two places in `SqlDelightStores.kt`: `Task.toRow()`
+  (domain → columns, the one row every UPDATE forwards and `insertIfAbsent` binds whole via
+  `VALUES ?`) and `toTask` (columns → domain) — the same pair per entity for `Project`, `Section`
+  and `Tag`. No conversion belongs in a query wrapper's argument list. `AndroidSqliteDriver` runs migrations from its callback; the desktop's
   `JdbcSqliteDriver` has no such lifecycle, so `DatabaseDriverFactory` tracks the version in
   SQLite's own `PRAGMA user_version` — where **0 means "version 1, from before we counted"**,
   because nothing set it until now and the file already has the version-1 tables.
@@ -429,7 +433,11 @@ than reaching for `!!`.
     than defaulted off a third time: it was written as an explicit `true` into every rule created
     before mid-August 2026 and by every Todoist import, so flipping defaults never reached the
     rules that actually existed. The three decoders (`RecurrenceCodec`, `BackupCodec`,
-    `RemoteRecords`) ignore the segment/key/column a stored rule still carries.
+    `RemoteRecords`) ignore the segment/key/column a stored rule still carries. The two
+    published shapes — file and wire — spell a rule as enum *names*, and both DTOs decode
+    through one `RecurrenceRule.fromNames` (unknown name → the field's default, unknown weekday
+    dropped); the packed `RecurrenceCodec` column keeps its own decoder, since a missing `mode`
+    there means "no rule", not "the default one".
   - **Reopening undoes both halves**: the row opens again and the occurrence that completion
     inserted is deleted (`TaskStore.openSuccessorsOf`), or the task would stand in the list twice.
     One that has itself been ticked off is left alone — the chain has moved on. `setCompleted`
