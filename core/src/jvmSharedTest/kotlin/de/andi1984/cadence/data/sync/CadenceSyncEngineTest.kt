@@ -5,28 +5,34 @@ import de.andi1984.cadence.domain.model.Section
 import de.andi1984.cadence.domain.model.Tag
 import de.andi1984.cadence.domain.model.Task
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
-import io.ktor.client.request.HttpResponseData
 import io.ktor.http.content.TextContent
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
+import java.time.Duration
 import java.time.Instant
-import java.util.Base64
+import java.time.temporal.ChronoUnit
 
 /**
- * The engine against a hand-fed HTTP engine — the wire shapes the Data API and Stack Auth
+ * The engine against a hand-fed HTTP engine — the wire shapes the Data API and Neon Auth
  * actually see, without either being reachable. The store is an in-memory fake in the shape of
  * `:ui`'s `Fakes.kt`; the HTTP fake is Ktor's own [MockEngine], which is the same idea for
  * requests: every response is written by the test, nothing is stubbed by name.
@@ -285,6 +291,223 @@ class CadenceSyncEngineTest {
         assertEquals(SyncOutcome.Failed(SyncFailure.OFFLINE), engine(store, http).syncOnce())
     }
 
+    // ── Paging ─────────────────────────────────────────────────────────────────────
+
+    /** A full page means there may be more; a short one means that table is done. The cursor
+     *  advances once per page, in the same call that merges it. */
+    @Test
+    fun `a full page is followed by another and a short one ends the table`() = runTest {
+        val store = InMemorySyncStore()
+        store.stateValue = signedInState().copy(lastSweepAt = Instant.now())
+        val http = RecordingHttp { request ->
+            when (request.url.encodedPath) {
+                "/tasks" -> when (request.url.parameters["server_updated_at"]) {
+                    // No cursor yet: a full page, ending at 08:16:39.
+                    null -> respondJson(taskPage(count = 1000, from = "2026-08-25T08:00:00Z"))
+                    // From that cursor, overlapped: one row, so this is the last page.
+                    "gte.2026-08-25T08:16:34Z" ->
+                        respondJson(taskPage(count = 1, from = "2026-08-25T09:00:00Z", prefix = "late"))
+                    else -> unexpected(request)
+                }
+                else -> respondJson("[]")
+            }
+        }
+
+        val outcome = engine(store, http).syncOnce()
+
+        assertEquals(SyncOutcome.Ok(pulled = 1001, pushed = 0), outcome)
+        assertEquals(2, http.requests.count { it.url.encodedPath == "/tasks" })
+        // A table that answered short is not asked again on the next iteration.
+        assertEquals(1, http.requests.count { it.url.encodedPath == "/projects" })
+        assertEquals(
+            listOf("2026-08-25T08:16:39Z", "2026-08-25T09:00:00Z"),
+            store.advancedTaskCursors,
+        )
+        assertEquals("2026-08-25T09:00:00Z", store.stateValue.taskCursor)
+        assertEquals(1001, store.mergedTasks.size)
+    }
+
+    /** More than a page of rows sharing one `server_updated_at` would be asked for forever:
+     *  the same cursor, the same page. The round stops instead, and the next one starts from
+     *  the same place. */
+    @Test
+    fun `a full page that does not move the cursor ends the pull instead of looping`() = runTest {
+        val store = InMemorySyncStore()
+        store.stateValue = signedInState().copy(lastSweepAt = Instant.now())
+        val http = RecordingHttp { request ->
+            when (request.url.encodedPath) {
+                "/tasks" -> respondJson(taskPage(count = 1000, from = "2026-08-25T08:00:00Z", step = 0))
+                else -> respondJson("[]")
+            }
+        }
+
+        val outcome = engine(store, http).syncOnce()
+
+        assertTrue(outcome is SyncOutcome.Ok)
+        // Once with no cursor, once from the cursor the first page set, and then no more.
+        assertEquals(2, http.requests.count { it.url.encodedPath == "/tasks" })
+        assertEquals("2026-08-25T08:00:00Z", store.stateValue.taskCursor)
+    }
+
+    // ── Batching ───────────────────────────────────────────────────────────────────
+
+    /** The push goes out in reference order — projects, sections, tags, tasks — and a table with
+     *  more rows than one batch carries is sent in several, in the store's order. The watermark
+     *  is then the newest `updatedAt` among everything sent, wherever in the list it stood. */
+    @Test
+    fun `a push above the batch size is chunked in reference order and the watermark is the newest row sent`() =
+        runTest {
+            val store = InMemorySyncStore()
+            store.stateValue = signedInState().copy(lastSweepAt = Instant.now())
+            val base = Instant.parse("2026-08-24T09:00:00Z")
+            val newest = Instant.parse("2026-08-26T00:00:00Z")
+            store.projects = listOf(Project(id = "p1", name = "p", updatedAt = base.plusSeconds(1)))
+            store.sections =
+                listOf(Section(id = "s1", projectId = "p1", name = "s", updatedAt = base.plusSeconds(2)))
+            store.tags = listOf(Tag(id = "g1", name = "g", updatedAt = base.plusSeconds(3)))
+            store.tasks = List(1200) { i ->
+                Task(
+                    id = "t$i",
+                    title = "task $i",
+                    // The newest row sits in the middle of the second batch, not at the end.
+                    updatedAt = if (i == 600) newest else base.plusSeconds(10L + i),
+                )
+            }
+            val http = RecordingHttp { request ->
+                when (request.method) {
+                    HttpMethod.Get -> respondJson("[]")
+                    HttpMethod.Post -> respondJson("")
+                    else -> unexpected(request)
+                }
+            }
+
+            val outcome = engine(store, http).syncOnce()
+
+            assertEquals(SyncOutcome.Ok(pulled = 0, pushed = 1203), outcome)
+            val posts = http.requests.filter { it.method == HttpMethod.Post }
+            assertEquals(
+                listOf("/projects", "/sections", "/tags", "/tasks", "/tasks", "/tasks"),
+                posts.map { it.url.encodedPath },
+            )
+            val taskBatches = posts.filter { it.url.encodedPath == "/tasks" }.map { it.idsInBody() }
+            assertEquals(listOf(500, 500, 200), taskBatches.map { it.size })
+            assertEquals(List(500) { "t$it" }, taskBatches[0])
+            assertEquals(List(1200) { "t$it" }, taskBatches.flatten())
+            assertEquals(newest, store.stateValue.pushWatermark)
+        }
+
+    // ── The sweep ──────────────────────────────────────────────────────────────────
+
+    /** Server first, local second: a server sweep that fails leaves `lastSweepAt` unstamped and
+     *  the local tombstones in place, so the whole sweep is retried next round rather than the
+     *  local copy being collected before the server's. */
+    @Test
+    fun `a failed server sweep fails the round and skips the local sweep`() = runTest {
+        val store = InMemorySyncStore()
+        store.stateValue = signedInState()
+        store.tasks = listOf(Task(id = "t1", title = "one", updatedAt = Instant.parse("2026-08-24T09:00:00Z")))
+        val http = RecordingHttp { request ->
+            when (request.method) {
+                HttpMethod.Get -> respondJson("[]")
+                HttpMethod.Post -> respondJson("")
+                HttpMethod.Delete -> respondJson("", HttpStatusCode.InternalServerError)
+                else -> unexpected(request)
+            }
+        }
+        val engine = engine(store, http)
+
+        val outcome = engine.syncOnce()
+
+        assertEquals(SyncOutcome.Failed(SyncFailure.SERVER), outcome)
+        assertTrue(store.sweeps.isEmpty())
+        assertNull(store.stateValue.lastSweepAt)
+        assertEquals(SyncFailure.SERVER, (engine.status.value as SyncStatus.Failed).reason)
+        // The push before it did land, and stays landed: every step is its own.
+        assertEquals(Instant.parse("2026-08-24T09:00:00Z"), store.stateValue.pushWatermark)
+    }
+
+    @Test
+    fun `the sweep runs at most once a day`() = runTest {
+        val store = InMemorySyncStore()
+        val recentSweep = Instant.now().minus(Duration.ofHours(23))
+        store.stateValue = signedInState().copy(lastSweepAt = recentSweep)
+        store.tasks = listOf(Task(id = "t1", title = "one", updatedAt = Instant.parse("2026-08-24T09:00:00Z")))
+        val http = RecordingHttp { request ->
+            when (request.method) {
+                HttpMethod.Get -> respondJson("[]")
+                HttpMethod.Post -> respondJson("")
+                HttpMethod.Delete -> respondJson("")
+                else -> unexpected(request)
+            }
+        }
+        val engine = engine(store, http)
+
+        assertTrue(engine.syncOnce() is SyncOutcome.Ok)
+
+        assertEquals(0, http.requests.count { it.method == HttpMethod.Delete })
+        assertTrue(store.sweeps.isEmpty())
+        assertEquals(recentSweep, store.stateValue.lastSweepAt)
+
+        // A day and a bit later, with something new to push, it is due again.
+        store.stateValue = store.stateValue.copy(lastSweepAt = Instant.now().minus(Duration.ofHours(25)))
+        store.tasks = store.tasks + Task(id = "t2", title = "two", updatedAt = Instant.parse("2026-08-24T10:00:00Z"))
+
+        assertTrue(engine.syncOnce() is SyncOutcome.Ok)
+
+        assertEquals(4, http.requests.count { it.method == HttpMethod.Delete })
+        assertEquals(1, store.sweeps.size)
+        assertTrue(store.stateValue.lastSweepAt!!.isAfter(recentSweep))
+    }
+
+    // ── Failure reporting ──────────────────────────────────────────────────────────
+
+    /** `status` is a StateFlow, so two identical failures would collapse into one there; the
+     *  screen hears about each round through `failures` instead (ADR 0002, decision 14). */
+    @Test
+    fun `a failed round sets the status and emits on failures once per round`() = runTest {
+        val store = InMemorySyncStore()
+        store.stateValue = signedInState()
+        val http = RecordingHttp { respondJson("", HttpStatusCode.InternalServerError) }
+        val engine = engine(store, http)
+        val received = mutableListOf<SyncFailure>()
+        backgroundScope.launch { engine.failures.collect { received += it } }
+        runCurrent()
+
+        assertEquals(SyncOutcome.Failed(SyncFailure.SERVER), engine.syncOnce())
+        runCurrent()
+
+        assertEquals(SyncStatus.Failed(SyncFailure.SERVER, "me@example.org", null), engine.status.value)
+        assertEquals(listOf(SyncFailure.SERVER), received)
+
+        assertEquals(SyncOutcome.Failed(SyncFailure.SERVER), engine.syncOnce())
+        runCurrent()
+
+        assertEquals(listOf(SyncFailure.SERVER, SyncFailure.SERVER), received)
+    }
+
+    // ── Background triggers ────────────────────────────────────────────────────────
+
+    @Test
+    fun `syncInBackgroundIfStale runs a round only when the last one is older than the given age`() =
+        runTest {
+            val store = InMemorySyncStore()
+            store.stateValue = signedInState().copy(lastSyncedAt = Instant.now(), lastSweepAt = Instant.now())
+            val http = RecordingHttp { respondJson("[]") }
+            val engine = engine(store, http)
+
+            engine.syncInBackgroundIfStale(Duration.ofMinutes(5))
+            advanceUntilIdle()
+
+            assertEquals(0, http.requests.size)
+
+            val startedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS)
+            store.stateValue = store.stateValue.copy(lastSyncedAt = startedAt.minus(Duration.ofMinutes(6)))
+            engine.syncInBackgroundIfStale(Duration.ofMinutes(5))
+            engine.status.first { it is SyncStatus.Idle && it.lastSyncedAt?.isBefore(startedAt) == false }
+
+            assertEquals(4, http.requests.count { it.method == HttpMethod.Get })
+        }
+
     // ── Sign-out ───────────────────────────────────────────────────────────────────
 
     @Test
@@ -323,107 +546,19 @@ class CadenceSyncEngineTest {
     private fun InMemorySyncStore.accessToken(): String =
         NeonSession.decodeOrNull(stateValue.session)!!.accessToken
 
-    private companion object {
-        /** Far enough that the 30-second refresh margin never triggers in a test. */
-        const val FAR_FUTURE = 4_102_444_800L // 2100-01-01
-    }
-}
-
-/** A syntactically valid JWT whose payload carries only `exp` — enough for the client, which
- *  reads the claim without verifying anything. */
-private fun jwt(expEpochSecond: Long): String {
-    val encoder = Base64.getUrlEncoder().withoutPadding()
-    val header = encoder.encodeToString("""{"alg":"none"}""".toByteArray())
-    val payload = encoder.encodeToString("""{"exp":$expEpochSecond}""".toByteArray())
-    return "$header.$payload.sig"
-}
-
-private fun MockRequestHandleScope.respondJson(
-    body: String,
-    status: HttpStatusCode = HttpStatusCode.OK,
-): HttpResponseData = respond(
-    content = body,
-    status = status,
-    headers = headersOf(HttpHeaders.ContentType, "application/json"),
-)
-
-private fun unexpected(request: HttpRequestData): Nothing =
-    throw AssertionError("unexpected request: ${request.method.value} ${request.url}")
-
-/** Records every request and answers with whatever the test's handler says. */
-private class RecordingHttp(
-    private val handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
-) {
-    val requests: MutableList<HttpRequestData> =
-        java.util.Collections.synchronizedList(mutableListOf())
-    val engine = MockEngine { request ->
-        requests += request
-        handler(request)
-    }
-}
-
-/** The store in `Fakes.kt`'s shape: plain state, every write visible to the test. */
-private class InMemorySyncStore : SyncStore {
-
-    var stateValue = SyncState()
-    var tasks: List<Task> = emptyList()
-    var projects: List<Project> = emptyList()
-    var sections: List<Section> = emptyList()
-    var tags: List<Tag> = emptyList()
-    val mergedTasks = mutableListOf<Task>()
-    var tombstonesCollected = false
-
-    override suspend fun state(): SyncState = stateValue
-
-    override suspend fun setSession(session: String?) {
-        stateValue = stateValue.copy(session = session)
+    /** One pull page of tasks, `count` rows whose `server_updated_at` starts at [from] and moves
+     *  [step] seconds per row — 0 for a page that shares one timestamp. */
+    private fun taskPage(count: Int, from: String, step: Long = 1, prefix: String = "r"): String {
+        val start = Instant.parse(from)
+        return (0 until count).joinToString(prefix = "[", postfix = "]") { i ->
+            val stamp = start.plusSeconds(step * i)
+            """{"id":"$prefix$i","title":"row $i","created_at":"$stamp","updated_at":"$stamp",
+               "priority":2,"sort_order":0,"server_updated_at":"$stamp"}"""
+        }
     }
 
-    override suspend fun tasksChangedSince(since: Instant): List<Task> =
-        tasks.filter { it.updatedAt.isAfter(since) }
-
-    override suspend fun projectsChangedSince(since: Instant): List<Project> =
-        projects.filter { it.updatedAt.isAfter(since) }
-
-    override suspend fun sectionsChangedSince(since: Instant): List<Section> =
-        sections.filter { it.updatedAt.isAfter(since) }
-
-    override suspend fun tagsChangedSince(since: Instant): List<Tag> =
-        tags.filter { it.updatedAt.isAfter(since) }
-
-    override suspend fun mergeAndAdvance(
-        projects: List<Project>,
-        sections: List<Section>,
-        tags: List<Tag>,
-        tasks: List<Task>,
-        taskCursor: String?,
-        projectCursor: String?,
-        sectionCursor: String?,
-        tagCursor: String?,
-    ) {
-        mergedTasks += tasks
-        stateValue = stateValue.copy(
-            taskCursor = taskCursor ?: stateValue.taskCursor,
-            projectCursor = projectCursor ?: stateValue.projectCursor,
-            sectionCursor = sectionCursor ?: stateValue.sectionCursor,
-            tagCursor = tagCursor ?: stateValue.tagCursor,
-        )
-    }
-
-    override suspend fun setPushWatermark(at: Instant) {
-        stateValue = stateValue.copy(pushWatermark = at)
-    }
-
-    override suspend fun setLastSyncedAt(at: Instant) {
-        stateValue = stateValue.copy(lastSyncedAt = at)
-    }
-
-    override suspend fun collectTombstones(before: Instant, at: Instant) {
-        tombstonesCollected = true
-        stateValue = stateValue.copy(lastSweepAt = at)
-    }
-
-    override suspend fun clear() {
-        stateValue = SyncState()
-    }
+    /** The `id` of every record in an upsert body, in the order they were sent. */
+    private fun HttpRequestData.idsInBody(): List<String> =
+        Json.parseToJsonElement((body as TextContent).text).jsonArray
+            .map { it.jsonObject.getValue("id").jsonPrimitive.content }
 }
