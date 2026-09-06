@@ -18,7 +18,10 @@ import java.time.LocalTime
  * Two things are worth pinning down. A reminder must fire **once** — the poll runs every thirty
  * seconds and a task stays due forever once it is — and the reconcile must actually forget the
  * tasks it is no longer given, or a deleted row keeps a reminder that fires for something that
- * does not exist.
+ * does not exist. What to arm, drop or leave alone between two reconciles is `:core`'s
+ * `ReminderReconciler`, and the tests about *that* — a lead dropped from Settings, an alarm
+ * moved into the future, the same task handed back — live in `ReminderReconcilerTest`; this file
+ * is about the poll and the balloon.
  *
  * The poll interval is virtual (`StandardTestDispatcher` on `runTest`'s scheduler), but "due" is
  * decided against the wall clock inside the scheduler, so the fixtures are a day either side of
@@ -44,6 +47,11 @@ class DesktopReminderSchedulerTest {
             trayIcon = null,
             notify = { title -> fired += title },
         )
+
+    /** Reminders are on for every test here: "off" is an empty plan the reconciler answers, and
+     *  that rule is pinned in `:core`, not against the poll. */
+    private fun DesktopReminderScheduler.sync(tasks: List<Task>, leadMinutes: List<Int>) =
+        sync(tasks, leadMinutes, enabled = true)
 
     /** One poll, without letting the loop's `delay` run. */
     private fun TestScope.poll() = runCurrent()
@@ -89,20 +97,6 @@ class DesktopReminderSchedulerTest {
         poll()
         nextPoll()
         nextPoll()
-        nextPoll()
-
-        assertEquals(listOf("a"), fired)
-    }
-
-    @Test
-    fun `a reconcile that hands the same task back does not fire it again`() = runTest {
-        val scheduler = scheduler()
-        val due = task("a", due = yesterday())
-
-        scheduler.sync(listOf(due), emptyList())
-        poll()
-        // Every task emission calls sync, so this is the ordinary case, not a corner one.
-        scheduler.sync(listOf(due), emptyList())
         nextPoll()
 
         assertEquals(listOf("a"), fired)
@@ -170,26 +164,6 @@ class DesktopReminderSchedulerTest {
     }
 
     @Test
-    fun `a reminder moved into the future can fire again once it comes due`() = runTest {
-        val scheduler = scheduler()
-
-        scheduler.sync(listOf(task("a", due = yesterday())), emptyList())
-        poll()
-        assertEquals(listOf("a"), fired)
-
-        // Snoozed: the same task, now due tomorrow. The `fired` mark has to come off, or the
-        // reminder is suppressed forever by a decision made about a time that no longer applies.
-        scheduler.sync(listOf(task("a", due = tomorrow())), emptyList())
-        nextPoll()
-        assertEquals(listOf("a"), fired)
-
-        // …and then the day arrives.
-        scheduler.sync(listOf(task("a", due = yesterday())), emptyList())
-        nextPoll()
-        assertEquals(listOf("a", "a"), fired)
-    }
-
-    @Test
     fun `several tasks due at once each fire once`() = runTest {
         val scheduler = scheduler()
 
@@ -245,34 +219,6 @@ class DesktopReminderSchedulerTest {
         poll()
 
         assertEquals(listOf("a", "a — 10m"), fired.sorted())
-    }
-
-    @Test
-    fun `a lead dropped from the settings list before the next poll never fires`() = runTest {
-        val scheduler = scheduler()
-        val due = task("a", due = yesterday(), reminder = null, dueTime = LocalTime.NOON)
-
-        scheduler.sync(listOf(due), listOf(20, 10))
-        // Settings changed before anything polled — the 20-minute lead must not survive the
-        // reconcile just because it was armed a moment ago.
-        scheduler.sync(listOf(due), listOf(10))
-        poll()
-
-        assertEquals(listOf("a — 10m"), fired)
-    }
-
-    @Test
-    fun `cancel drops every lead an overdue task had armed`() = runTest {
-        val scheduler = scheduler()
-
-        scheduler.sync(
-            listOf(task("a", due = yesterday(), reminder = null, dueTime = LocalTime.NOON)),
-            listOf(20, 10),
-        )
-        scheduler.cancel("a")
-        poll()
-
-        assertEquals(emptyList<String>(), fired)
     }
 
     @Test

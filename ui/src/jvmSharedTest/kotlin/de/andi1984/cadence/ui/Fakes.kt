@@ -394,10 +394,13 @@ class RecordingReminderScheduler : ReminderScheduler {
         private set
     var lastLeadMinutes: List<Int> = emptyList()
         private set
+    var lastEnabled: Boolean? = null
+        private set
 
-    override fun sync(tasks: List<Task>, leadMinutes: List<Int>) {
+    override fun sync(tasks: List<Task>, leadMinutes: List<Int>, enabled: Boolean) {
         lastSynced = tasks
         lastLeadMinutes = leadMinutes
+        lastEnabled = enabled
     }
 
     override fun cancel(taskId: String) {

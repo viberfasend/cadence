@@ -1,6 +1,8 @@
 package de.andi1984.cadence.reminders
 
 import android.content.Context
+import de.andi1984.cadence.domain.reminder.ReminderKey
+import java.time.Instant
 
 /**
  * The `PendingIntent`/notification request code for a (task id, lead minutes) pair, collision-free
@@ -47,27 +49,52 @@ object ReminderRequestCodes {
         return if (existing == NO_CODE) null else existing
     }
 
-    /** The lead minutes [AlarmReminderScheduler] currently has an alarm armed for on this task,
-     *  so the next `sync` can tell "still wanted" apart from "Settings dropped this one" without
-     *  re-deriving history from scratch. */
+    /**
+     * Every alarm [AlarmReminderScheduler] currently has armed, with the instant each one is set
+     * for — the `armed` side of `ReminderReconciler`'s diff, so a sync can tell "still wanted"
+     * from "Settings dropped this one" and "moved to another time" without re-deriving history.
+     *
+     * Persisted per task as `"lead@epochMillis,…"`. An entry that carries no `@` was written
+     * before the instant was recorded and reads as [Instant.EPOCH]: the reconciler then re-arms
+     * it once at its planned instant (same request code, so the alarm is replaced, not doubled)
+     * or, if nothing plans it any more, cancels it — which is exactly the upgrade behaviour wanted.
+     */
     @Synchronized
-    fun activeLeadsFor(context: Context, taskId: String): Set<Int> {
+    fun armed(context: Context): Map<ReminderKey, Instant> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(ACTIVE_LEADS_PREFIX + taskId, null)
-            ?.split(",")
-            ?.mapNotNull { it.toIntOrNull() }
-            ?.toSet()
-            ?: emptySet()
+        val result = LinkedHashMap<ReminderKey, Instant>()
+        prefs.all.forEach { (key, value) ->
+            if (!key.startsWith(ACTIVE_LEADS_PREFIX) || value !is String) return@forEach
+            val taskId = key.removePrefix(ACTIVE_LEADS_PREFIX)
+            value.split(",").forEach { entry ->
+                val lead = entry.substringBefore('@').toIntOrNull() ?: return@forEach
+                val at = entry.substringAfter('@', missingDelimiterValue = "").toLongOrNull()
+                    ?.let(Instant::ofEpochMilli) ?: Instant.EPOCH
+                result[ReminderKey(taskId, lead)] = at
+            }
+        }
+        return result
     }
 
+    /** Replaces the armed record with [next], writing only the tasks whose entries changed since
+     *  [previous] — one edit, however many tasks a sync touched. */
     @Synchronized
-    fun setActiveLeadsFor(context: Context, taskId: String, leads: Set<Int>) {
+    fun setArmed(context: Context, previous: Map<ReminderKey, Instant>, next: Map<ReminderKey, Instant>) {
+        val before = previous.entries.groupBy({ it.key.taskId }, { it.key.leadMinutes to it.value })
+        val after = next.entries.groupBy({ it.key.taskId }, { it.key.leadMinutes to it.value })
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (leads.isEmpty()) {
-            prefs.edit().remove(ACTIVE_LEADS_PREFIX + taskId).apply()
-        } else {
-            prefs.edit().putString(ACTIVE_LEADS_PREFIX + taskId, leads.joinToString(",")).apply()
+        val editor = prefs.edit()
+        (before.keys + after.keys).forEach { taskId ->
+            val entries = after[taskId].orEmpty()
+            if (before[taskId].orEmpty().toSet() == entries.toSet()) return@forEach
+            if (entries.isEmpty()) {
+                editor.remove(ACTIVE_LEADS_PREFIX + taskId)
+            } else {
+                val packed = entries.joinToString(",") { (lead, at) -> "$lead@${at.toEpochMilli()}" }
+                editor.putString(ACTIVE_LEADS_PREFIX + taskId, packed)
+            }
         }
+        editor.apply()
     }
 
     private const val NO_CODE = 0

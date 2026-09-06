@@ -1,20 +1,18 @@
 package de.andi1984.cadence.desktop.data
 
 import de.andi1984.cadence.domain.model.Task
-import de.andi1984.cadence.domain.reminder.ReminderPlanner
+import de.andi1984.cadence.domain.reminder.ReminderCommand
+import de.andi1984.cadence.domain.reminder.ReminderKey
+import de.andi1984.cadence.domain.reminder.ReminderReconciler
 import de.andi1984.cadence.ui.platform.ReminderScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.awt.SystemTray
 import java.awt.TrayIcon
+import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
-
-/** Identifies one alarm: a task and how long before its due time this one is, `0` for the moment
- *  [Task.reminderTime] itself names. A task can now have several alarms in flight at once, one
- *  per configured lead, so the bare task id the maps below used to key on is no longer enough. */
-private data class ReminderKey(val taskId: String, val leadMinutes: Int)
 
 /**
  * The desktop's answer to `AlarmReminderScheduler`: there is no AlarmManager here, so a
@@ -22,6 +20,12 @@ private data class ReminderKey(val taskId: String, val leadMinutes: Int)
  * whatever just came due (ADR 0001 §8). This only fires while the app is running — a closed
  * desktop app misses reminders, same accepted trade-off the ADR names for a killed Android
  * process before this scheduler could re-arm.
+ *
+ * A thin adapter, like its Android counterpart: which alarm to arm, drop or leave alone is
+ * [ReminderReconciler]'s answer, and this class only keeps the maps the poll reads. Its grace
+ * is zero — a poll has no delivery latency to wait out — and an [ReminderCommand.Arm] naming an
+ * instant already in the past is armed like any other, so the next poll fires it: the reminder
+ * elapsed while the app was closed, and the balloon is still wanted.
  */
 class DesktopReminderScheduler(
     private val scope: CoroutineScope,
@@ -38,9 +42,11 @@ class DesktopReminderScheduler(
     },
 ) : ReminderScheduler {
 
-    /** The due instant currently known for each armed alarm, so a poll can tell "just became
-     *  due" apart from "has been due for an hour" without firing every minute. */
-    private val dueAt = ConcurrentHashMap<ReminderKey, Instant>()
+    /** The instant each armed alarm is set for — the reconciler's `armed` side, and what a poll
+     *  reads to tell "just became due" apart from "has been due for an hour". A fired alarm stays
+     *  in here at its instant: the plan keeps naming that instant, so the reconciler leaves it
+     *  alone, and `fired` is what keeps the poll from firing it every thirty seconds. */
+    private val armed = ConcurrentHashMap<ReminderKey, Instant>()
     private val fired = ConcurrentHashMap.newKeySet<ReminderKey>()
     private val pendingTitles = ConcurrentHashMap<ReminderKey, String>()
 
@@ -53,35 +59,49 @@ class DesktopReminderScheduler(
         }
     }
 
-    override fun sync(tasks: List<Task>, leadMinutes: List<Int>) {
-        val planned = ReminderPlanner.plan(tasks, leadMinutes)
-        val next = planned.associate { ReminderKey(it.taskId, it.leadMinutes) to it.triggerAt }
-        dueAt.keys.retainAll(next.keys)
-        fired.retainAll(next.keys)
-        // All three maps are keyed by the same set of alarms, so all three are pruned to it.
-        // Leaving titles behind kept one entry per alarm ever seen for the life of the process.
-        pendingTitles.keys.retainAll(next.keys)
-        dueAt.putAll(next)
-        // An alarm whose trigger moved to one already in the past must be able to fire again
-        // rather than staying silently suppressed by an old entry in `fired` — editing a task's
-        // due time or reminder time to something earlier is the ordinary case this guards.
-        next.forEach { (key, at) -> if (at.isAfter(Instant.now())) fired.remove(key) }
+    override fun sync(tasks: List<Task>, leadMinutes: List<Int>, enabled: Boolean) {
+        val now = Instant.now()
+        val commands = ReminderReconciler.reconcile(
+            armed = armed.toMap(),
+            tasks = tasks,
+            leadMinutes = leadMinutes,
+            enabled = enabled,
+            now = now,
+            grace = Duration.ZERO,
+        )
+        commands.forEach { command ->
+            when (command) {
+                is ReminderCommand.Arm -> {
+                    armed[command.key] = command.at
+                    // An alarm moved into the future must be able to fire again rather than
+                    // staying silently suppressed by an old entry in `fired` — snoozing a task,
+                    // or editing its time to something later, is the ordinary case this guards.
+                    if (command.at.isAfter(now)) fired.remove(command.key)
+                }
+                is ReminderCommand.Cancel -> forget(command.key)
+                is ReminderCommand.Keep -> Unit
+            }
+        }
+        // The title that fires is the one from the latest reconcile, whether or not the alarm
+        // itself changed. Keyed by the same set as `armed`, so nothing is left behind for an
+        // alarm that is gone.
         val titleByTaskId = tasks.associate { it.id to it.title }
-        pendingTitles.putAll(next.keys.mapNotNull { key -> titleByTaskId[key.taskId]?.let { key to it } })
+        armed.keys.forEach { key -> titleByTaskId[key.taskId]?.let { pendingTitles[key] = it } }
     }
 
     override fun cancel(taskId: String) {
-        val keys = dueAt.keys.filter { it.taskId == taskId }
-        keys.forEach { key ->
-            dueAt.remove(key)
-            fired.remove(key)
-            pendingTitles.remove(key)
-        }
+        armed.keys.filter { it.taskId == taskId }.forEach(::forget)
+    }
+
+    private fun forget(key: ReminderKey) {
+        armed.remove(key)
+        fired.remove(key)
+        pendingTitles.remove(key)
     }
 
     private fun poll() {
         val now = Instant.now()
-        dueAt.forEach { (key, at) ->
+        armed.forEach { (key, at) ->
             if (at.isAfter(now)) return@forEach
             // The title is looked up *before* the `fired` slot is claimed. The other order marks
             // the alarm as fired and then skips the balloon when the lookup misses, so no later
