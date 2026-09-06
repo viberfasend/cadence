@@ -388,52 +388,32 @@ class CadenceViewModelUndoTest {
     // ── Reminders reconcile on every emission ────────────────────────────────────────
 
     @Test
-    fun `switching reminders off hands the scheduler the same tasks with their times stripped`() =
-        runTest {
-            stores.seedTasks(
-                Task(
-                    id = "a",
-                    title = "a",
-                    dueDate = LocalDate.of(2026, 8, 17),
-                    reminderTime = LocalTime.of(9, 0),
-                ),
-            )
-            val viewModel = viewModel()
-
-            assertEquals(listOf(LocalTime.of(9, 0)), reminders.lastSynced.map { it.reminderTime })
-
-            viewModel.setRemindersEnabled(false)
-            runCurrent()
-
-            // The same one task, so the scheduler cancels what it had; an empty list would leave
-            // the alarm standing.
-            assertEquals(1, reminders.lastSynced.size)
-            assertEquals(listOf<LocalTime?>(null), reminders.lastSynced.map { it.reminderTime })
-        }
-
-    @Test
-    fun `switching reminders off strips a due time too, not just a manual reminder time`() = runTest {
+    fun `tasks, lead minutes and whether reminders are on reach the scheduler as they are`() = runTest {
+        // What "off" means — an empty plan that cancels everything armed — is the reconciler's
+        // rule and is pinned in `:core`. All the ViewModel owes the port is to forward the three
+        // arguments untouched and to follow Settings; it used to strip the tasks' times instead,
+        // encoding "off" as something the port could not tell from "no reminder set".
         stores.seedTasks(
             Task(
                 id = "a",
                 title = "a",
                 dueDate = LocalDate.of(2026, 8, 17),
                 dueTime = LocalTime.of(18, 0),
+                reminderTime = LocalTime.of(9, 0),
             ),
         )
         val viewModel = viewModel()
 
+        assertEquals(listOf(LocalTime.of(9, 0)), reminders.lastSynced.map { it.reminderTime })
+        assertEquals(emptyList<Int>(), reminders.lastLeadMinutes)
+        assertEquals(true, reminders.lastEnabled)
+
         viewModel.setRemindersEnabled(false)
         runCurrent()
 
-        assertEquals(listOf<LocalTime?>(null), reminders.lastSynced.map { it.dueTime })
-    }
-
-    @Test
-    fun `the configured lead minutes reach the scheduler and follow changes to Settings`() = runTest {
-        val viewModel = viewModel()
-
-        assertEquals(emptyList<Int>(), reminders.lastLeadMinutes)
+        assertEquals(false, reminders.lastEnabled)
+        assertEquals(listOf(LocalTime.of(9, 0)), reminders.lastSynced.map { it.reminderTime })
+        assertEquals(listOf(LocalTime.of(18, 0)), reminders.lastSynced.map { it.dueTime })
 
         viewModel.setReminderLeadMinutes(listOf(20, 10, 5))
         runCurrent()

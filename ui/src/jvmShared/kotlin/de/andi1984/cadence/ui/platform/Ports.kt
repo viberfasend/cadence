@@ -33,8 +33,16 @@ interface ReminderScheduler {
      * [leadMinutes], that many minutes before [Task.dueTime], plus the moment [Task.reminderTime]
      * itself names — each either (re)scheduled or cancelled, so removing a reminder or changing
      * [leadMinutes] in Settings takes effect on the next sync.
+     *
+     * [enabled] is whether this device fires reminders at all (`CadenceSettings.remindersEnabled`,
+     * per device, since a task synced to two devices would otherwise go off on both). `false` is
+     * an empty plan: the scheduler cancels everything it has armed, and is handed the tasks as
+     * they are rather than with their times stripped — the diff is the scheduler's to compute
+     * (`ReminderReconciler` in `:core`), not the caller's to fake. Three plain arguments rather
+     * than a plan value: they are exactly what `CadenceSettings` already holds beside the task
+     * list, and a wrapper would be one more thing every fake and the boot receiver construct.
      */
-    fun sync(tasks: List<Task>, leadMinutes: List<Int>)
+    fun sync(tasks: List<Task>, leadMinutes: List<Int>, enabled: Boolean)
 
     /** Drops a task's reminders outright, every lead included — for a row that is about to stop
      *  existing, which [sync] would never see again. */

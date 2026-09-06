@@ -9,12 +9,26 @@ import android.content.Intent
 import android.os.Build
 import de.andi1984.cadence.R
 import de.andi1984.cadence.domain.model.Task
-import de.andi1984.cadence.domain.reminder.ReminderPlanner
+import de.andi1984.cadence.domain.reminder.ReminderCommand
+import de.andi1984.cadence.domain.reminder.ReminderKey
+import de.andi1984.cadence.domain.reminder.ReminderReconciler
 import de.andi1984.cadence.ui.platform.ReminderScheduler
+import java.time.Duration
+import java.time.Instant
 
 /**
  * Android's answer to [ReminderScheduler]: AlarmManager, which the desktop has no counterpart
  * for — phase 5 runs a coroutine timer against the same port instead.
+ *
+ * A thin adapter: the diff between what is armed and what the tasks call for — which alarm to
+ * set, which to cancel, which to leave alone — is [ReminderReconciler]'s, pure and tested in
+ * `:core`. This class loads the armed set ([ReminderRequestCodes.armed]), applies the commands
+ * with AlarmManager, and persists what is armed afterwards. The one decision it keeps for itself
+ * is the platform's own: AlarmManager cannot fire retroactively, so an [ReminderCommand.Arm]
+ * naming an instant already in the past is dropped — the alarm that may already be armed under
+ * that key is settled with [ReminderReconciler.retire], the same grace rule the reconciler
+ * applies to a key nothing plans any more, because from this platform's point of view that is
+ * what it has become. One never armed stays unarmed: nor should we fire retroactively.
  *
  * Alarms are exact and Doze-proof ([AlarmManager.setExactAndAllowWhileIdle]) wherever the
  * platform lets them be, and degrade to [AlarmManager.setAndAllowWhileIdle] — inexact, but still
@@ -36,54 +50,48 @@ class AlarmReminderScheduler(private val context: Context) : ReminderScheduler {
         context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
 
     /**
-     * Brings the scheduled alarms in line with [tasks] and [leadMinutes]. Every task gets one
-     * alarm per candidate lead — every positive entry in [leadMinutes] plus `0`, the moment
-     * [Task.reminderTime] itself names — each either (re)scheduled or cancelled, so removing a
-     * reminder or dropping a lead value from Settings takes effect on the next sync.
+     * Brings the scheduled alarms in line with [tasks], [leadMinutes] and [enabled]. Every task
+     * gets one alarm per candidate lead — every positive entry in [leadMinutes] plus `0`, the
+     * moment [Task.reminderTime] itself names — each either (re)scheduled or cancelled, so
+     * removing a reminder, dropping a lead value from Settings or switching reminders off takes
+     * effect on the next sync.
      */
-    override fun sync(tasks: List<Task>, leadMinutes: List<Int>) {
+    override fun sync(tasks: List<Task>, leadMinutes: List<Int>, enabled: Boolean) {
         val manager = alarmManager ?: return
-        val now = System.currentTimeMillis()
-        // 0 is always a candidate — it is `reminderTime`'s own moment, scheduled the same way
-        // since before lead times existed — so a task that never touches one behaves exactly as
-        // it did before this method took a lead-minutes list at all.
-        val candidateLeads = (leadMinutes.filter { it > 0 }.distinct() + 0)
-        tasks.forEach { task -> reconcile(manager, task, leadMinutes, candidateLeads, now) }
+        val now = Instant.now()
+        val previous = ReminderRequestCodes.armed(context)
+        val next = previous.toMutableMap()
+        ReminderReconciler.reconcile(previous, tasks, leadMinutes, enabled, now, GRACE)
+            .forEach { command -> apply(manager, command, previous, next, now) }
+        ReminderRequestCodes.setArmed(context, previous, next)
     }
 
-    private fun reconcile(
+    private fun apply(
         manager: AlarmManager,
-        task: Task,
-        leadMinutes: List<Int>,
-        candidateLeads: List<Int>,
-        now: Long,
+        command: ReminderCommand,
+        previous: Map<ReminderKey, Instant>,
+        next: MutableMap<ReminderKey, Instant>,
+        now: Instant,
     ) {
-        val planned = ReminderPlanner.plan(listOf(task), leadMinutes).associateBy { it.leadMinutes }
-        val previousActive = ReminderRequestCodes.activeLeadsFor(context, task.id)
-        val stillActive = mutableSetOf<Int>()
-        candidateLeads.forEach { lead ->
-            val triggerAt = planned[lead]?.triggerAt?.toEpochMilli()
-            when {
-                triggerAt == null || triggerAt + GRACE_MILLIS <= now -> cancelLead(task.id, lead)
-                triggerAt > now -> {
-                    val intent = pendingIntent(task.id, task.title, lead, create = true) ?: return@forEach
-                    arm(manager, triggerAt, intent)
-                    stillActive += lead
+        when (command) {
+            is ReminderCommand.Arm -> {
+                val key = command.key
+                if (!command.at.isAfter(now)) {
+                    // AlarmManager cannot fire retroactively. See the class comment.
+                    val armedAt = previous[key] ?: return
+                    apply(manager, ReminderReconciler.retire(key, armedAt, now, GRACE), previous, next, now)
+                    return
                 }
-                // Inside the grace period: the trigger has passed but the alarm may not have
-                // been delivered yet — the inexact fallback is allowed to run late, and a doze
-                // exit delivers pending alarms a beat after the app is already back and syncing.
-                // Re-arming a past trigger would fire it again at once, and cancelling it would
-                // be the race this grace exists to close, so an armed one is left exactly as it
-                // is. One that was never armed (the app first saw the task after its trigger)
-                // stays unarmed: AlarmManager cannot fire retroactively, and nor should we.
-                lead in previousActive -> stillActive += lead
+                val intent = pendingIntent(key.taskId, command.task.title, key.leadMinutes, create = true) ?: return
+                arm(manager, command.at.toEpochMilli(), intent)
+                next[key] = command.at
             }
+            is ReminderCommand.Cancel -> {
+                cancelLead(command.key.taskId, command.key.leadMinutes)
+                next.remove(command.key)
+            }
+            is ReminderCommand.Keep -> Unit
         }
-        // A lead that was armed before but is not even a candidate any more — Settings dropped
-        // it — is never visited by the loop above, so it needs cancelling on its own.
-        (previousActive - candidateLeads.toSet()).forEach { staleLead -> cancelLead(task.id, staleLead) }
-        ReminderRequestCodes.setActiveLeadsFor(context, task.id, stillActive)
     }
 
     private fun arm(manager: AlarmManager, triggerAt: Long, intent: PendingIntent) {
@@ -100,11 +108,12 @@ class AlarmReminderScheduler(private val context: Context) : ReminderScheduler {
     }
 
     override fun cancel(taskId: String) {
-        // 0 (the legacy reminderTime alarm) predates the active-leads record and so is always
-        // attempted, whether or not a sync ever ran to record it as active.
-        val leads = ReminderRequestCodes.activeLeadsFor(context, taskId) + 0
+        val previous = ReminderRequestCodes.armed(context)
+        // 0 (the legacy reminderTime alarm) predates the armed record and so is always
+        // attempted, whether or not a sync ever ran to record it as armed.
+        val leads = previous.keys.filter { it.taskId == taskId }.map { it.leadMinutes }.toSet() + 0
         leads.forEach { lead -> cancelLead(taskId, lead) }
-        ReminderRequestCodes.setActiveLeadsFor(context, taskId, emptySet())
+        ReminderRequestCodes.setArmed(context, previous, previous.filterKeys { it.taskId != taskId })
     }
 
     private fun cancelLead(taskId: String, leadMinutes: Int) {
@@ -142,11 +151,13 @@ class AlarmReminderScheduler(private val context: Context) : ReminderScheduler {
         const val EXTRA_TITLE = "title"
         const val EXTRA_LEAD_MINUTES = "leadMinutes"
         /**
-         * How long after its trigger an armed alarm is left alone rather than cancelled. Exact
-         * alarms arrive within seconds; the inexact fallback can be delivered up to this much
-         * later, and cancelling inside that window took the notification away unfired.
+         * How long after its trigger an armed alarm nothing plans any more is left alone rather
+         * than cancelled. Exact alarms arrive within seconds; the inexact fallback can be
+         * delivered up to this much later, and cancelling inside that window took the
+         * notification away unfired. Handed to [ReminderReconciler], which is where the rule
+         * itself lives.
          */
-        private const val GRACE_MILLIS = 10 * 60 * 1000L
+        private val GRACE: Duration = Duration.ofMinutes(10)
 
         fun createChannel(context: Context) {
             val manager = context.getSystemService(NotificationManager::class.java) ?: return

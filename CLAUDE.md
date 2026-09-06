@@ -472,8 +472,13 @@ than reaching for `!!`.
   already speaks for its steps there, while the date-driven views (Today, Upcoming, Search) show
   a dated subtask in its own right, labelled with the parent's title.
 - **Reminders reconcile on every task emission**: the ViewModel collects `repository.tasks` and
-  `settingsStore.state` together and calls `ReminderScheduler.sync(tasks, leadMinutes)`, which
-  schedules *or cancels* a reminder for every task. Android's alarms are **exact and
+  `settingsStore.state` together and calls `ReminderScheduler.sync(tasks, leadMinutes, enabled)`,
+  which schedules *or cancels* a reminder for every task. **The diff — what to arm, what to
+  cancel, what to leave alone — and the grace rule below live in one place,
+  `domain/reminder/ReminderReconciler.kt` (`:core`, pure, tested on the JVM)**: each shell's
+  scheduler loads what it has armed, applies the `Arm`/`Cancel`/`Keep` commands and persists the
+  result, and neither derives "still wanted" for itself any more — Android's grace is ten
+  minutes, the desktop's is zero. Android's alarms are **exact and
   Doze-proof** (`setExactAndAllowWhileIdle`, under `USE_EXACT_ALARM` — granted at install on
   13+, no prompt — plus `SCHEDULE_EXACT_ALARM` for 12/12L), degrading to `setAndAllowWhileIdle`
   when `canScheduleExactAlarms()` says the user revoked it. They used to be inexact
@@ -481,11 +486,15 @@ than reaching for `!!`.
   feature its first release: a "5 minutes before" alarm with a ten-minute window can land after
   the task is due, an inexact alarm is deferred outright while the phone dozes — the one state
   a reminder exists to interrupt — and once the trigger was in the past the next `sync` cancelled
-  the still-undelivered alarm. Two rules follow: **an alarm whose trigger passed less than
-  `GRACE_MILLIS` ago is left alone, neither re-armed nor cancelled** (re-arming a past trigger
-  fires it again at once, cancelling it is the race above), and a (task, lead) pair with no
-  planned instant is cancelled through `cancelLead`, which looks up an existing request code
-  rather than minting one — so a task with no time never grows the code store. The desktop has
+  the still-undelivered alarm. Two rules follow: **an armed alarm nothing plans any more whose
+  trigger passed less than the grace ago is left alone, neither re-armed nor cancelled**
+  (re-arming a past trigger fires it again at once, cancelling it is the race above — and an
+  `Arm` naming a past instant, which AlarmManager cannot honour, is dropped and settled by the
+  same rule through `ReminderReconciler.retire`), and a (task, lead) pair the reconciler
+  cancels goes through `cancelLead`, which looks up an existing request code rather than
+  minting one — so a task with no time never grows the code store. `ReminderRequestCodes` keeps
+  the armed set with its instants, one packed string per task, and is the only Android code
+  that knows the store's shape. The desktop has
   no AlarmManager at all, so `DesktopReminderScheduler` instead polls the synced task list every
   30 seconds and fires a system-tray balloon for whatever just came due — which only works
   while the app is running, same accepted trade-off ADR 0001 §8 names for a killed Android
@@ -792,9 +801,15 @@ than reaching for `!!`.
 - **Reminders are a per-device setting** (`CadenceSettings.remindersEnabled`), on by default on
   Android and off on the desktop — the default lives in each shell's `SettingsStore`, since that
   is the only thing that differs. Once a task exists on both devices both would otherwise fire
-  for it at the same minute. Switching it off hands `ReminderScheduler.sync` the same tasks with
-  their reminder times stripped, so it *cancels* what it had scheduled; an empty list would leave
-  those alarms standing.
+  for it at the same minute. The flag travels through the port as it is —
+  `ReminderScheduler.sync(tasks, leadMinutes, enabled)` — and `ReminderReconciler` treats `false`
+  as an *empty plan*, so every alarm the device had armed is cancelled. It used to be encoded by
+  stripping `dueTime`/`reminderTime` off every task before the call, which the port could not
+  tell from "no reminder set"; nothing strips anything now. The reconciler diffs against the
+  *whole* armed set on both shells (Android reads every `active_leads:` entry, not one task's),
+  so a task that vanished without a `cancel` call — one a pull tombstoned — loses its alarms on
+  the next emission too. The boot receiver passes the same flag, so a phone with reminders off
+  no longer re-arms them on reboot.
 - Settings persist to `SharedPreferences` via `SharedPrefsSettingsStore` (not DataStore), the
   Android implementation of `:ui`'s `SettingsStore` port, exposed as a `StateFlow`. They stay
   per-device and out of sync — theme, density, language and reminders describe a screen or a

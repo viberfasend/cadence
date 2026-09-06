@@ -18,9 +18,11 @@ class BootReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                val settings = container.settingsStore.state.value
                 container.reminderScheduler.sync(
                     container.repository.tasks.first(),
-                    container.settingsStore.state.value.reminderLeadMinutes,
+                    settings.reminderLeadMinutes,
+                    settings.remindersEnabled,
                 )
             } finally {
                 pending.finish()

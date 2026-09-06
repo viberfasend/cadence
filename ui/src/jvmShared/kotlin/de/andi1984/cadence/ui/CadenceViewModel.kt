@@ -600,18 +600,15 @@ class CadenceViewModel(
 
         // Reminders reconcile on every emission, and on whether this device fires them at all:
         // with the task list shared between two devices, both would otherwise go off for the same
-        // task at the same minute (ADR 0002, decision 9). Switching them off hands the scheduler
-        // the same tasks with both their due and reminder times stripped, so it *cancels*
-        // everything it had scheduled — passing an empty list would leave those alarms standing.
+        // task at the same minute (ADR 0002, decision 9). The tasks go through as they are —
+        // "off" is the scheduler's to act on (an empty plan, so it cancels everything it had
+        // armed), not something to fake here by stripping their times.
         scope.launch {
             combine(repository.tasks, settingsStore.state) { tasks, settings ->
-                val effective = if (settings.remindersEnabled) {
-                    tasks
-                } else {
-                    tasks.map { it.copy(dueTime = null, reminderTime = null) }
-                }
-                effective to settings.reminderLeadMinutes
-            }.collect { (tasks, leadMinutes) -> reminderScheduler.sync(tasks, leadMinutes) }
+                Triple(tasks, settings.reminderLeadMinutes, settings.remindersEnabled)
+            }.collect { (tasks, leadMinutes, enabled) ->
+                reminderScheduler.sync(tasks, leadMinutes, enabled)
+            }
         }
     }
 
