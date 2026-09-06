@@ -133,8 +133,11 @@ vocabulary (`Task` and `Project`, not rows), not so that a test can plug somethi
 fakes that remain back a *real* `CadenceRepository` for the same reason: the rules under test are
 the repository's, and faking it would assert only that the ViewModel called what the test told it
 to expect. The one place a test stands between the repository and SQLite is
-`CadenceViewModelUndoTest`'s `GatedTaskStore`, a delegating wrapper with a hook before the
-tombstone write, which is how the #114 "undo leaves a settled delete hidden" state is reached.
+`CadenceViewModelUndoTest`'s `GatedStoreTransaction`, a delegating `StoreTransaction` wrapper with
+a hook before `run`, which is how the #114 "undo leaves a settled delete hidden" state is reached
+— it used to hook `TaskStore.tombstoneWithSubtasks` directly, before `deleteTask`'s write moved
+into one `storeTransaction.run { … }` call with nothing left inside it going through the ordinary
+store ports (see the `StoreTransaction` note above).
 
 JDK 17, compileSdk/targetSdk 35, minSdk 26. No lint or format task is wired up.
 
@@ -216,7 +219,7 @@ a scope that survives a rotation and a moment to stop. Both are constructor para
 creates and keeps alive for the process, and `Window`'s `onCloseRequest`.
 
 **Wiring** is hand-rolled in an `AppContainer` class per shell, built on top of `:core`'s
-`CadenceCore` — the database, the blob store, the seven-argument `CadenceRepository` and the
+`CadenceCore` — the database, the blob store, the eight-argument `CadenceRepository` and the
 `CadenceSyncEngine` over them, and the application scope all three run on. Every store a feature
 adds used to mean a line in both `AppContainer`s; it is now a line in `CadenceCore` alone, since
 opening the database is the one genuinely platform-specific step left (`DatabaseDriverFactory`
@@ -335,6 +338,24 @@ schema; see "Persistence" below.
 implementation must decide that inside the store — in SQL, in a lock, in whatever it has — never
 against the `Task` it was handed. That is the whole idempotency guarantee; see the completion
 notes below.
+
+**`StoreTransaction` is the one seam for making several of those stores commit together**
+(`data/Stores.kt`). `CadenceRepository.setCompleted`, `deleteTask` and `deleteProject` are each a
+short chain of otherwise-independent store calls that only make sense as a unit — see the
+completion notes below for what a process kill mid-chain used to leave behind — and
+`storeTransaction.run { … }` is how the repository says "these calls are one write." The block
+runs against a `TransactionScope`, not the ordinary suspend `TaskStore`/`ProjectStore`/
+`AttachmentStore`, and deliberately: `SqlDelightStoreTransaction.run` opens one SQLDelight
+transaction, whose own callback SQLDelight declares as a plain, non-suspend `() -> T` — an
+earlier version tried handing `block` the suspend ports directly and bridged the gap with a
+coroutine intrinsic, and a real test (`CadenceViewModelUndoTest`'s in-flight-delete case) caught
+what that costs: a store call that genuinely suspends does not "come back later" inside a
+transaction callback that has already returned, so its writes land nowhere near the transaction
+that gave up on it. `TransactionScope`'s members are plain functions talking straight to
+`TaskQueries`/`ProjectQueries`/`AttachmentQueries` — the same shape `mergeRecords` already used
+for a merge — which rules that out structurally: nothing reachable from inside `run` can suspend.
+The recurrence and subtask *rules* stay exactly where they were, in the repository; only how the
+writes they decide on land is different.
 
 `:core` is a Kotlin Multiplatform module with an **android** and a **jvm** target, and all
 hand-written code lives in a hand-declared `jvmShared` source set that both targets depend on —
@@ -455,6 +476,12 @@ than reaching for `!!`.
     `TaskStore.completeIfOpen` closes the row in SQL and reports whether this call is the one that
     closed it, so only that call schedules the successor and the rest of the work reads the row
     back instead of trusting the snapshot. Don't replace it with a plain `update`.
+  - **Closing the row and inserting its successor are one write.** Both, and the subtask shift and
+    the attachment cloning beside them, run inside one `storeTransaction.run { … }` (see the note
+    on `StoreTransaction` above) — they used to be several separate writes, and a process killed
+    between "closed" and "successor inserted" left a completed row with no successor, silently
+    ending the recurrence. Reopening gets the same treatment, for the mirror reason: a kill between
+    "reopened" and "successor removed" left the task standing in the list twice.
   - **An overdue occurrence hands over to the first one that is not behind us, and there is
     no flag that says otherwise any more.** `RecurrenceEngine.dueDateAfterCompletion` steps a
     task done on its day, or early, from its own due date; one completed *late* walks the rule
@@ -702,10 +729,14 @@ than reaching for `!!`.
 - **A fresh install starts empty.** There is no seeding: the first screen a new user sees is the
   empty state, not sample content. Anything that needs a populated app (screenshots, a demo) is
   built by importing a backup file, not by putting fixtures back into the app.
-- **Deleting a project never silently hides tasks.** `ProjectStore.deleteWithChildren` runs in one
-  transaction and either moves the affected tasks to the Inbox (`projectId = NULL`, the default)
-  or deletes them; without that, a task filed under a deleted project would keep a `projectId`
-  no project answers to and disappear from every list. The repository returns the ids of the
+- **Deleting a project never silently hides tasks.** `ProjectStore.tombstoneWithChildren` runs in
+  one transaction and either moves the affected tasks to the Inbox (`projectId = NULL`, the
+  default) or deletes them; without that, a task filed under a deleted project would keep a
+  `projectId` no project answers to and disappear from every list. `CadenceRepository.deleteProject`
+  reads which tasks are affected, deletes their attachments and runs that cascade all inside one
+  `storeTransaction.run { … }` too — a process killed mid-delete used to be able to leave a task's
+  attachments gone while the task itself (and its `projectId`) survived, or the reverse.
+  `deleteTask` gets the same treatment for the same reason. The repository returns the ids of the
   tasks it deleted so the ViewModel can cancel their alarms — `ReminderScheduler.sync` only ever
   sees the tasks that still exist, so it cannot cancel one that is already gone.
 - **The danger zone is the only wipe, and it is still a tombstone.** Settings → Danger zone →

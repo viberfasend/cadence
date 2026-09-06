@@ -7,8 +7,10 @@ import de.andi1984.cadence.data.AttachmentStore
 import de.andi1984.cadence.data.BackupStore
 import de.andi1984.cadence.data.ProjectStore
 import de.andi1984.cadence.data.SectionStore
+import de.andi1984.cadence.data.StoreTransaction
 import de.andi1984.cadence.data.TagStore
 import de.andi1984.cadence.data.TaskStore
+import de.andi1984.cadence.data.TransactionScope
 import de.andi1984.cadence.domain.model.Attachment
 import de.andi1984.cadence.domain.model.AttachmentKind
 import de.andi1984.cadence.domain.model.Priority
@@ -397,6 +399,101 @@ class SqlDelightBackupStore(
         database.transaction { database.mergeRecords(projects, sections, tags, tasks, revivedAt) }
     }
 
+}
+
+/**
+ * [StoreTransaction] over [CadenceDatabase]: [run] opens one SQLDelight transaction and drives
+ * [block] to completion inside it, on a [TransactionScope] that talks to the same
+ * `TaskQueries`/`ProjectQueries`/`AttachmentQueries` the ordinary `Sql*Store` classes do, so every
+ * write [block] makes lands in that one transaction.
+ *
+ * [TransactionScope]'s members are plain functions, not `suspend` — deliberately, and that is
+ * what makes this safe. SQLDelight's own `transactionWithResult { … }` callback is itself a
+ * plain, non-suspend lambda, so nothing it calls can genuinely suspend without leaving the
+ * transaction with no way to resume where it left off; [SqlDelightTransactionScope] below calls
+ * the query objects directly, the same way [mergeRecords] already does for a merge, rather than
+ * going through a `Sql*Store`'s `suspend fun … = withContext(ioDispatcher) { … }` wrapper. There
+ * is exactly one dispatch here — the outer [withContext] — and everything from there down runs
+ * on that one thread, synchronously, for as long as the transaction is open.
+ */
+class SqlDelightStoreTransaction(
+    private val database: CadenceDatabase,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : StoreTransaction {
+
+    override suspend fun <T> run(block: TransactionScope.() -> T): T = withContext(ioDispatcher) {
+        database.transactionWithResult { SqlDelightTransactionScope(database).block() }
+    }
+}
+
+/**
+ * [TransactionScope] over the raw `Queries` objects — see the class doc on
+ * [SqlDelightStoreTransaction] for why these are plain functions rather than the `Sql*Store`
+ * suspend methods they mirror.
+ */
+private class SqlDelightTransactionScope(database: CadenceDatabase) : TransactionScope {
+
+    private val taskQueries = database.taskQueries
+    private val projectQueries = database.projectQueries
+    private val attachmentQueries = database.attachmentQueries
+
+    override fun completeTaskIfOpen(id: String, completedAt: Instant): Int {
+        taskQueries.completeIfOpen(completedAt.toEpochMilli(), id)
+        return taskQueries.changes().executeAsOne().toInt()
+    }
+
+    override fun reopenTaskIfDone(id: String, updatedAt: Instant): Int {
+        taskQueries.reopenIfDone(updatedAt.toEpochMilli(), id)
+        return taskQueries.changes().executeAsOne().toInt()
+    }
+
+    override fun openSuccessorsOf(id: String): List<String> =
+        taskQueries.selectOpenSuccessorsOf(id).executeAsList()
+
+    override fun tombstoneTaskWithSubtasks(id: String, at: Instant) {
+        taskQueries.tombstoneWithSubtasks(at = at.toEpochMilli(), id = id)
+    }
+
+    override fun taskById(id: String): Task? =
+        taskQueries.selectById(id, mapper = ::toTask).executeAsOneOrNull()
+
+    override fun subtasksOf(parentId: String): List<Task> =
+        taskQueries.selectSubtasksOf(parentId, mapper = ::toTask).executeAsList()
+
+    override fun updateTask(task: Task) = taskQueries.upsertRow(task)
+
+    override fun insertTask(task: Task) = taskQueries.upsertRow(task)
+
+    override fun attachmentsForTask(taskId: String): List<Attachment> =
+        attachmentQueries.selectForTask(taskId, mapper = ::toAttachment).executeAsList()
+
+    override fun insertAttachment(attachment: Attachment) = attachmentQueries.insertRow(attachment)
+
+    override fun hashesForTasks(taskIds: List<String>): List<String> =
+        // `DISTINCT` only dedupes within a chunk, so the fold does it across them — see
+        // SqlDelightAttachmentStore.hashesForTasks, which this mirrors.
+        taskIds.chunked(SQL_VARIABLE_LIMIT)
+            .flatMap { attachmentQueries.selectHashesForTasks(it).executeAsList() }
+            .distinct()
+
+    override fun deleteAttachmentsForTasks(taskIds: List<String>) {
+        taskIds.chunked(SQL_VARIABLE_LIMIT).forEach { attachmentQueries.deleteForTasks(it) }
+    }
+
+    override fun taskIdsInProject(projectId: String): List<String> =
+        projectQueries.selectTaskIdsIn(projectId).executeAsList()
+
+    override fun tombstoneProjectWithChildren(id: String, deleteTasks: Boolean, at: Instant) {
+        val stamp = at.toEpochMilli()
+        if (deleteTasks) {
+            projectQueries.tombstoneTasksIn(at = stamp, id = id)
+        } else {
+            projectQueries.moveTasksToInbox(updatedAt = stamp, id = id)
+        }
+        projectQueries.tombstoneSectionsIn(at = stamp, id = id)
+        // Last, not first — see the identical note on SqlDelightProjectStore.tombstoneWithChildren.
+        projectQueries.tombstoneWithChildrenRows(at = stamp, id = id)
+    }
 }
 
 /**
