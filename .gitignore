@@ -3,6 +3,9 @@
 # The Supabase CLI arrives through `npx supabase`, which installs it here. The lockfile beside it
 # is what pins the version; this is the copy it unpacks to.
 node_modules/
+# Supabase CLI runtime files include generated credentials and local project metadata.
+/supabase/.temp/
+/supabase/.branches/
 __pycache__/
 /local.properties
 /.idea/
