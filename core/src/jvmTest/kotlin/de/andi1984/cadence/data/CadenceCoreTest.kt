@@ -4,8 +4,10 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import de.andi1984.cadence.data.db.CadenceDatabase
 import de.andi1984.cadence.domain.model.Task
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.job
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -27,7 +29,7 @@ class CadenceCoreTest {
     val folder = TemporaryFolder()
 
     @Test
-    fun `builds a working repository over the driver it is handed, and closes cleanly`() {
+    fun `builds a working repository over the driver it is handed, and closes cleanly`() = runTest {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         CadenceDatabase.Schema.create(driver)
         driver.execute(null, "PRAGMA foreign_keys = ON", 0)
@@ -35,10 +37,11 @@ class CadenceCoreTest {
         val core = CadenceCore(
             driver = driver,
             dataDir = folder.root,
+            applicationScope = backgroundScope,
             ioDispatcher = Dispatchers.Unconfined,
         )
 
-        runBlocking {
+        try {
             val id = core.repository.upsertTask(Task(title = "Water the plants"))
             val tasks = core.repository.tasks.first()
 
@@ -46,10 +49,11 @@ class CadenceCoreTest {
             assertEquals("Water the plants", tasks.single().title)
             assertEquals(id, tasks.single().id)
             assertTrue(id.isNotBlank())
+        } finally {
+            // Cancellation alone does not wait for an IO read already in progress. Finish the
+            // test's background work before closing SQLite, or it can fail in the next test.
+            backgroundScope.coroutineContext.job.cancelAndJoin()
+            core.close()
         }
-
-        // Tears down the application scope and the driver without throwing — a second close, or
-        // a repository call after it, is not something either shell does and is not asserted.
-        core.close()
     }
 }
