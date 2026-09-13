@@ -18,6 +18,7 @@ import de.andi1984.cadence.ui.platform.BackupTarget
 import de.andi1984.cadence.ui.platform.PickedFile
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -29,7 +30,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
-import java.io.IOException
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -833,11 +833,15 @@ class CadenceViewModelCrudTest {
      * [FakeSyncStore] used everywhere else in this file reports signed-out, and a signed-out
      * round returns before making a request or touching [CadenceSyncEngine.status] at all — which
      * proves nothing about whether the debounce actually called it. So this engine is signed in
-     * instead, against a [MockEngine] that answers every request with a network error: `syncOnce`
-     * moves [CadenceSyncEngine.status] to [SyncStatus.Syncing] before it does anything else, and
-     * that transition — away from the [SyncStatus.Idle] the engine starts in — is the observable
-     * proof a round actually ran, without the test having to wait out the mocked round's own
-     * (real, not virtual) failure to reach [SyncStatus.Failed].
+     * instead, against a [MockEngine] that never answers: `syncOnce` moves
+     * [CadenceSyncEngine.status] to [SyncStatus.Syncing] before it does anything else, and that
+     * transition — away from the [SyncStatus.Idle] the engine starts in — is the observable proof
+     * a round actually ran. The request hangs forever (real time, not virtual) rather than
+     * failing outright, because a failing [MockEngine] raced this assertion against the round's
+     * own (real-time) exception handling: on a fast enough runner the round could reach
+     * [SyncStatus.Failed] before `runCurrent()` returned to the assert line below, since nothing
+     * here waits on virtual time for it. A round that never gets a response can never race past
+     * `Syncing`.
      */
     @Test
     fun `a mutation schedules a sync round after the write debounce`() = runTest {
@@ -846,7 +850,7 @@ class CadenceViewModelCrudTest {
         syncStore.setSession(
             """{"accessToken":"not-a-jwt","sessionCookie":"c=1","email":"me@example.org"}""",
         )
-        val http = HttpClient(MockEngine { throw IOException("no network in this test") })
+        val http = HttpClient(MockEngine { awaitCancellation() })
         val syncEngine = CadenceSyncEngine(syncStore, backgroundScope, http)
         val viewModel = CadenceViewModel(
             repository = repository,
