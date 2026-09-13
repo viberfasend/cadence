@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,6 +51,7 @@ import de.andi1984.cadence.ui.components.SyncActions
 import de.andi1984.cadence.ui.components.SyncControls
 import de.andi1984.cadence.ui.components.SyncRefreshBox
 import de.andi1984.cadence.ui.components.SectionHeader
+import de.andi1984.cadence.ui.format.pluralTasks
 import java.time.LocalDate
 
 
@@ -209,6 +211,9 @@ fun ProjectsScreen(
                             )
                         }
                     }
+                    item(key = "gap-${node.project.id}") {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                 }
             }
         }
@@ -281,6 +286,45 @@ private fun QuickRow(
     }
 }
 
+/**
+ * A pill showing an open-task count in words ("5 tasks"), not a bare digit — the digit alone
+ * reads fine on screen but announces as just a number to a screen reader, with nothing saying
+ * what it counts.
+ */
+@Composable
+private fun TaskCountPill(count: Int, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(scheme.surfaceContainerHigh)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        Text(
+            text = pluralTasks(count),
+            style = MaterialTheme.typography.labelMedium,
+            color = scheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun OverduePill(overdue: Int, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(scheme.errorContainer)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        Text(
+            text = pluralStringResource(Res.plurals.projects_overdue_count, overdue, overdue),
+            style = MaterialTheme.typography.labelMedium,
+            color = scheme.onErrorContainer,
+        )
+    }
+}
+
 @Composable
 private fun ProjectRow(
     project: Project,
@@ -297,13 +341,15 @@ private fun ProjectRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(60.dp)
-            .clip(RoundedCornerShape(16.dp)),
+            .heightIn(min = 68.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(scheme.surfaceContainer),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box(
             modifier = Modifier
+                .padding(start = 6.dp)
                 .size(44.dp)
                 .clip(CircleShape)
                 .clickable(enabled = expandable, onClick = onToggleExpand),
@@ -325,39 +371,35 @@ private fun ProjectRow(
         Row(
             modifier = Modifier
                 .weight(1f)
-                .height(60.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .clickable(onClick = onClick),
+                .clickable(onClick = onClick)
+                .padding(vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            ProjectSwatch(colorHex = project.colorHex, size = 12)
-            Column(modifier = Modifier.weight(1f)) {
+            ProjectSwatch(colorHex = project.colorHex, size = 14)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
                 Text(
                     text = project.name,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     color = scheme.onSurface,
+                    maxLines = 1,
                 )
                 if (subtitle != null) {
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
                         color = scheme.onSurfaceVariant,
+                        maxLines = 1,
                     )
                 }
             }
             if (overdue > 0) {
-                Text(
-                    text = pluralStringResource(Res.plurals.projects_overdue_count, overdue, overdue),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = scheme.error,
-                )
+                OverduePill(overdue)
             }
-            Text(
-                text = "$count",
-                style = MaterialTheme.typography.bodyMedium,
-                color = scheme.onSurfaceVariant,
-            )
+            TaskCountPill(count)
         }
         menu()
     }
@@ -375,32 +417,37 @@ private fun SubprojectRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 34.dp),
+            .padding(start = 34.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Spacer(
             modifier = Modifier
                 .width(2.dp)
-                .height(56.dp)
+                .height(60.dp)
                 .background(scheme.outlineVariant),
         )
         Row(
             modifier = Modifier
                 .weight(1f)
-                .height(56.dp)
+                .heightIn(min = 60.dp)
                 .padding(start = 16.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(14.dp))
+                .background(scheme.surfaceContainerLow)
                 .clickable(onClick = onClick)
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ProjectSwatch(colorHex = project.colorHex, size = 10)
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
                 Text(
                     text = project.name,
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurface,
+                    maxLines = 1,
                 )
                 if (overdue > 0) {
                     Text(
@@ -414,11 +461,7 @@ private fun SubprojectRow(
                     )
                 }
             }
-            Text(
-                text = "$count",
-                style = MaterialTheme.typography.bodyMedium,
-                color = scheme.onSurfaceVariant,
-            )
+            TaskCountPill(count)
         }
         menu()
     }
