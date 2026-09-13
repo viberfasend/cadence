@@ -225,6 +225,26 @@ class CadenceRepository(
     }
 
     /**
+     * Clears the completed Inbox roots captured by the UI, including their checklists.
+     * Recheck inside the transaction: a task moved or reopened during Undo must survive.
+     * Successors are separate roots, so clearing recurring history leaves the open occurrence.
+     */
+    suspend fun deleteCompletedInboxTasks(candidateIds: List<String>): List<String> = write {
+        val (deletedIds, hashes) = storeTransaction.run {
+            val roots = candidateIds.distinct().mapNotNull { taskById(it) }
+                .filter { it.projectId == null && !it.isSubtask && it.isDone }
+            val ids = roots.flatMap { root -> listOf(root.id) + subtasksOf(root.id).map { it.id } }
+            val hashes = hashesForTasks(ids)
+            deleteAttachmentsForTasks(ids)
+            val at = now()
+            roots.forEach { tombstoneTaskWithSubtasks(it.id, at) }
+            ids to hashes
+        }
+        reclaim(hashes)
+        deletedIds
+    }
+
+    /**
      * Tombstones every task and every project — the Settings danger zone, and the only wipe the
      * app has. Returns the ids of the tasks it tombstoned, so the caller can cancel their alarms;
      * a reminder outlives the row it belongs to unless someone cancels it.

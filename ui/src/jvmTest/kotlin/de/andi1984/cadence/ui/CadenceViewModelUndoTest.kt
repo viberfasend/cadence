@@ -18,6 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.Instant
 
 /**
  * The undo state machine as `CadenceViewModel` wires it up: `deleteTask`/`deleteProject`/
@@ -169,6 +170,75 @@ class CadenceViewModelUndoTest {
         runCurrent()
 
         assertEquals(setOf("second"), liveTaskIds())
+        assertTrue(viewModel.state.value.pendingDeleteIds.isEmpty())
+    }
+
+    @Test
+    fun `Inbox cleanup includes hidden history and checklists and commits as one undo action`() = runTest {
+        val doneAt = Instant.parse("2026-09-01T12:00:00Z")
+        stores.seedTasks(
+            task("done").copy(completedAt = doneAt),
+            task("step", parentId = "done").copy(completedAt = doneAt),
+            task("history").copy(completedAt = doneAt),
+            task("next").copy(spawnedFromId = "history"),
+            task("open"),
+            task("open-step", parentId = "open").copy(completedAt = doneAt),
+            task("project-done", projectId = "work").copy(completedAt = doneAt),
+        )
+        settings.setShowCompleted(false)
+        val viewModel = viewModel()
+        assertEquals(setOf("done", "history"), viewModel.state.value.completedInboxTasks().map { it.id }.toSet())
+
+        viewModel.deleteCompletedInboxTasks()
+        runCurrent()
+        assertEquals(setOf("done", "step", "history"), viewModel.state.value.pendingDeleteIds)
+        assertTrue(viewModel.state.value.completedInboxTasks().isEmpty())
+        assertEquals(7, liveTaskIds().size)
+
+        advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() + 1)
+        runCurrent()
+        assertEquals(setOf("next", "open", "open-step", "project-done"), liveTaskIds())
+        assertEquals(setOf("done", "step", "history"), reminders.cancelled.toSet())
+    }
+
+    @Test
+    fun `undo restores all completed Inbox tasks without deleting anything`() = runTest {
+        val doneAt = Instant.parse("2026-09-01T12:00:00Z")
+        stores.seedTasks(task("first").copy(completedAt = doneAt), task("second").copy(completedAt = doneAt))
+        val viewModel = viewModel()
+        viewModel.deleteCompletedInboxTasks()
+        runCurrent()
+        // A repeated click while the state flow catches up must not settle the pending batch.
+        viewModel.deleteCompletedInboxTasks()
+        runCurrent()
+        viewModel.undo()
+        advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() + 1)
+        runCurrent()
+
+        assertEquals(setOf("first", "second"), liveTaskIds())
+        assertEquals(2, viewModel.state.value.completedInboxTasks().size)
+        assertTrue(viewModel.state.value.pendingDeleteIds.isEmpty())
+        assertTrue(reminders.cancelled.isEmpty())
+    }
+
+    @Test
+    fun `Inbox cleanup preserves tasks moved or reopened during the undo window`() = runTest {
+        val doneAt = Instant.parse("2026-09-01T12:00:00Z")
+        val reopened = task("reopened").copy(completedAt = doneAt)
+        val moved = task("moved").copy(completedAt = doneAt)
+        stores.seedProjects(Project(id = "work", name = "Work"))
+        stores.seedTasks(reopened, moved, task("done").copy(completedAt = doneAt))
+        val viewModel = viewModel()
+        viewModel.deleteCompletedInboxTasks()
+        runCurrent()
+        repository.setCompleted(reopened, false)
+        repository.moveToProject(moved, "work")
+        stores.seedTasks(task("later").copy(completedAt = doneAt))
+        advanceTimeBy(CadenceViewModel.UNDO_WINDOW.toMillis() + 1)
+        runCurrent()
+
+        assertEquals(setOf("reopened", "moved", "later"), liveTaskIds())
+        assertEquals(listOf("done"), reminders.cancelled)
         assertTrue(viewModel.state.value.pendingDeleteIds.isEmpty())
     }
 

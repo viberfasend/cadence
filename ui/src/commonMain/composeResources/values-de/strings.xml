@@ -136,6 +136,10 @@
 
     <!-- ── Eingang ─────────────────────────────────────────────────────────────────── -->
     <string name="inbox_title">Eingang</string>
+    <plurals name="inbox_delete_completed">
+        <item quantity="one">Erledigte löschen (%1$d)</item>
+        <item quantity="other">Erledigte löschen (%1$d)</item>
+    </plurals>
     <string name="inbox_empty_subtitle">Leer</string>
     <plurals name="inbox_to_sort">
         <item quantity="one">%1$d zu sortieren</item>
