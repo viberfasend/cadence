@@ -340,6 +340,7 @@ private fun RouteContent(
             onTaskClick = { navigator.go(Route.TaskDetail(it.id)) },
             onToggle = viewModel::toggleTask,
             onTriage = { navigator.go(Route.Triage) },
+            onDeleteCompleted = viewModel::deleteCompletedInboxTasks,
             syncControls = syncControls,
         )
 

@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +53,7 @@ fun InboxScreen(
     onTaskClick: (Task) -> Unit,
     onToggle: (Task) -> Unit,
     onTriage: () -> Unit,
+    onDeleteCompleted: () -> Unit,
     syncControls: SyncControls = SyncControls(),
 ) {
     // Root tasks only: a subtask of an Inbox task is folded into its parent's row unless the
@@ -60,6 +62,7 @@ fun InboxScreen(
     val list = state.taskList(TaskView.Inbox, today, expandedIds)
     val open = list.openCount
     val rows = list.rows
+    val completedCount = state.completedInboxTasks().size
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenHeader(
@@ -94,6 +97,19 @@ fun InboxScreen(
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
                 }
+            }
+        }
+
+        if (completedCount > 0) {
+            TextButton(
+                onClick = onDeleteCompleted,
+                modifier = Modifier.align(Alignment.End).padding(horizontal = 12.dp),
+            ) {
+                Icon(AppIcons.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text(
+                    pluralStringResource(Res.plurals.inbox_delete_completed, completedCount, completedCount),
+                    modifier = Modifier.padding(start = 8.dp),
+                )
             }
         }
 

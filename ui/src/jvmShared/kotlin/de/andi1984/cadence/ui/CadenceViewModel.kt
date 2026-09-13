@@ -248,6 +248,10 @@ data class CadenceUiState(
 
     fun inboxTasks(): List<Task> = rootTasksByProject[null].orEmpty()
 
+    /** Includes recurring history and tasks hidden by the Show completed setting. */
+    fun completedInboxTasks(): List<Task> =
+        tasks.filter { it.projectId == null && !it.isSubtask && it.isDone }
+
     /** The steps under a task, in the order they were added. */
     fun subtasks(parentId: String): List<Task> = subtasksByParent[parentId].orEmpty()
 
@@ -557,6 +561,17 @@ class CadenceViewModel(
             UndoAction.DeleteTask(task, subtasks),
             count = 1 + subtasks.size,
         )
+    }
+
+    fun deleteCompletedInboxTasks() = scope.launch {
+        val snapshot = state.value
+        val roots = snapshot.completedInboxTasks().filterNot { it.id in undoSlot.hiddenIds.value }
+        if (roots.isEmpty()) return@launch
+        val action = UndoAction.DeleteCompletedInboxTasks(
+            taskIds = roots.map { it.id },
+            subtaskIds = roots.flatMap { snapshot.subtasks(it.id) }.map { it.id },
+        )
+        undoSlot.offer(action, count = action.ids.size)
     }
 
     fun addSubtask(parent: Task, title: String) = scope.launch {
@@ -1178,6 +1193,9 @@ class CadenceViewModel(
      */
     private suspend fun commitPendingDelete(action: UndoAction) {
         when (action) {
+            is UndoAction.DeleteCompletedInboxTasks ->
+                repository.deleteCompletedInboxTasks(action.taskIds)
+                    .forEach { reminderScheduler.cancel(it) }
             is UndoAction.DeleteTask -> {
                 action.subtasks.forEach { reminderScheduler.cancel(it.id) }
                 reminderScheduler.cancel(action.task.id)

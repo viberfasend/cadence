@@ -94,6 +94,43 @@ class CadenceRepositoryTest {
         return result.sha256
     }
 
+    @Test
+    fun `Inbox cleanup tombstones completed roots and steps and keeps recurring successors`() = runTest {
+        val parent = store(recurring())
+        val step = store(Task(title = "Step", parentId = parent.id))
+        val sharedHash = attach(parent.id)
+        repository.setCompleted(parent, true)
+        val next = taskStore.getAll().single { it.spawnedFromId == parent.id }
+        val nextStep = taskStore.subtasksOf(next.id).single()
+        val done = store(Task(title = "Done", completedAt = fixedNow))
+        val orphanHash = attach(done.id, byteArrayOf(9))
+
+        val deleted = repository.deleteCompletedInboxTasks(listOf(parent.id, done.id, parent.id))
+
+        assertEquals(setOf(parent.id, step.id, done.id), deleted.toSet())
+        deleted.forEach { assertEquals(fixedNow, taskRow(it).deletedAt) }
+        assertEquals(setOf(next.id, nextStep.id), taskStore.getAll().map { it.id }.toSet())
+        assertTrue(attachmentStore.forTask(parent.id).isEmpty())
+        assertNull(blobStore.file(orphanHash))
+        assertNotNull(blobStore.file(sharedHash))
+        assertEquals(sharedHash, attachmentStore.forTask(next.id).single().sha256)
+        assertTrue(repository.deleteCompletedInboxTasks(listOf(parent.id, done.id)).isEmpty())
+    }
+
+    @Test
+    fun `Inbox cleanup rechecks candidates and never deletes an open task project task or lone step`() = runTest {
+        val reopened = store(Task(title = "Reopened", completedAt = fixedNow))
+        val moved = store(Task(title = "Moved", completedAt = fixedNow))
+        val step = store(Task(title = "Done step", parentId = reopened.id, completedAt = fixedNow))
+        repository.setCompleted(reopened, false)
+        repository.upsertProject(Project(id = "work", name = "Work"))
+        repository.moveToProject(moved, "work")
+        val later = store(Task(title = "Completed after click", completedAt = fixedNow))
+
+        assertTrue(repository.deleteCompletedInboxTasks(listOf(reopened.id, moved.id, step.id, "missing")).isEmpty())
+        assertEquals(setOf(reopened.id, moved.id, step.id, later.id), taskStore.getAll().map { it.id }.toSet())
+    }
+
     private suspend fun rowsTitled(title: String) = taskStore.getAll().filter { it.title == title }
 
     /** The task from the bug report: fortnightly, in the Inbox, due today. */

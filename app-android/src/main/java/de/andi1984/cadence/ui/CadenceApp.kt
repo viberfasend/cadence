@@ -247,6 +247,7 @@ fun CadenceApp(
                         onTaskClick = { navController.navigate(Routes.task(it.id)) },
                         onToggle = viewModel::toggleTask,
                         onTriage = { navController.navigate(Routes.TRIAGE) },
+                        onDeleteCompleted = viewModel::deleteCompletedInboxTasks,
                         syncControls = syncControls,
                     )
                 }

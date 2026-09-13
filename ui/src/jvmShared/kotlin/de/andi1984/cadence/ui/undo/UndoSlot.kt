@@ -28,6 +28,14 @@ sealed class UndoAction {
         override val ids: Set<String> = setOf(task.id) + subtasks.map { it.id }
     }
 
+    /** Inbox cleanup captures roots now and rechecks eligibility when the write commits. */
+    data class DeleteCompletedInboxTasks(
+        val taskIds: List<String>,
+        val subtaskIds: List<String>,
+    ) : UndoAction() {
+        override val ids: Set<String> = (taskIds + subtaskIds).toSet()
+    }
+
     /** Deleting a project tombstones it and (optionally) its subprojects and tasks. */
     data class DeleteProject(
         val project: Project,
