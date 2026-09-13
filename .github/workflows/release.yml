@@ -46,7 +46,7 @@ jobs:
   # minutes building.
   preflight:
     name: Preflight
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # GitHub's default job limit is six hours. A build that is going to work here takes
     # minutes, so anything past this is a hang, and a hang should cost a job — not an afternoon.
     timeout-minutes: 10
@@ -103,7 +103,7 @@ jobs:
     name: Android APKs
     needs: preflight
     if: inputs.targets != 'deb'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # GitHub's default job limit is six hours. A build that is going to work here takes
     # minutes, so anything past this is a hang, and a hang should cost a job — not an afternoon.
     timeout-minutes: 45
@@ -240,7 +240,7 @@ jobs:
   publish:
     name: Publish release
     needs: [preflight, build-android, build-desktop]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # GitHub's default job limit is six hours. A build that is going to work here takes
     # minutes, so anything past this is a hang, and a hang should cost a job — not an afternoon.
     timeout-minutes: 15

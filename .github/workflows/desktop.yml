@@ -23,7 +23,7 @@ concurrency:
 jobs:
   test:
     name: Run tests
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # GitHub's default job limit is six hours. A build that is going to work here takes
     # minutes, so anything past this is a hang, and a hang should cost a job — not an afternoon.
     timeout-minutes: 20
