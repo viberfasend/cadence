@@ -83,7 +83,7 @@ this source, which is expected for an app that does not come from a store. Tap t
 again later to update in place: the release APK is signed with a stable release key, so a new
 build installs over the old one and keeps your tasks.
 
-> If you still have an install from **before 2.0** (signed with the debug key), Android will
+> If you still have an install from **before 3.0** (signed with the debug key), Android will
 > refuse the update with *"App not installed"*: the signing key changed. Export a backup first
 > (Settings → Backup), uninstall once, install again and import.
 
