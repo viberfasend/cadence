@@ -1,0 +1,77 @@
+name: 🐛 Bug report
+description: Report something that isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! Please fill in the sections below so we can reproduce and fix it quickly.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce the problem? If it involves specific tasks, a quick-add line that creates them is ideal.
+      placeholder: |
+        1. Quick-add "Pay rent every 1st !p2"
+        2. Complete it from the Today list
+        3. See …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened? Include screenshots or error messages if you have them.
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Cadence version
+      description: Which version or commit are you running? (Settings → About on Android; the window title on the desktop.)
+      placeholder: "e.g. 2.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Android
+        - Linux
+        - macOS
+        - Windows
+    validations:
+      required: true
+  - type: dropdown
+    id: sync
+    attributes:
+      label: Sync
+      description: Does the affected device sync with another one?
+      options:
+        - Signed out (no sync)
+        - Signed in, one device
+        - Signed in, several devices
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that might help — logs, related issues, the app language, whether a backup was imported, etc.
+    validations:
+      required: false
