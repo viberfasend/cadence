@@ -43,7 +43,7 @@ body:
     attributes:
       label: Cadence version
       description: Which version or commit are you running? (Settings → About on Android; the window title on the desktop.)
-      placeholder: "e.g. 2.0.0"
+      placeholder: "e.g. 3.0.0"
     validations:
       required: true
   - type: dropdown
