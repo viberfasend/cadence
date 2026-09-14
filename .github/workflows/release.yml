@@ -66,7 +66,7 @@ jobs:
 
       - name: Check out
         # Full history and tags: the version is derived from the commits since the last v* tag.
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -113,18 +113,18 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
@@ -157,7 +157,7 @@ jobs:
         run: bash .github/scripts/build.sh apk
 
       - name: Upload the APKs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-assets-android
           path: dist/*
@@ -189,18 +189,18 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
@@ -240,7 +240,7 @@ jobs:
           bash .github/scripts/build.sh $FORMATS $SKIP_TESTS
 
       - name: Upload the installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-assets-${{ matrix.os }}
           path: dist/*
@@ -264,7 +264,7 @@ jobs:
       - name: Download every build's assets
         # One pattern rather than four named downloads: which artifacts exist depends on the
         # targets input, and naming an absent one fails the job.
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: release-assets-*
           merge-multiple: true
@@ -332,7 +332,7 @@ jobs:
         # The tag is created from the commit this run was dispatched on, which the preflight job
         # has already established is main's tip. make_latest moves
         # releases/latest/download/primico-debug.apk onto this build.
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.preflight.outputs.tag }}
           name: Primico ${{ needs.preflight.outputs.version }}
