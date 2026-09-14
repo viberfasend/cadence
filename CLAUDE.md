@@ -988,7 +988,7 @@ The generated accessors are one top-level property per string, so files import t
 
 ## CI / releases
 
-**One workflow runs on its own, and it is the cheap one.** `ci.yml` runs the test command at
+**Only the cheap workflows run on their own.** `ci.yml` runs the test command at
 the top of Commands on Linux for every pull request and every push to `main` — the repository
 is public, so Linux minutes are free and unlimited, and `main`'s branch protection requires
 that check. Everything that spends money stays `workflow_dispatch`: `android.yml`,
@@ -1006,6 +1006,9 @@ What each one does:
 
 - `ci.yml` — the test command, Linux only, uploading the test reports on failure. No APK: that
   is 31 tasks that run no test.
+- `pages.yml` — deploys `site/` (the landing page, plain HTML, no build step) to GitHub Pages on
+  a push to `main` that touches it. The second self-running workflow, and for the same reason:
+  a Linux runner is free here, and a page that only deploys when clicked goes stale.
 - `android.yml` — tests, then `build.sh apk`, uploading both APKs as artifacts. Dispatch only.
 
 Two backstops sit under all four, because the failure that prompted them cost hours rather

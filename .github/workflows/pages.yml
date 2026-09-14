@@ -1,0 +1,51 @@
+name: Deploy landing page
+
+# Publishes the static site in `site/` to GitHub Pages — the one other workflow besides ci.yml
+# that runs on its own, and for the same reason: a Linux runner on a public repository is free,
+# and a site that only deploys when someone remembers to click is a site that goes stale. It
+# runs on pushes to main that touch the site (or this file), and can be dispatched by hand.
+#
+# The site is plain HTML with no build step: what is in `site/` is what is served.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and never cancel one in flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
