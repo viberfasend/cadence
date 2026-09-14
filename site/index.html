@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cadence</title>
+<meta name="description" content="Cadence is a local-first todo app for Android and the desktop. Importance first, due date breaks ties. Quick add in English and German, recurrence that understands both calendar rules and “n days after completion”, and optional sync through a database you host yourself.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Cadence — importance first, due date breaks ties">
+<meta property="og:description" content="A local-first todo app for Android and the desktop. Your tasks live on your device; sync is optional and self-hosted. Free software, GPL-3.0-or-later.">
+<meta name="theme-color" content="#006A60">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect width='108' height='108' rx='24' fill='%23006A60'/%3E%3Cpath transform='translate(24 24) scale(2.5)' fill='%239FF2E4' d='M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ── Tokens: the app's own Material scheme (ui/theme/Color.kt), light first ─────────────── */
+:root{
+  --ground:#F4FBF8;
+  --surface:#FFFFFF;
+  --surface-2:#EFF5F2;
+  --surface-3:#E3E9E6;
+  --line:#BEC9C5;
+  --line-soft:#DAE5E1;
+  --ink:#171D1B;
+  --ink-2:#3F4946;
+  --ink-3:#6F7976;
+  --teal:#006A60;
+  --teal-ink:#00201C;
+  --teal-tint:#9FF2E4;
+  --teal-soft:#CDE8E1;
+  --p1:#BA1A1A;   --p1-tint:#FFDAD6;
+  --p2:#8A4600;   --p2-tint:#FFDCC4;
+  --p3:#006A60;   --p3-tint:#CDE8E1;
+  --p4:#6F7976;   --p4-tint:#E3E9E6;
+  --overdue-block:#FFDAD6; --overdue-ink:#410002; --overdue-row:#FFF5F4;
+  --tok-date:#C2E8FF;  --tok-date-ink:#001E2E;
+  --tok-prio:#FFDCC4;  --tok-prio-ink:#3A1C00;
+  --tok-proj:#E5DFF0;  --tok-proj-ink:#1E1A24;
+  --tok-tag:#CDE8E1;   --tok-tag-ink:#00201C;
+  --tok-rule:#DCE3F5;  --tok-rule-ink:#111A33;
+  --shadow:0 1px 2px rgba(23,29,27,.06),0 12px 32px -12px rgba(0,106,96,.22);
+  --font-display:'Bricolage Grotesque','Public Sans',system-ui,sans-serif;
+  --font-body:'Public Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+  --maxw:1120px;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0E1513; --surface:#1B2220; --surface-2:#252B29; --surface-3:#2F3634;
+    --line:#3F4946; --line-soft:#2A3230;
+    --ink:#DDE4E1; --ink-2:#BEC9C5; --ink-3:#889390;
+    --teal:#83D5C6; --teal-ink:#00382F; --teal-tint:#005046; --teal-soft:#334B47;
+    --p1:#FFB4AB; --p1-tint:#3B0908;
+    --p2:#FFB787; --p2-tint:#4A3520;
+    --p3:#83D5C6; --p3-tint:#334B47;
+    --p4:#889390; --p4-tint:#2F3634;
+    --overdue-block:#3B0908; --overdue-ink:#FFDAD6; --overdue-row:#2A0B0A;
+    --tok-date:#004C6B; --tok-date-ink:#C2E8FF;
+    --tok-prio:#4A3520; --tok-prio-ink:#FFDCC4;
+    --tok-proj:#3B3547; --tok-proj-ink:#E5DFF0;
+    --tok-tag:#334B47;  --tok-tag-ink:#CCE8E2;
+    --tok-rule:#26304A; --tok-rule-ink:#DCE3F5;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 16px 40px -16px rgba(0,0,0,.6);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0E1513; --surface:#1B2220; --surface-2:#252B29; --surface-3:#2F3634;
+  --line:#3F4946; --line-soft:#2A3230;
+  --ink:#DDE4E1; --ink-2:#BEC9C5; --ink-3:#889390;
+  --teal:#83D5C6; --teal-ink:#00382F; --teal-tint:#005046; --teal-soft:#334B47;
+  --p1:#FFB4AB; --p1-tint:#3B0908;
+  --p2:#FFB787; --p2-tint:#4A3520;
+  --p3:#83D5C6; --p3-tint:#334B47;
+  --p4:#889390; --p4-tint:#2F3634;
+  --overdue-block:#3B0908; --overdue-ink:#FFDAD6; --overdue-row:#2A0B0A;
+  --tok-date:#004C6B; --tok-date-ink:#C2E8FF;
+  --tok-prio:#4A3520; --tok-prio-ink:#FFDCC4;
+  --tok-proj:#3B3547; --tok-proj-ink:#E5DFF0;
+  --tok-tag:#334B47;  --tok-tag-ink:#CCE8E2;
+  --tok-rule:#26304A; --tok-rule-ink:#DCE3F5;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 16px 40px -16px rgba(0,0,0,.6);
+  color-scheme:dark;
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  font-family:var(--font-body);font-size:17px;line-height:1.6;
+  color:var(--ink);background:var(--ground);
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  padding-inline:20px;
+}
+a{color:var(--teal);text-decoration-thickness:1px;text-underline-offset:.18em}
+a:hover{text-decoration-thickness:2px}
+:focus-visible{outline:2px solid var(--teal);outline-offset:3px;border-radius:4px}
+img,svg{max-width:100%;display:block}
+code,kbd,.mono{font-family:var(--font-mono);font-size:.92em}
+h1,h2,h3{font-family:var(--font-display);text-wrap:balance;line-height:1.05;letter-spacing:-.015em;font-weight:700}
+h1{font-size:clamp(2.6rem,6.2vw,4.6rem);font-variation-settings:'opsz' 96}
+h2{font-size:clamp(1.8rem,3.6vw,2.6rem);font-variation-settings:'opsz' 72}
+h3{font-size:1.15rem;font-variation-settings:'opsz' 24;letter-spacing:0}
+p{max-width:62ch}
+.wrap{max-width:var(--maxw);margin-inline:auto}
+.eyebrow{
+  font-family:var(--font-mono);font-size:.78rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--teal);font-weight:600;
+}
+.muted{color:var(--ink-2)}
+.small{font-size:.92rem}
+
+/* ── Nav ──────────────────────────────────────────────────────────────────────────────── */
+.nav{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:22px}
+.brand{display:inline-flex;align-items:center;gap:10px;font-family:var(--font-display);font-weight:700;font-size:1.2rem;color:var(--ink);text-decoration:none}
+.brand-mark{width:28px;height:28px;border-radius:8px;background:var(--teal);display:grid;place-items:center;flex:none}
+.brand-mark svg{width:18px;height:18px}
+.nav-links{display:flex;gap:22px;flex-wrap:wrap;font-size:.95rem}
+.nav-links a{color:var(--ink-2);text-decoration:none}
+.nav-links a:hover{color:var(--ink);text-decoration:underline}
+
+/* ── Hero ─────────────────────────────────────────────────────────────────────────────── */
+.hero{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:48px;align-items:center;padding-block:40px 72px}
+.hero-copy{display:flex;flex-direction:column;gap:22px}
+.hero h1 em{font-style:normal;color:var(--teal)}
+.lede{font-size:1.18rem;color:var(--ink-2);max-width:48ch}
+.cta-row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.btn{
+  display:inline-flex;align-items:center;gap:10px;padding:13px 20px;border-radius:12px;
+  font-weight:600;text-decoration:none;font-size:1rem;border:1px solid transparent;
+  transition:transform .12s ease,background .12s ease;
+}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:var(--teal);color:var(--teal-tint)}
+.btn-primary:hover{filter:brightness(1.08)}
+.btn-ghost{background:var(--surface);color:var(--ink);border-color:var(--line)}
+.btn-ghost:hover{border-color:var(--ink-3)}
+.btn svg{width:18px;height:18px;flex:none}
+.hero-meta{font-size:.9rem;color:var(--ink-3)}
+.hero-meta code{font-size:.85em}
+
+/* The demo: quick add typing itself, tokens becoming chips, the task landing sorted. */
+.demo{
+  background:var(--surface);border:1px solid var(--line-soft);border-radius:20px;box-shadow:var(--shadow);
+  padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0;
+}
+.demo-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.demo-head strong{font-family:var(--font-display);font-size:1.05rem;font-weight:700}
+.demo-head span{font-size:.8rem;color:var(--ink-3)}
+.qa{
+  border:1px solid var(--line);border-radius:14px;background:var(--surface-2);padding:12px 14px;
+  min-height:56px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 6px;
+  font-family:var(--font-mono);font-size:.95rem;line-height:1.5;
+}
+.qa .word{white-space:pre}
+.qa .caret{display:inline-block;width:2px;height:1.2em;background:var(--teal);vertical-align:text-bottom;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.chip{
+  display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;
+  font-family:var(--font-body);font-size:.82rem;font-weight:600;line-height:1.55;white-space:nowrap;
+  animation:pop .18s ease-out;
+}
+@keyframes pop{from{transform:scale(.85);opacity:0}}
+.chip.date{background:var(--tok-date);color:var(--tok-date-ink)}
+.chip.prio{background:var(--tok-prio);color:var(--tok-prio-ink)}
+.chip.proj{background:var(--tok-proj);color:var(--tok-proj-ink)}
+.chip.tag{background:var(--tok-tag);color:var(--tok-tag-ink)}
+.chip.rule{background:var(--tok-rule);color:var(--tok-rule-ink)}
+.qa-hint{font-size:.8rem;color:var(--ink-3);display:flex;justify-content:space-between;gap:12px}
+.qa-hint b{font-weight:600;color:var(--ink-2)}
+
+.today{display:flex;flex-direction:column;gap:6px}
+.today-label{font-family:var(--font-mono);font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:6px 4px 2px}
+.today-label.overdue{color:var(--p1)}
+.row{
+  display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;
+  padding:10px 12px;border-radius:12px;background:var(--surface-2);
+  transition:transform .35s cubic-bezier(.2,.8,.2,1),opacity .3s ease,background .3s ease;
+}
+.row.overdue{background:var(--overdue-row)}
+.row.new{animation:land .5s cubic-bezier(.2,.8,.2,1)}
+@keyframes land{from{transform:translateY(-8px);opacity:0;background:var(--teal-soft)}}
+.spine{width:22px;height:22px;border-radius:50%;border:2.5px solid var(--p4);display:grid;place-items:center;flex:none}
+.spine.p1{border-color:var(--p1);background:var(--p1-tint)}
+.spine.p2{border-color:var(--p2);background:var(--p2-tint)}
+.spine.p3{border-color:var(--p3);background:var(--p3-tint)}
+.row-main{min-width:0;display:flex;flex-direction:column;gap:1px}
+.row-title{font-weight:500;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-meta{font-size:.78rem;color:var(--ink-3);display:flex;gap:8px;flex-wrap:wrap}
+.row-meta .ovd{color:var(--p1);font-weight:600}
+.plabel{font-family:var(--font-mono);font-size:.74rem;font-weight:600;color:var(--ink-2);padding:1px 7px;border-radius:6px;background:var(--surface-3)}
+.plabel.p1{color:var(--p1)} .plabel.p2{color:var(--p2)} .plabel.p3{color:var(--p3)}
+
+/* ── Sections ─────────────────────────────────────────────────────────────────────────── */
+.section{padding-block:64px;border-top:1px solid var(--line-soft)}
+.section-head{display:flex;flex-direction:column;gap:12px;margin-bottom:34px;max-width:64ch}
+.section-head p{color:var(--ink-2);font-size:1.08rem}
+
+.rule-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px;align-items:start}
+.rule-list{display:flex;flex-direction:column;gap:8px;background:var(--surface);border:1px solid var(--line-soft);border-radius:18px;padding:14px;box-shadow:var(--shadow)}
+.rule-copy{display:flex;flex-direction:column;gap:16px}
+.rule-copy p{font-size:1.02rem}
+.rule-copy strong{font-weight:600}
+
+.features{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 36px}
+.feature{padding-block:18px;border-top:1px solid var(--line-soft);display:flex;flex-direction:column;gap:8px}
+.feature h3{display:flex;align-items:center;gap:10px}
+.feature h3 svg{width:20px;height:20px;color:var(--teal);flex:none}
+.feature p{font-size:.96rem;color:var(--ink-2)}
+
+/* Desktop window mock, drawn in CSS: sidebar, list, detail. */
+.window{
+  background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);
+  display:grid;grid-template-columns:180px minmax(0,1fr) 220px;min-height:300px;font-size:.82rem;
+}
+.win-side{background:var(--surface-2);border-right:1px solid var(--line-soft);padding:14px 10px;display:flex;flex-direction:column;gap:2px}
+.win-side .it{padding:6px 10px;border-radius:8px;color:var(--ink-2);display:flex;justify-content:space-between;gap:8px}
+.win-side .it.on{background:var(--teal-soft);color:var(--teal-ink);font-weight:600}
+.win-side .grp{font-family:var(--font-mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:12px 10px 4px}
+.win-side .sub{padding-left:22px}
+.win-main{padding:14px 12px;display:flex;flex-direction:column;gap:6px}
+.win-main .ttl{font-family:var(--font-display);font-weight:700;font-size:1rem;padding:2px 4px 8px}
+.win-main .row{padding:8px 10px}
+.win-main .row.sel{outline:2px solid var(--teal);outline-offset:-2px;background:var(--teal-soft)}
+.win-detail{border-left:1px solid var(--line-soft);padding:14px 14px;display:flex;flex-direction:column;gap:10px;background:var(--surface)}
+.win-detail .dt{font-weight:600;font-size:.95rem}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg span{padding:4px 0;text-align:center;font-family:var(--font-mono);font-size:.7rem;color:var(--ink-3)}
+.seg span.on{background:var(--teal);color:var(--teal-tint);font-weight:600}
+.kv{display:flex;justify-content:space-between;gap:8px;color:var(--ink-2);border-bottom:1px solid var(--line-soft);padding-block:5px}
+.kv b{font-weight:500;color:var(--ink)}
+.win-detail .note{font-size:.78rem;color:var(--ink-3);line-height:1.45}
+.keys{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:22px;font-size:.92rem;color:var(--ink-2)}
+kbd{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;background:var(--surface);font-size:.8rem;color:var(--ink)}
+
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px}
+.two p{font-size:1.02rem}
+.two h3{margin-bottom:10px}
+.two ul{padding-left:1.1em;color:var(--ink-2);display:flex;flex-direction:column;gap:6px}
+
+/* Downloads */
+.dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.dl-card{background:var(--surface);border:1px solid var(--line-soft);border-radius:18px;padding:22px;display:flex;flex-direction:column;gap:12px}
+.dl-card.lift{box-shadow:var(--shadow);border-color:var(--teal-soft)}
+.dl-card h3{display:flex;align-items:center;gap:10px}
+.dl-card h3 svg{width:22px;height:22px;color:var(--teal)}
+.dl-card p{font-size:.94rem;color:var(--ink-2)}
+.dl-card .btn{align-self:flex-start;margin-top:auto}
+.dl-card ul{padding-left:1.1em;font-size:.94rem;color:var(--ink-2);display:flex;flex-direction:column;gap:4px}
+.callout{
+  margin-top:18px;padding:14px 16px;border-radius:12px;background:var(--overdue-row);color:var(--overdue-ink);
+  border:1px solid var(--overdue-block);font-size:.94rem;max-width:none;
+}
+.callout b{font-weight:600}
+
+/* Footer */
+.foot{border-top:1px solid var(--line-soft);padding-block:36px 48px;display:flex;flex-wrap:wrap;gap:12px 32px;justify-content:space-between;align-items:center;font-size:.92rem;color:var(--ink-2)}
+.foot a{color:var(--ink-2)}
+
+/* ── Responsive ───────────────────────────────────────────────────────────────────────── */
+@media (max-width:900px){
+  .hero{grid-template-columns:1fr;gap:36px;padding-block:24px 56px}
+  .rule-grid,.two{grid-template-columns:1fr;gap:28px}
+  .features{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .dl{grid-template-columns:1fr}
+  .window{grid-template-columns:150px minmax(0,1fr)}
+  .win-detail{display:none}
+}
+@media (max-width:560px){
+  body{font-size:16px}
+  .features{grid-template-columns:1fr}
+  .window{grid-template-columns:1fr}
+  .win-side{display:none}
+  .nav-links{gap:14px;font-size:.9rem}
+}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  .chip,.row.new{animation:none}
+  .qa .caret{animation:none}
+  .btn{transition:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="nav" aria-label="Site">
+  <a class="brand" href="#top" aria-label="Cadence, home">
+    <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#9FF2E4"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg></span>
+    Cadence
+  </a>
+  <div class="nav-links">
+    <a href="#rule">The rule</a>
+    <a href="#features">Features</a>
+    <a href="#desktop">Desktop</a>
+    <a href="#data">Your data</a>
+    <a href="#download">Download</a>
+    <a href="https://github.com/viberfasend/cadence">GitHub</a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="hero-copy">
+    <span class="eyebrow">Local-first todo · Android + desktop</span>
+    <h1>Importance first.<br><em>Due date breaks ties.</em></h1>
+    <p class="lede">Every list in Cadence puts what matters on top, then sorts by when. Ten small things due today never bury the one big thing. Your tasks live in a SQLite file on your device; sync is optional and runs on a database you host.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/viberfasend/cadence/releases/latest/download/cadence-release.apk">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        Android APK
+      </a>
+      <a class="btn btn-ghost" href="#download">Desktop installers</a>
+      <a class="btn btn-ghost" href="https://github.com/viberfasend/cadence">Source</a>
+    </div>
+    <p class="hero-meta" id="version-line">Free software, GPL-3.0-or-later. Android 8.0+, Linux, macOS, Windows.</p>
+  </div>
+
+  <div class="demo" aria-label="Quick add demo">
+    <div class="demo-head"><strong>Quick add</strong><span>one line, parsed as you type</span></div>
+    <div class="qa" id="qa" aria-live="polite"></div>
+    <div class="qa-hint"><span id="qa-hint-l"><b>!p1</b>–<b>!p4</b> · <b>#project</b> · <b>@tag</b> · dates · times · recurrence</span><span>English + German</span></div>
+    <div class="today" id="today" aria-label="Today, sorted"></div>
+  </div>
+</header>
+
+<section class="section" id="rule">
+  <div class="section-head">
+    <span class="eyebrow">The rule</span>
+    <h2>One sort order, on every list</h2>
+    <p>Most apps sort by date, so a tax return and a grocery run look the same on the day they are due. Cadence sorts by how much a task matters, and only then by when. Overdue work sits in its own block on top of Today with one action: reschedule it all.</p>
+  </div>
+  <div class="rule-grid">
+    <div class="rule-list" aria-label="Example of the sort order">
+      <div class="today-label overdue">Overdue</div>
+      <div class="row overdue"><span class="spine p2"></span><div class="row-main"><div class="row-title">Renew passport</div><div class="row-meta"><span class="ovd">3 days overdue</span><span>Admin</span></div></div><span class="plabel p2">P2</span></div>
+      <div class="today-label">Today</div>
+      <div class="row"><span class="spine p1"></span><div class="row-main"><div class="row-title">Send the quarterly invoice</div><div class="row-meta"><span>today</span><span>Work</span></div></div><span class="plabel p1">P1</span></div>
+      <div class="row"><span class="spine p2"></span><div class="row-main"><div class="row-title">Book dentist</div><div class="row-meta"><span>today · 17:00</span><span>Health</span></div></div><span class="plabel p2">P2</span></div>
+      <div class="row"><span class="spine p3"></span><div class="row-main"><div class="row-title">Water the plants</div><div class="row-meta"><span>today</span><span>Home</span></div></div><span class="plabel p3">P3</span></div>
+      <div class="row"><span class="spine p3"></span><div class="row-main"><div class="row-title">Buy oat milk</div><div class="row-meta"><span>today</span><span>@errand</span></div></div><span class="plabel p3">P3</span></div>
+      <div class="row"><span class="spine"></span><div class="row-main"><div class="row-title">Sort photos from the trip</div><div class="row-meta"><span>today</span><span>Personal</span></div></div><span class="plabel">P4</span></div>
+    </div>
+    <div class="rule-copy">
+      <p><strong>Four levels, always spelled out.</strong> The ring is tinted, but <code>P1</code>…<code>P4</code> is written next to it and read aloud as “P2 · High”. Colour never carries meaning alone.</p>
+      <p><strong>Triage walks the backlog one card at a time</strong>, so setting importance is a single pass rather than a chore per task.</p>
+      <p><strong>Recurrence understands both kinds of rule.</strong> “Every 2 weeks on Thursday” is a calendar; “3 days after done” counts from completion. A task ticked off late catches up to the next occurrence that is not already behind you, so a daily task done a month late is due today, not thirty times.</p>
+      <p><strong>Completing keeps the finished row in place</strong> for the rest of the day and inserts the next one. Reopening takes both back.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="features">
+  <div class="section-head">
+    <span class="eyebrow">What is in it</span>
+    <h2>A whole system, on your device</h2>
+  </div>
+  <div class="features">
+    <div class="feature"><h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/></svg>Today, Upcoming, Inbox</h3><p>Overdue pinned on top of Today. A week strip plus an agenda for Upcoming. Anything captured without a project waits in the Inbox.</p></div>
+    <div class="feature"><h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Projects and tags</h3><p>A task lives in one project and wears any number of tags. Projects nest one level; tags gather work from everywhere. <code>@errand</code> in quick add creates one that does not exist yet.</p></div>
+    <div class="feature"><h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Subtasks and notes</h3><p>A checklist under any task, one level deep. A parent finished finishes its steps; a recurring parent hands its checklist to the next occurrence, unticked.</p></div>
+    <div class="feature"><h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.5 12.5 21a5 5 0 0 1-7-7L14 5.5a3 3 0 0 1 4.5 4.5L10 18.5a1.5 1.5 0 0 1-2-2L16 8.5"/></svg>Attachments</h3><p>Files and links on a task, stored content-addressed so the same invoice twice costs one copy. A missing file is a state the app shows, not an error.</p></div>
+    <div class="feature"><h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>Reminders</h3><p>Exact alarms on Android that survive Doze, several lead times per task. A tray notification on the desktop.</p></div>
+    <div class="feature"><h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>Home-screen widgets</h3><p>The Today list and a next-task card, on Android. Ticking a row from the widget writes the same way the app does.</p></div>
+    <div class="feature"><h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v16H4z"/><path d="M4 9h16M9 9v11"/></svg>Backup and import</h3><p>A versioned JSON file you can read. Importing merges instead of replacing. A converter turns a Todoist export into one.</p></div>
+    <div class="feature"><h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>English and German</h3><p>The whole interface and the quick-add grammar. <code>morgen 18 Uhr</code> and <code>alle drei Tage</code> parse like their English twins. Android 13+ lets you pick a language just for Cadence.</p></div>
+    <div class="feature"><h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Accessible by design</h3><p>Touch targets of 44dp and up, 200% font scaling that still fits, two row densities, light and dark themes.</p></div>
+  </div>
+</section>
+
+<section class="section" id="desktop">
+  <div class="section-head">
+    <span class="eyebrow">Desktop</span>
+    <h2>A real desktop app, not a phone app in a window</h2>
+    <p>The same code runs on Ubuntu, macOS and Windows, but the desktop is pointer- and keyboard-first: drag a task onto a project or a tag, right-click any row, keep two panes open on a wide window, reach anything from the command palette.</p>
+  </div>
+  <div class="window" role="img" aria-label="The desktop layout: a sidebar with views, projects and tags; the Today list; and a detail pane for the selected task">
+    <div class="win-side">
+      <div class="it on"><span>Today</span><span>5</span></div>
+      <div class="it"><span>Upcoming</span></div>
+      <div class="it"><span>Inbox</span><span>2</span></div>
+      <div class="grp">Projects</div>
+      <div class="it"><span>Work</span><span>8</span></div>
+      <div class="it sub"><span>Reports</span><span>3</span></div>
+      <div class="it"><span>Home</span><span>4</span></div>
+      <div class="it"><span>Health</span><span>1</span></div>
+      <div class="grp">Tags</div>
+      <div class="it"><span>@errand</span></div>
+      <div class="it"><span>@waiting</span></div>
+    </div>
+    <div class="win-main">
+      <div class="ttl">Today</div>
+      <div class="row"><span class="spine p1"></span><div class="row-main"><div class="row-title">Send the quarterly invoice</div><div class="row-meta"><span>today</span><span>Work</span></div></div><span class="plabel p1">P1</span></div>
+      <div class="row sel"><span class="spine p2"></span><div class="row-main"><div class="row-title">Book dentist</div><div class="row-meta"><span>today · 17:00</span><span>Health</span></div></div><span class="plabel p2">P2</span></div>
+      <div class="row"><span class="spine p3"></span><div class="row-main"><div class="row-title">Water the plants</div><div class="row-meta"><span>every 3 days after done</span><span>Home</span></div></div><span class="plabel p3">P3</span></div>
+      <div class="row"><span class="spine p3"></span><div class="row-main"><div class="row-title">Buy oat milk</div><div class="row-meta"><span>@errand</span></div></div><span class="plabel p3">P3</span></div>
+    </div>
+    <div class="win-detail">
+      <div class="dt">Book dentist</div>
+      <div class="seg"><span>P1</span><span class="on">P2</span><span>P3</span><span>P4</span></div>
+      <div class="kv"><span>Due</span><b>Today, 17:00</b></div>
+      <div class="kv"><span>Remind</span><b>30 min before</b></div>
+      <div class="kv"><span>Project</span><b>Health</b></div>
+      <div class="kv"><span>Repeat</span><b>Every 6 months</b></div>
+      <div class="note">Ask about the left molar. Bring the insurance card.</div>
+    </div>
+  </div>
+  <div class="keys">
+    <span><kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>K</kbd> command palette</span>
+    <span><kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>N</kbd> quick add</span>
+    <span><kbd>Alt</kbd> <kbd>←</kbd> <kbd>→</kbd> back and forward</span>
+    <span><kbd>Shift</kbd> <kbd>?</kbd> every shortcut</span>
+  </div>
+</section>
+
+<section class="section" id="data">
+  <div class="section-head">
+    <span class="eyebrow">Your data</span>
+    <h2>Local first. Sync is yours to run.</h2>
+  </div>
+  <div class="two">
+    <div>
+      <h3>On the device</h3>
+      <p class="muted">One SQLite database per device, and it is the source of truth. No account is needed to use any of it, and nothing leaves the device until you sign in. No analytics, no telemetry, no crash reporting. Delete everything from the settings, with an undo.</p>
+    </div>
+    <div>
+      <h3>Between your devices</h3>
+      <p class="muted">Sign in and your devices merge through a Postgres database you host on <a href="https://neon.tech">Neon</a> — a free project is enough. Each device pushes what it wrote and pulls what the others wrote; deletes travel as tombstones; row-level security keeps every account to its own rows. There is no Cadence server, and the published builds accept no sign-ups: you point a build at your project by following <a href="https://github.com/viberfasend/cadence/blob/main/docs/self-hosting.md">the self-hosting guide</a>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="download">
+  <div class="section-head">
+    <span class="eyebrow">Get Cadence</span>
+    <h2>Download</h2>
+    <p id="release-line">Every release ships the Android APKs and the Linux packages. macOS and Windows installers are built on request.</p>
+  </div>
+  <div class="dl">
+    <div class="dl-card lift">
+      <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></svg>Android</h3>
+      <p>Open the link on the phone and install. Android asks you to allow installs from this source, which is expected outside a store. Tap it again later to update in place.</p>
+      <a class="btn btn-primary" href="https://github.com/viberfasend/cadence/releases/latest/download/cadence-release.apk">cadence-release.apk</a>
+    </div>
+    <div class="dl-card">
+      <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Linux</h3>
+      <ul>
+        <li><code>.deb</code> for Debian and Ubuntu</li>
+        <li><code>.rpm</code> and a tarball on request</li>
+      </ul>
+      <a class="btn btn-ghost" href="https://github.com/viberfasend/cadence/releases/latest">Latest release</a>
+    </div>
+    <div class="dl-card">
+      <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z"/><path d="M8 12h8M12 8v8"/></svg>macOS and Windows</h3>
+      <ul>
+        <li><code>.dmg</code> and <code>.msi</code> when a release includes them</li>
+        <li>Or build from source with a JDK 17 in a few minutes</li>
+      </ul>
+      <a class="btn btn-ghost" href="https://github.com/viberfasend/cadence#building-from-source">Build it yourself</a>
+    </div>
+  </div>
+  <p class="callout"><b>Updating from a build before 3.0?</b> The release APK is signed with a new key, so Android refuses to install it over the old one. Export a backup in Settings, uninstall once, install, import. Every build since shares one key.</p>
+</section>
+
+<footer class="foot">
+  <span>Cadence is free software under the <a href="https://github.com/viberfasend/cadence/blob/main/LICENSE">GPL-3.0-or-later</a>. Kotlin, Compose Multiplatform, SQLDelight.</span>
+  <span>Made by <a href="https://andi1984.dev">Andreas Sander</a> at <a href="https://github.com/viberfasend">viberfasend</a> · <a href="https://github.com/viberfasend/cadence/issues">Issues</a> · <a href="https://github.com/viberfasend/cadence/blob/main/SECURITY.md">Security</a></span>
+</footer>
+
+</div>
+
+<script>
+(function(){
+  // The hero demo: quick-add lines type themselves, tokens become chips as the parser would see
+  // them, and the finished task lands in a Today list at its sorted position — importance
+  // first, due date breaks ties. Wording and token kinds mirror QuickAddParser's.
+  var qa = document.getElementById('qa');
+  var today = document.getElementById('today');
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Each line: the words the user types, and for each word the token kind it turns into
+  // ('' keeps it as title text). Result: the row the list gains.
+  var LINES = [
+    { words:[['Pay rent',''],['every 1st','rule'],['!p2','prio'],['#Home','proj'],['@bills','tag']],
+      row:{title:'Pay rent', p:2, when:'1 Oct', meta:['every 1st','Home','@bills'], key:3} },
+    { words:[['Call the dentist',''],['tomorrow','date'],['at 17:00','date'],['!p1','prio']],
+      row:{title:'Call the dentist', p:1, when:'tomorrow · 17:00', meta:['tomorrow · 17:00'], key:1} },
+    { words:[['Water the plants',''],['3 days after done','rule'],['#Home','proj']],
+      row:{title:'Water the plants', p:3, when:'today', meta:['3 days after done','Home'], key:5} },
+    { words:[['Steuer',''],['24.12.','date'],['!p1','prio'],['@papierkram','tag']],
+      row:{title:'Steuer', p:1, when:'24 Dec', meta:['24 Dec','@papierkram'], key:2} },
+    { words:[['Recycling',''],['every 2 weeks on thu','rule'],['!p3','prio']],
+      row:{title:'Recycling', p:3, when:'Thu', meta:['every 2 weeks on Thu'], key:4} }
+  ];
+  var CHIP = { date:'📅 ', prio:'', proj:'#', tag:'@', rule:'↻ ' };
+  var LABEL = { prio:function(w){return w.slice(1).toUpperCase();}, proj:function(w){return w.slice(1);},
+                tag:function(w){return w.slice(1);}, date:function(w){return w;}, rule:function(w){return w;} };
+
+  // The seed list: two rows already there, so the sort has something to interleave with.
+  var rows = [
+    {title:'Send the quarterly invoice', p:1, meta:['today','Work'], key:0},
+    {title:'Buy oat milk', p:3, meta:['today','@errand'], key:6}
+  ];
+
+  function el(tag, cls, text){ var e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
+
+  function renderList(newKey){
+    today.innerHTML='';
+    today.appendChild(el('div','today-label','Today'));
+    rows.sort(function(a,b){ return a.p-b.p || a.key-b.key; });
+    rows.forEach(function(r){
+      var row = el('div','row'+(r.key===newKey?' new':''));
+      var spine = el('span','spine'+(r.p<4?' p'+r.p:'')); row.appendChild(spine);
+      var main = el('div','row-main'); main.appendChild(el('div','row-title',r.title));
+      var meta = el('div','row-meta'); r.meta.forEach(function(m){ meta.appendChild(el('span',null,m)); }); main.appendChild(meta);
+      row.appendChild(main);
+      row.appendChild(el('span','plabel'+(r.p<4?' p'+r.p:''),'P'+r.p));
+      today.appendChild(row);
+    });
+  }
+
+  function chipFor(word, kind){
+    var c = el('span','chip '+kind, CHIP[kind] + LABEL[kind](word));
+    return c;
+  }
+
+  function showLineStatic(line){
+    qa.innerHTML='';
+    line.words.forEach(function(w){
+      if (w[1]) qa.appendChild(chipFor(w[0], w[1])); else qa.appendChild(el('span','word', w[0]+' '));
+    });
+  }
+
+  function typeLine(line, done){
+    qa.innerHTML='';
+    var caret = el('span','caret'); qa.appendChild(caret);
+    var wi = 0;
+    function nextWord(){
+      if (wi >= line.words.length) return setTimeout(done, 900);
+      var w = line.words[wi], kind = w[1], text = w[0], ci = 0;
+      var span = el('span','word',''); qa.insertBefore(span, caret);
+      (function tick(){
+        if (ci < text.length){ span.textContent += text[ci++]; return setTimeout(tick, 42 + Math.random()*40); }
+        if (kind){ setTimeout(function(){ qa.replaceChild(chipFor(text, kind), span); wi++; setTimeout(nextWord, 220); }, 160); }
+        else { span.textContent += ' '; wi++; setTimeout(nextWord, 120); }
+      })();
+    }
+    nextWord();
+  }
+
+  function addRow(line){
+    if (rows.length >= 6) rows.pop();          // keep the demo list short
+    var r = line.row; rows.push({title:r.title, p:r.p, meta:r.meta, key:r.key});
+    renderList(r.key);
+  }
+
+  renderList(-1);
+
+  if (reduce){
+    // No motion: show the first line parsed, and its row in place.
+    showLineStatic(LINES[0]); addRow(LINES[0]);
+    return;
+  }
+
+  var i = 0;
+  (function loop(){
+    var line = LINES[i % LINES.length];
+    typeLine(line, function(){
+      addRow(line);
+      setTimeout(function(){ i++; loop(); }, 2200);
+    });
+  })();
+
+  // Latest version from GitHub, when reachable. Failing silently is fine: the copy stands alone.
+  fetch('https://api.github.com/repos/viberfasend/cadence/releases/latest', {headers:{Accept:'application/vnd.github+json'}})
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      if (!j || !j.tag_name) return;
+      var v = j.tag_name.replace(/^v/,'');
+      var l = document.getElementById('release-line');
+      l.textContent = 'Latest release: ' + v + '. ' + l.textContent;
+    }).catch(function(){});
+})();
+</script>
+</body>
+</html>
