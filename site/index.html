@@ -111,15 +111,38 @@ p{max-width:62ch}
 }
 .muted{color:var(--ink-2)}
 .small{font-size:.92rem}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.skip{
+  position:absolute;left:16px;top:-60px;z-index:20;padding:10px 14px;border-radius:10px;
+  background:var(--teal);color:var(--teal-tint);font-weight:600;text-decoration:none;transition:top .12s;
+}
+.skip:focus{top:12px}
 
 /* ── Nav ──────────────────────────────────────────────────────────────────────────────── */
-.nav{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:22px}
-.brand{display:inline-flex;align-items:center;gap:10px;font-family:var(--font-display);font-weight:700;font-size:1.2rem;color:var(--ink);text-decoration:none}
+.nav{position:relative;display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:14px}
+.brand{display:inline-flex;align-items:center;gap:10px;min-height:44px;font-family:var(--font-display);font-weight:700;font-size:1.2rem;color:var(--ink);text-decoration:none}
 .brand-mark{width:28px;height:28px;border-radius:8px;background:var(--teal);display:grid;place-items:center;flex:none}
 .brand-mark svg{width:18px;height:18px}
-.nav-links{display:flex;gap:22px;flex-wrap:wrap;font-size:.95rem}
-.nav-links a{color:var(--ink-2);text-decoration:none}
-.nav-links a:hover{color:var(--ink);text-decoration:underline}
+.nav-links{display:flex;gap:4px;flex-wrap:wrap;font-size:.95rem;list-style:none}
+.nav-links a{display:inline-flex;align-items:center;min-height:44px;padding:0 10px;border-radius:10px;color:var(--ink-2);text-decoration:none}
+.nav-links a:hover{color:var(--ink);background:var(--surface-2)}
+/* The menu button exists only below the width where the links stop fitting on one line. */
+.nav-toggle{
+  display:none;align-items:center;gap:8px;min-height:44px;padding:0 14px;border-radius:10px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-weight:600;cursor:pointer;
+}
+.nav-toggle svg{width:20px;height:20px}
+.nav-toggle .ic-close,.nav-toggle[aria-expanded="true"] .ic-open{display:none}
+.nav-toggle[aria-expanded="true"] .ic-close{display:block}
+@media (max-width:700px){
+  .nav-toggle{display:inline-flex}
+  .nav-links{
+    display:none;position:absolute;left:0;right:0;top:100%;z-index:10;flex-direction:column;gap:2px;
+    padding:8px;background:var(--surface);border:1px solid var(--line-soft);border-radius:16px;box-shadow:var(--shadow);
+  }
+  .nav-links[data-open]{display:flex}
+  .nav-links a{min-height:48px;padding:0 14px;font-size:1.05rem;color:var(--ink)}
+}
 
 /* ── Hero ─────────────────────────────────────────────────────────────────────────────── */
 .hero{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:48px;align-items:center;padding-block:40px 72px}
@@ -140,6 +163,10 @@ p{max-width:62ch}
 .btn svg{width:18px;height:18px;flex:none}
 .hero-meta{font-size:.9rem;color:var(--ink-3)}
 .hero-meta code{font-size:.85em}
+@media (max-width:560px){
+  .cta-row .btn{flex:1 1 auto;justify-content:center;white-space:nowrap}
+  .cta-row .btn-primary{flex-basis:100%}
+}
 
 /* The demo: quick add typing itself, tokens becoming chips, the task landing sorted. */
 .demo{
@@ -168,7 +195,7 @@ p{max-width:62ch}
 .chip.proj{background:var(--tok-proj);color:var(--tok-proj-ink)}
 .chip.tag{background:var(--tok-tag);color:var(--tok-tag-ink)}
 .chip.rule{background:var(--tok-rule);color:var(--tok-rule-ink)}
-.qa-hint{font-size:.8rem;color:var(--ink-3);display:flex;justify-content:space-between;gap:12px}
+.qa-hint{font-size:.8rem;color:var(--ink-3);display:flex;justify-content:space-between;gap:4px 12px;flex-wrap:wrap}
 .qa-hint b{font-weight:600;color:var(--ink-2)}
 
 .today{display:flex;flex-direction:column;gap:6px}
@@ -204,7 +231,9 @@ p{max-width:62ch}
 .rule-copy p{font-size:1.02rem}
 .rule-copy strong{font-weight:600}
 
-.features{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 36px}
+/* auto-fill rather than a fixed count: three columns on a desktop, three tight ones on a tablet,
+   one on a phone, and never a lone item stretched across an empty row. */
+.features{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px 32px}
 .feature{padding-block:18px;border-top:1px solid var(--line-soft);display:flex;flex-direction:column;gap:8px}
 .feature h3{display:flex;align-items:center;gap:10px}
 .feature h3 svg{width:20px;height:20px;color:var(--teal);flex:none}
@@ -218,7 +247,7 @@ p{max-width:62ch}
 .win-side{background:var(--surface-2);border-right:1px solid var(--line-soft);padding:14px 10px;display:flex;flex-direction:column;gap:2px}
 .win-side .it{padding:6px 10px;border-radius:8px;color:var(--ink-2);display:flex;justify-content:space-between;gap:8px}
 .win-side .it.on{background:var(--teal-soft);color:var(--teal-ink);font-weight:600}
-.win-side .grp{font-family:var(--font-mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:12px 10px 4px}
+.win-side .grp{font-family:var(--font-mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:12px 10px 4px}
 .win-side .sub{padding-left:22px}
 .win-main{padding:14px 12px;display:flex;flex-direction:column;gap:6px}
 .win-main .ttl{font-family:var(--font-display);font-weight:700;font-size:1rem;padding:2px 4px 8px}
@@ -241,7 +270,7 @@ kbd{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-bot
 .two ul{padding-left:1.1em;color:var(--ink-2);display:flex;flex-direction:column;gap:6px}
 
 /* Downloads */
-.dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.dl{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
 .dl-card{background:var(--surface);border:1px solid var(--line-soft);border-radius:18px;padding:22px;display:flex;flex-direction:column;gap:12px}
 .dl-card.lift{box-shadow:var(--shadow);border-color:var(--teal-soft)}
 .dl-card h3{display:flex;align-items:center;gap:10px}
@@ -257,23 +286,24 @@ kbd{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-bot
 
 /* Footer */
 .foot{border-top:1px solid var(--line-soft);padding-block:36px 48px;display:flex;flex-wrap:wrap;gap:12px 32px;justify-content:space-between;align-items:center;font-size:.92rem;color:var(--ink-2)}
-.foot a{color:var(--ink-2)}
+.foot a{color:var(--ink-2);display:inline-block;padding-block:6px}
 
 /* ── Responsive ───────────────────────────────────────────────────────────────────────── */
 @media (max-width:900px){
   .hero{grid-template-columns:1fr;gap:36px;padding-block:24px 56px}
   .rule-grid,.two{grid-template-columns:1fr;gap:28px}
-  .features{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .dl{grid-template-columns:1fr}
   .window{grid-template-columns:150px minmax(0,1fr)}
   .win-detail{display:none}
 }
 @media (max-width:560px){
-  body{font-size:16px}
-  .features{grid-template-columns:1fr}
+  body{font-size:16px;padding-inline:16px}
+  .section{padding-block:48px}
+  .section-head{margin-bottom:26px}
+  .demo{padding:14px;border-radius:16px}
+  .rule-list{padding:10px}
   .window{grid-template-columns:1fr}
   .win-side{display:none}
-  .nav-links{gap:14px;font-size:.9rem}
+  .keys{gap:8px 14px;font-size:.88rem}
 }
 @media (prefers-reduced-motion: reduce){
   html{scroll-behavior:auto}
@@ -284,6 +314,7 @@ kbd{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-bot
 </style>
 </head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
 <div class="wrap">
 
 <nav class="nav" aria-label="Site">
@@ -291,16 +322,22 @@ kbd{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-bot
     <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="#9FF2E4"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg></span>
     Cadence
   </a>
-  <div class="nav-links">
-    <a href="#rule">The rule</a>
-    <a href="#features">Features</a>
-    <a href="#desktop">Desktop</a>
-    <a href="#data">Your data</a>
-    <a href="#download">Download</a>
-    <a href="https://github.com/viberfasend/cadence">GitHub</a>
-  </div>
+  <button class="nav-toggle" type="button" id="nav-toggle" aria-expanded="false" aria-controls="site-menu">
+    <svg class="ic-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    <svg class="ic-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    Menu
+  </button>
+  <ul class="nav-links" id="site-menu">
+    <li><a href="#rule">The rule</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#desktop">Desktop</a></li>
+    <li><a href="#data">Your data</a></li>
+    <li><a href="#download">Download</a></li>
+    <li><a href="https://github.com/viberfasend/cadence">GitHub</a></li>
+  </ul>
 </nav>
 
+<main id="main">
 <header class="hero" id="top">
   <div class="hero-copy">
     <span class="eyebrow">Local-first todo · Android + desktop</span>
@@ -317,11 +354,14 @@ kbd{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-bot
     <p class="hero-meta" id="version-line">Free software, GPL-3.0-or-later. Android 8.0+, Linux, macOS, Windows.</p>
   </div>
 
-  <div class="demo" aria-label="Quick add demo">
-    <div class="demo-head"><strong>Quick add</strong><span>one line, parsed as you type</span></div>
-    <div class="qa" id="qa" aria-live="polite"></div>
-    <div class="qa-hint"><span id="qa-hint-l"><b>!p1</b>–<b>!p4</b> · <b>#project</b> · <b>@tag</b> · dates · times · recurrence</span><span>English + German</span></div>
-    <div class="today" id="today" aria-label="Today, sorted"></div>
+  <div class="demo" role="figure" aria-labelledby="demo-title" aria-describedby="demo-desc">
+    <div class="demo-head"><strong id="demo-title">Quick add</strong><span>one line, parsed as you type</span></div>
+    <!-- The animation is decorative for assistive tech: a self-typing field under aria-live would be
+         read one character at a time, forever. The paragraph below says what it shows, once. -->
+    <p class="sr-only" id="demo-desc">Example: typing “Pay rent every 1st !p2 #Home @bills” turns each token into a chip — a monthly rule, priority P2, the Home project, the bills tag — and the task lands in the Today list above the P3 tasks and below the P1 one.</p>
+    <div class="qa" id="qa" aria-hidden="true"></div>
+    <div class="qa-hint" aria-hidden="true"><span><b>!p1</b>–<b>!p4</b> · <b>#project</b> · <b>@tag</b> · dates · times · recurrence</span><span>English + German</span></div>
+    <div class="today" id="today" aria-hidden="true"></div>
   </div>
 </header>
 
@@ -463,6 +503,8 @@ kbd{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-bot
   <p class="callout"><b>Updating from a build before 3.0?</b> The release APK is signed with a new key, so Android refuses to install it over the old one. Export a backup in Settings, uninstall once, install, import. Every build since shares one key.</p>
 </section>
 
+</main>
+
 <footer class="foot">
   <span>Cadence is free software under the <a href="https://github.com/viberfasend/cadence/blob/main/LICENSE">GPL-3.0-or-later</a>. Kotlin, Compose Multiplatform, SQLDelight.</span>
   <span>Made by <a href="https://andi1984.dev">Andreas Sander</a> at <a href="https://github.com/viberfasend">viberfasend</a> · <a href="https://github.com/viberfasend/cadence/issues">Issues</a> · <a href="https://github.com/viberfasend/cadence/blob/main/SECURITY.md">Security</a></span>
@@ -471,6 +513,24 @@ kbd{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-bot
 </div>
 
 <script>
+(function(){
+  // The phone menu: a real button with aria-expanded, closed by Escape, by choosing a link, or
+  // by tapping outside. Above 700px the links are always visible and the button is not drawn.
+  var toggle = document.getElementById('nav-toggle');
+  var menu = document.getElementById('site-menu');
+  function setOpen(open){
+    toggle.setAttribute('aria-expanded', String(open));
+    if (open) menu.setAttribute('data-open', ''); else menu.removeAttribute('data-open');
+  }
+  toggle.addEventListener('click', function(){ setOpen(toggle.getAttribute('aria-expanded') !== 'true'); });
+  menu.addEventListener('click', function(e){ if (e.target.closest('a')) setOpen(false); });
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && toggle.getAttribute('aria-expanded') === 'true'){ setOpen(false); toggle.focus(); }
+  });
+  document.addEventListener('click', function(e){
+    if (!e.target.closest('.nav') && toggle.getAttribute('aria-expanded') === 'true') setOpen(false);
+  });
+})();
 (function(){
   // The hero demo: quick-add lines type themselves, tokens become chips as the parser would see
   // them, and the finished task lands in a Today list at its sorted position — importance
