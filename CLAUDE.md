@@ -1080,13 +1080,13 @@ behind `.gitignore` or let the debug `signingConfig` fall back to AGP's default.
 `.github/scripts/check-signing.sh` runs in CI and fails the build if the debug APK's certificate
 stops matching the committed keystore.
 
-**The release APK is signed with a real key since 2.0, and the README's permanent link points
+**The release APK is signed with a real key since 3.0, and the README's permanent link points
 at it.** The four `CADENCE_KEYSTORE_BASE64` / `CADENCE_KEYSTORE_PASSWORD` / `CADENCE_KEY_ALIAS` /
 `CADENCE_KEY_PASSWORD` secrets carry it into `android.yml` and `release.yml`; the keystore itself
 lives outside every checkout (`~/.cadence-release/` by default) and `tools/release-signing-wizard.sh`
 is how it was minted and how the secrets are (re)set — re-running it reuses the file and never
 overwrites a key. Losing that file means every install has to be uninstalled once, the way the
-pre-2.0 debug-signed installs had to be. Without the secrets the release build still falls back
+pre-3.0 debug-signed installs had to be. Without the secrets the release build still falls back
 to the debug key so `assembleRelease` works on any laptop, but `check-signing.sh` now *fails*
 when `CADENCE_KEYSTORE` is set and the release APK nevertheless carries the debug certificate —
 a release cut that way could not update anyone. The debug APK stays debug-signed and public by
