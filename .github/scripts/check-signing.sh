@@ -45,7 +45,7 @@ for apk in "$@"; do
         if [[ "$apk" != *debug* && -n "${CADENCE_KEYSTORE:-}" ]]; then
             # The release key was configured and the build still used the debug key: a
             # release cut like this could not update a release-signed install (the published
-            # APK has been release-signed since 2.0), which is exactly the silent failure
+            # APK has been release-signed since 3.0), which is exactly the silent failure
             # this script exists to catch. Usually the signingConfig fell back because one of
             # the CADENCE_KEY* variables was empty.
             echo "  ✗ $(basename "$apk") — $actual"
