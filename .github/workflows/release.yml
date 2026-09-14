@@ -129,9 +129,11 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # Optional: set the CADENCE_KEYSTORE_BASE64 secret to sign the release APK with your own
-      # key. Without it the release build falls back to the committed debug key and is still
-      # installable — see the comment block in app-android/build.gradle.kts.
+      # The release APK is signed with the key in the CADENCE_KEYSTORE_BASE64 secret (set by
+      # tools/release-signing-wizard.sh). Without it the release build falls back to the
+      # committed debug key — see the comment block in app-android/build.gradle.kts — and a
+      # release cut that way could not update a release-signed install, so build.sh's signing
+      # check fails when the secret is set and the key was not used.
       - name: Decode release keystore
         if: env.KEYSTORE_BASE64 != ''
         run: |
@@ -148,6 +150,10 @@ jobs:
           CADENCE_KEY_PASSWORD: ${{ secrets.CADENCE_KEY_PASSWORD }}
           CADENCE_VERSION_NAME: ${{ needs.preflight.outputs.version }}
           CADENCE_VERSION_CODE: ${{ needs.preflight.outputs.version_code }}
+          # The sync endpoints are compiled in at build time (NeonConfig.fromBuild); a build
+          # without them offers no sync. Set with tools/release-signing-wizard.sh.
+          CADENCE_NEON_DATA_API_URL: ${{ secrets.CADENCE_NEON_DATA_API_URL }}
+          CADENCE_NEON_AUTH_URL: ${{ secrets.CADENCE_NEON_AUTH_URL }}
         run: bash .github/scripts/build.sh apk
 
       - name: Upload the APKs
@@ -214,6 +220,9 @@ jobs:
       - name: Test and package for this OS
         env:
           CADENCE_VERSION_NAME: ${{ needs.preflight.outputs.version }}
+          # Same two endpoints as the Android job: the desktop app is built from the same :core.
+          CADENCE_NEON_DATA_API_URL: ${{ secrets.CADENCE_NEON_DATA_API_URL }}
+          CADENCE_NEON_AUTH_URL: ${{ secrets.CADENCE_NEON_AUTH_URL }}
           # Naming `deb` outright rather than `desktop` is what makes a missing fakeroot fail the
           # run: build.sh only demotes a format to a warning when an alias implied it, and a
           # release that quietly ships without the .deb is the failure this job exists to catch.

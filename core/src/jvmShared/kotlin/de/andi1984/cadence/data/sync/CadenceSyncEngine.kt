@@ -33,6 +33,13 @@ import java.time.temporal.ChronoUnit
 /** Where sync stands, as the Settings screen needs to show it. */
 sealed interface SyncStatus {
 
+    /**
+     * This build carries no sync endpoint at all ([NeonConfig.fromBuild] is `null`), so there is
+     * nothing to sign in to. Settings say so and offer no form; every other surface treats it
+     * exactly like [SignedOut]. The engine never leaves this state.
+     */
+    data object Unconfigured : SyncStatus
+
     /** No account on this device. Everything else in the app works exactly as before. */
     data object SignedOut : SyncStatus
 
@@ -97,21 +104,34 @@ class CadenceSyncEngine(
     private val store: SyncStore,
     private val scope: CoroutineScope,
     httpClient: HttpClient? = null,
-    dataApiUrl: String = NeonConfig.dataApiUrl,
-    authUrl: String = NeonConfig.authUrl,
+    /**
+     * Where to sync, or `null` for a build made without endpoints (see [NeonConfig]). Null
+     * makes this engine inert: [status] is [SyncStatus.Unconfigured] for the life of the
+     * process, [signIn] refuses, every round returns [SyncOutcome.SignedOut] before making a
+     * request, and a session the store may still hold from a configured build is ignored
+     * rather than replayed against nothing.
+     */
+    config: NeonConfig? = NeonConfig.fromBuild,
 ) {
+
+    private val configured = config != null
 
     private val http: HttpClient = httpClient ?: defaultHttpClient()
 
-    private val authClient = NeonAuthClient(http, authUrl)
+    // Unconfigured, the two clients are built against a reserved name that resolves nowhere
+    // (RFC 2606) rather than left null: every public entry point above them returns before a
+    // request could be made, and a non-null field keeps that gating out of pull/push/sweep.
+    private val authClient = NeonAuthClient(http, config?.authUrl ?: UNCONFIGURED_URL)
 
-    private val postgrest = PostgrestHttp(http, dataApiUrl)
+    private val postgrest = PostgrestHttp(http, config?.dataApiUrl ?: UNCONFIGURED_URL)
 
     private val tokens = SessionTokens(store, authClient)
 
     private val mutex = Mutex()
 
-    private val _status = MutableStateFlow<SyncStatus>(SyncStatus.SignedOut)
+    private val _status = MutableStateFlow<SyncStatus>(
+        if (configured) SyncStatus.SignedOut else SyncStatus.Unconfigured,
+    )
 
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
 
@@ -137,7 +157,7 @@ class CadenceSyncEngine(
         // Seed the signed-in/out half of the status from the store — there is no auth library
         // loading sessions under us any more, so the stored session *is* the answer. Everything
         // after this beat is moved by signIn/signOut/syncOnce themselves.
-        scope.launch {
+        if (configured) scope.launch {
             val session = tokens.current()
             if (_status.value is SyncStatus.SignedOut && session != null) {
                 _status.value = SyncStatus.Idle(session.email, store.state().lastSyncedAt)
@@ -151,6 +171,7 @@ class CadenceSyncEngine(
      * registration form would only ever produce an error.
      */
     suspend fun signIn(email: String, password: String): SignInResult = try {
+        if (!configured) return SignInResult.Failed("This build has no sync endpoint configured.")
         val trimmed = email.trim()
         // Two requests, deliberately: sign-in yields the long-lived session cookie, and the Data
         // API wants a JWT, which only `GET /token` mints. Doing the mint here means a session is
@@ -223,7 +244,7 @@ class CadenceSyncEngine(
      * it right away could still read `SignedOut` for a beat; background work gates on this
      * instead.
      */
-    suspend fun isSignedIn(): Boolean = tokens.current() != null
+    suspend fun isSignedIn(): Boolean = configured && tokens.current() != null
 
     // ── Foreground poll ────────────────────────────────────────────────────────────
 
@@ -260,6 +281,7 @@ class CadenceSyncEngine(
     }
 
     suspend fun syncOnce(): SyncOutcome = mutex.withLock {
+        if (!configured) return SyncOutcome.SignedOut
         val session = tokens.current() ?: return SyncOutcome.SignedOut
         val email = session.email
         _status.value = SyncStatus.Syncing(email)
@@ -498,6 +520,9 @@ class CadenceSyncEngine(
         /** What stands where realtime's ~1s delivery stood: the other device sees a change within
          *  about a minute while both apps are in the foreground. */
         val FOREGROUND_POLL_INTERVAL: Duration = Duration.ofSeconds(60)
+
+        /** `.invalid` is reserved never to resolve (RFC 2606); see the constructor's `config`. */
+        private const val UNCONFIGURED_URL = "https://unconfigured.invalid"
 
         /** The horizon ADR 0001 chose and ADR 0002 kept. A device offline longer than this
          *  re-inserts what the others deleted; that is an accepted loss, not a solved problem. */

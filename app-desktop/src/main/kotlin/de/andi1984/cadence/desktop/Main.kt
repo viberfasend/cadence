@@ -16,7 +16,7 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import de.andi1984.cadence.data.db.CADENCE_DATABASE_FILE_NAME
-import de.andi1984.cadence.data.sync.SyncStatus
+import de.andi1984.cadence.ui.components.hasAccount
 import de.andi1984.cadence.desktop.data.DesktopWorkspaceStore
 import de.andi1984.cadence.desktop.platform.PlatformDirs
 import de.andi1984.cadence.desktop.ui.CadenceDesktopApp
@@ -153,7 +153,7 @@ fun main() = application {
                 // Signed out there is nothing to refresh, and the shortcut does nothing rather
                 // than pretending: the same rule the header's button follows.
                 ShortcutAction.SyncNow -> {
-                    if (state.sync.status !is SyncStatus.SignedOut) viewModel.syncNow()
+                    if (state.sync.status.hasAccount) viewModel.syncNow()
                     true
                 }
 

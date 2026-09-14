@@ -425,9 +425,10 @@ private fun DangerZone(state: CadenceUiState, onWipe: () -> Unit) {
  * Sign in, sync now, sign out — and, since phase 3, the place that says in words what the
  * header's indicator only tints.
  *
- * There is a form and no "create account" link because there is exactly one account and sign-ups
- * are disabled server-side (ADR 0002, decision 2): a registration form here could only ever
- * produce an error. Sync itself no longer waits to be asked — it runs on start, on foreground,
+ * There is a form and no "create account" link because accounts are created by whoever runs
+ * the Neon project, never in the app (ADR 0002, decision 2): a registration form here could only
+ * ever produce an error. A build compiled without endpoints shows no form either — see
+ * `SyncStatus.Unconfigured` and docs/self-hosting.md. Sync itself no longer waits to be asked — it runs on start, on foreground,
  * two seconds after a write, on the way out and on a desktop timer (decision 11) — but **Sync
  * now** stays for the case where someone came looking for it.
  */
@@ -440,12 +441,18 @@ private fun SyncSection(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
-            text = stringResource(Res.string.settings_sync_supporting),
+            text = stringResource(
+                if (sync.status is SyncStatus.Unconfigured) Res.string.settings_sync_unconfigured
+                else Res.string.settings_sync_supporting,
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         when (val status = sync.status) {
+            // A build without endpoints (NeonConfig.fromBuild == null): the paragraph above
+            // already says so and where to look, and a form would only ever produce an error.
+            is SyncStatus.Unconfigured -> Unit
             is SyncStatus.SignedOut -> SignInForm(sync = sync, onSignIn = onSignIn)
             is SyncStatus.Syncing -> SignedIn(
                 email = status.email,

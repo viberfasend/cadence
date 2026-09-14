@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Asserts that the debug APK was signed with the debug key committed to the repository.
+# Asserts that the debug APK was signed with the debug key committed to the repository — and,
+# when CADENCE_KEYSTORE names a release key, that the release APK was *not*.
 #
 # An APK only installs over an already-installed app when both carry the same signing
 # certificate; otherwise the installer refuses with "App not installed". The key therefore has
@@ -41,7 +42,19 @@ for apk in "$@"; do
         grep -m1 -i 'certificate SHA-256 digest' | fingerprint)"
 
     if [[ "$actual" == "$expected" ]]; then
-        echo "  ✓ $(basename "$apk") — $actual"
+        if [[ "$apk" != *debug* && -n "${CADENCE_KEYSTORE:-}" ]]; then
+            # The release key was configured and the build still used the debug key: a
+            # release cut like this could not update a release-signed install (the published
+            # APK has been release-signed since 2.0), which is exactly the silent failure
+            # this script exists to catch. Usually the signingConfig fell back because one of
+            # the CADENCE_KEY* variables was empty.
+            echo "  ✗ $(basename "$apk") — $actual"
+            echo "    Signed with the committed debug key although CADENCE_KEYSTORE is set." >&2
+            echo "    Check CADENCE_KEYSTORE_PASSWORD / CADENCE_KEY_ALIAS / CADENCE_KEY_PASSWORD." >&2
+            status=1
+        else
+            echo "  ✓ $(basename "$apk") — $actual"
+        fi
     else
         # Not necessarily a bug for the release APK: signing it with the CADENCE_* secrets is
         # exactly what those secrets are for. Only the debug APK must match.

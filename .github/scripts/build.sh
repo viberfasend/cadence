@@ -28,6 +28,9 @@
 #   --skip-signing-check don't verify the APK signing certificate (see check-signing.sh)
 #   --keystore FILE      sign the release APK with this keystore instead of the debug key;
 #                        needs CADENCE_KEYSTORE_PASSWORD / _KEY_ALIAS / _KEY_PASSWORD too
+#
+# Environment the build reads besides those: CADENCE_NEON_DATA_API_URL and CADENCE_NEON_AUTH_URL
+# are compiled in as the sync endpoints (docs/self-hosting.md); unset, the build offers no sync.
 #   --output DIR         where to stage (default: dist)
 #   --clean              wipe the output directory first
 #   --dry-run            print the plan and exit

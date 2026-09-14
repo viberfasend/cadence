@@ -1,6 +1,7 @@
 package de.andi1984.cadence.ui
 
 import de.andi1984.cadence.data.sync.CadenceSyncEngine
+import de.andi1984.cadence.data.sync.NeonConfig
 import de.andi1984.cadence.data.sync.SyncStatus
 import de.andi1984.cadence.domain.backup.BackupFailure
 import de.andi1984.cadence.domain.backup.BackupOutcome
@@ -851,7 +852,10 @@ class CadenceViewModelCrudTest {
             """{"accessToken":"not-a-jwt","sessionCookie":"c=1","email":"me@example.org"}""",
         )
         val http = HttpClient(MockEngine { awaitCancellation() })
-        val syncEngine = CadenceSyncEngine(syncStore, backgroundScope, http)
+        val syncEngine = CadenceSyncEngine(
+            syncStore, backgroundScope, http,
+            config = NeonConfig("https://data.example", "https://auth.example"),
+        )
         val viewModel = CadenceViewModel(
             repository = repository,
             settingsStore = settings,

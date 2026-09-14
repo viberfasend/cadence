@@ -115,8 +115,10 @@ jobs:
         id: version
         run: bash .github/scripts/next-version.sh
 
-      # Optional: set the CADENCE_KEYSTORE_BASE64 secret to sign the release APK with your own
-      # key. Without it the release build falls back to the debug key and is still installable.
+      # The release APK is signed with the key in the CADENCE_KEYSTORE_BASE64 secret (set by
+      # tools/release-signing-wizard.sh). Without it the release build falls back to the debug
+      # key — still installable, but not over a release-signed install, and the signing check
+      # fails when the secret is set and the key was not used.
       - name: Decode release keystore
         if: env.KEYSTORE_BASE64 != ''
         run: |
@@ -131,6 +133,10 @@ jobs:
           CADENCE_KEYSTORE_PASSWORD: ${{ secrets.CADENCE_KEYSTORE_PASSWORD }}
           CADENCE_KEY_ALIAS: ${{ secrets.CADENCE_KEY_ALIAS }}
           CADENCE_KEY_PASSWORD: ${{ secrets.CADENCE_KEY_PASSWORD }}
+          # The sync endpoints are compiled in at build time (NeonConfig.fromBuild); a build
+          # without them offers no sync. Set with tools/release-signing-wizard.sh.
+          CADENCE_NEON_DATA_API_URL: ${{ secrets.CADENCE_NEON_DATA_API_URL }}
+          CADENCE_NEON_AUTH_URL: ${{ secrets.CADENCE_NEON_AUTH_URL }}
           # Empty on a run with nothing to release, which leaves the placeholder version in place.
           CADENCE_VERSION_NAME: ${{ steps.version.outputs.version }}
           CADENCE_VERSION_CODE: ${{ steps.version.outputs.version_code }}

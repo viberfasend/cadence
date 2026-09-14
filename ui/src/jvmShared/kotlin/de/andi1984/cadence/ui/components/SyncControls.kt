@@ -48,6 +48,14 @@ data class SyncControls(
 )
 
 /**
+ * Whether there is an account on this device to sync with — the one distinction every surface
+ * outside Settings draws. Signed out and unconfigured both answer no; Settings alone tells the
+ * two apart, because only it has something different to say about each.
+ */
+val SyncStatus.hasAccount: Boolean
+    get() = this !is SyncStatus.SignedOut && this !is SyncStatus.Unconfigured
+
+/**
  * The status indicator, plus the desktop's refresh button — [ScreenHeader]'s `actions` slot on
  * Today, Upcoming, Inbox and Projects.
  *
@@ -56,11 +64,12 @@ data class SyncControls(
  * Staleness is a tint and never a dialog — an app unopened for a week is not an emergency.
  *
  * Signed out this renders nothing whatsoever, not a greyed-out icon: a fresh install has no
- * account and should not advertise machinery behind one.
+ * account and should not advertise machinery behind one. A build with no sync endpoint at all
+ * ([SyncStatus.Unconfigured]) is the same case, only permanent.
  */
 @Composable
 fun SyncActions(status: SyncStatus, controls: SyncControls) {
-    if (status is SyncStatus.SignedOut) return
+    if (!status.hasAccount) return
 
     IconButton(onClick = controls.onOpenSettings) {
         when (status) {
@@ -98,7 +107,8 @@ fun SyncActions(status: SyncStatus, controls: SyncControls) {
                     )
                 }
 
-            is SyncStatus.SignedOut -> Unit // Returned above; the compiler wants the branch.
+            // Both returned above; the compiler wants the branches.
+            is SyncStatus.SignedOut, is SyncStatus.Unconfigured -> Unit
         }
     }
 
@@ -127,7 +137,7 @@ fun SyncRefreshBox(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    if (!controls.pullToRefresh || status is SyncStatus.SignedOut) {
+    if (!controls.pullToRefresh || !status.hasAccount) {
         Box(modifier = modifier) { content() }
         return
     }
