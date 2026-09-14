@@ -1,0 +1,28 @@
+# Weekly, grouped: one pull request per ecosystem rather than one per artifact, because the
+# version catalogue (gradle/libs.versions.toml) moves Kotlin, Compose and AGP together and a
+# dozen single-line PRs would each run CI for the same answer. The CI workflow validates them.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      gradle-dependencies:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
+    labels: ["dependencies"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci(deps)"
+    labels: ["dependencies"]

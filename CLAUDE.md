@@ -988,20 +988,27 @@ The generated accessors are one top-level property per string, so files import t
 
 ## CI / releases
 
-**Nothing runs on a hosted runner unless a human clicks it.** All three workflows are
-`workflow_dispatch` only — no `push`, no `pull_request`, no `schedule`. `android.yml` and
-`desktop.yml` used to run on every push to **any** branch and on every pull request, which is
-where this repository's Actions minutes went; a single push started four runners, two of them
-billed at macOS's 10x and Windows's 2x multipliers. **Verification is local now**: run the one command at the top of Commands before pushing,
-because no runner will do it for you and a red branch will look green. The whole suite is
-roughly five seconds of test time; if it takes minutes, something hangs — see the note below. Don't restore an
-automatic trigger to any workflow in this repo without being asked for it outright.
+**One workflow runs on its own, and it is the cheap one.** `ci.yml` runs the test command at
+the top of Commands on Linux for every pull request and every push to `main` — the repository
+is public, so Linux minutes are free and unlimited, and `main`'s branch protection requires
+that check. Everything that spends money stays `workflow_dispatch`: `android.yml`,
+`desktop.yml` and `release.yml` have no `push`, no `pull_request`, no `schedule`. They used to
+run on every push to **any** branch back when the repository was private and minutes were
+billed; a single push started four runners, two of them at macOS's 10x and Windows's 2x
+multipliers. **Still verify locally before pushing**: the suite is roughly five seconds of test
+time, CI only confirms what a laptop already knows, and if it takes minutes something hangs —
+see the note below. Don't give `desktop.yml` or `release.yml` an automatic trigger without being
+asked for it outright; a macOS leg on every PR is the bill this rule exists to prevent.
+`dependabot.yml` opens one grouped PR per ecosystem (Gradle, Actions) weekly, and `ci.yml` is
+what validates them.
 
-What each one still does, when dispatched:
+What each one does:
 
-- `android.yml` — tests, then `build.sh apk`, uploading both APKs as artifacts.
+- `ci.yml` — the test command, Linux only, uploading the test reports on failure. No APK: that
+  is 31 tasks that run no test.
+- `android.yml` — tests, then `build.sh apk`, uploading both APKs as artifacts. Dispatch only.
 
-Two backstops sit under all three, because the failure that prompted them cost hours rather
+Two backstops sit under all four, because the failure that prompted them cost hours rather
 than minutes: **every `Test` task has a five-minute `timeout`** (the `subprojects` block in the
 root `build.gradle.kts`) and **every job has a `timeout-minutes`**. GitHub's default job limit
 is six hours, so a test that hangs instead of failing runs out the afternoon and reports
