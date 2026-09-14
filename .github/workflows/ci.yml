@@ -1,0 +1,75 @@
+name: CI
+
+# The one workflow that runs on its own: the test suite, on Linux, for every pull request and
+# every push to main. Since the repository is public, Linux minutes are free and unlimited, so
+# the "nothing runs unless a human clicks it" rule that used to cover every workflow now covers
+# only the ones that spend money — android.yml, desktop.yml and release.yml stay
+# workflow_dispatch, and the macOS and Windows runners (10x and 2x) are never started by a push.
+#
+# It is the same single Gradle invocation CONTRIBUTING.md asks for locally, so green here means
+# green there. No APK is built: assembling :app-android's debug variant is 31 tasks that run no
+# test, and the Android build is exercised by android.yml on demand and by every release.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # GitHub's default job limit is six hours. The suite takes seconds once Gradle is warm, so
+    # anything past this is a hang, and a hang should cost a job — not an afternoon.
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        # Caches ~/.gradle itself — dependencies, the wrapper and the build cache — so there is
+        # no actions/cache step beside it (see the note in CLAUDE.md's CI section).
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Unit tests and the desktop compilation
+        # One invocation, not two: configuring this build is the expensive part of a Gradle run
+        # and a second ./gradlew pays for all of it again.
+        #
+        # :core and :ui are Kotlin Multiplatform modules: testDebugUnitTest is their Android
+        # variant, jvmTest the one the desktop app relies on. Both run the same source set, and
+        # running only one would let the other rot. :app-desktop is a plain JVM module, so its
+        # task is `test`. :ui:compileKotlinJvm rides along because compiling is not testing:
+        # without it the Android build could stay green while the screens the desktop app is
+        # mostly made of stopped compiling for the JVM.
+        run: >
+          ./gradlew
+          :core:testDebugUnitTest :ui:testDebugUnitTest
+          :core:jvmTest :ui:jvmTest :app-desktop:test
+          :ui:compileKotlinJvm
+          --stacktrace
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: |
+            core/build/reports/tests/
+            ui/build/reports/tests/
+            app-desktop/build/reports/tests/

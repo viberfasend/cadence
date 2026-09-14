@@ -1,12 +1,10 @@
 name: Android
 
-# Manual only. This workflow used to run on every push to every branch and on every pull
-# request, which is where nearly all of this repository's Actions minutes went. Everything it
-# does — one `./gradlew` over :core's, :ui's and :app-desktop's test tasks,
-# `:ui:compileKotlinJvm` and
-# `.github/scripts/build.sh apk` — runs identically on a laptop, so the hosted runner buys
-# nothing an Android build cannot do locally. Run it from the Actions tab when you actually
-# want APKs built off-machine.
+# Manual only. The tests it starts with already run on every pull request in ci.yml; what this
+# adds is `.github/scripts/build.sh apk` — both APKs, built off-machine and uploaded as
+# artifacts. It used to run on every push to every branch, which is where nearly all of this
+# repository's Actions minutes went while it was private. Run it from the Actions tab when you
+# actually want APKs from a runner; a laptop produces the same ones with the same script.
 on:
   workflow_dispatch:
 
