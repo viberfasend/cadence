@@ -16,7 +16,7 @@ import de.andi1984.cadence.ui.theme.LightCadenceColors
  *
  * Deliberately not dynamic-color (`GlanceTheme.colors` with no arguments, Android 12+ wallpaper
  * colours): the app itself does not offer Material You, so a widget that did would be the one
- * surface whose colours the user cannot see or choose from inside Cadence.
+ * surface whose colours the user cannot see or choose from inside Primico.
  */
 val CadenceWidgetColors = ColorProviders(light = CadenceLightColors, dark = CadenceDarkColors)
 

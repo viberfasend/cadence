@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Lets Android 13+ offer Cadence in the system per-app language picker. Keep in sync with the
+  Lets Android 13+ offer Primico in the system per-app language picker. Keep in sync with the
   values-* folders that actually carry translations.
 -->
 <locale-config xmlns:android="http://schemas.android.com/apk/res/android">

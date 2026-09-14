@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Cadence"
+rootProject.name = "Primico"
 include(":core")
 include(":ui")
 include(":app-android")

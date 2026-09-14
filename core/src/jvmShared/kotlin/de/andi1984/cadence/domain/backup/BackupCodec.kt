@@ -60,7 +60,7 @@ sealed interface BackupReadResult {
  * dates are ISO-8601 strings and recurrence is a structured object rather than the packed
  * `v1;key=value` column.
  *
- * Forwards compatibility: unknown keys are ignored, so a newer Cadence may add fields without
+ * Forwards compatibility: unknown keys are ignored, so a newer Primico may add fields without
  * breaking older readers. A higher [BackupDocument.version] is refused rather than guessed at.
  * That is why a purely additive field — `parentId`, say — leaves [BackupCodec.VERSION] alone:
  * bumping it would make older installs refuse the whole file over one key they can ignore.

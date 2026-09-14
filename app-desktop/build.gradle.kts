@@ -71,21 +71,25 @@ compose.desktop {
             // the packaged runtime shipped without it and DatabaseDriverFactory blew up with
             // NoClassDefFoundError on java.sql.DriverManager at first launch.
             modules("java.sql")
-            packageName = "Cadence"
+            packageName = "Primico"
             packageVersion = cadenceVersionName
             description = "A local-first todo app. No analytics, and optional sync between your own devices."
             vendor = "Andreas Sander"
 
             linux {
-                packageName = "cadence"
+                packageName = "primico"
+                iconFile.set(project.file("icons/primico.png"))
                 debMaintainer = "mail@andi1984.de"
                 menuGroup = "Office"
             }
             macOS {
+                // Unchanged on purpose: it is the identity macOS keys preferences and updates on.
                 bundleID = "de.andi1984.cadence"
+                iconFile.set(project.file("icons/primico.icns"))
             }
             windows {
-                menuGroup = "Cadence"
+                menuGroup = "Primico"
+                iconFile.set(project.file("icons/primico.ico"))
                 // A fixed UUID, not a random one: jpackage/WiX use it to recognise "this is the
                 // same product" across versions so an MSI upgrades in place instead of installing
                 // side by side. Generated once for this app and never reused elsewhere.

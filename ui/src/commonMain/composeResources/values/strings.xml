@@ -379,7 +379,7 @@
     <string name="settings_show_completed">Show completed tasks</string>
     <string name="settings_show_completed_supporting">Finished work stays in place for the rest of the day</string>
     <string name="settings_about">About</string>
-    <string name="settings_about_text">Cadence orders work by importance first and uses the due date only to break ties. Priority is always shown as a segmented spine plus its label, never by colour alone.</string>
+    <string name="settings_about_text">Primico orders work by importance first and uses the due date only to break ties. Priority is always shown as a segmented spine plus its label, never by colour alone.</string>
     <string name="settings_metadata_version">Version %1$s</string>
     <string name="settings_metadata_counts">%1$s · %2$s</string>
     <string name="settings_metadata_database_size">Database: %1$s</string>
@@ -421,7 +421,7 @@
     <string name="settings_import">Import backup</string>
     <string name="settings_import_supporting">Reads backup files back in — one or several at once — and folds them into what is already here. Nothing is deleted; where the same task exists twice, the newer version wins.</string>
     <!-- Default name offered by the file picker; %1$s is the date, e.g. 2026-08-05. -->
-    <string name="backup_file_name">cadence-backup-%1$s.json</string>
+    <string name="backup_file_name">primico-backup-%1$s.json</string>
     <string name="backup_import_confirm_title">Import this backup?</string>
     <string name="backup_import_confirm_text">The file is merged into what is on this device. Nothing here is deleted, and where a task appears in both the newer version wins.</string>
     <!-- %1$s is a file count, e.g. "19 files". -->
@@ -436,10 +436,10 @@
     <string name="backup_imported_unreadable">%1$s could not be read.</string>
     <string name="backup_error_write">The backup could not be written. Pick another location and try again.</string>
     <string name="backup_error_read">That file could not be read.</string>
-    <string name="backup_error_too_large">That file is too large to be a Cadence backup.</string>
+    <string name="backup_error_too_large">That file is too large to be a Primico backup.</string>
     <string name="backup_error_not_json">That file is not valid JSON.</string>
-    <string name="backup_error_not_a_backup">That file is not a Cadence backup.</string>
-    <string name="backup_error_newer_version">That backup was written by a newer version of Cadence.</string>
+    <string name="backup_error_not_a_backup">That file is not a Primico backup.</string>
+    <string name="backup_error_newer_version">That backup was written by a newer version of Primico.</string>
 
     <!-- ── Danger zone ─────────────────────────────────────────────────────────────── -->
     <string name="settings_danger_zone">Danger zone</string>
@@ -452,8 +452,8 @@
 
     <!-- ── Sync ────────────────────────────────────────────────────────────────────── -->
     <string name="settings_sync">Sync</string>
-    <string name="settings_sync_supporting">Signing in keeps this device and your others in step through your own Neon project. Cadence works signed out, and nothing leaves the device until you sign in.</string>
-    <string name="settings_sync_unconfigured">This build has no sync server configured. Cadence works fully on this device. To keep several devices in step, build it against your own Neon project — see docs/self-hosting.md in the source repository.</string>
+    <string name="settings_sync_supporting">Signing in keeps this device and your others in step through your own Neon project. Primico works signed out, and nothing leaves the device until you sign in.</string>
+    <string name="settings_sync_unconfigured">This build has no sync server configured. Primico works fully on this device. To keep several devices in step, build it against your own Neon project — see docs/self-hosting.md in the source repository.</string>
     <string name="settings_sync_email">Email</string>
     <string name="settings_sync_password">Password</string>
     <string name="settings_sync_sign_in">Sign in</string>
@@ -467,7 +467,7 @@
     <string name="settings_sync_never">Not synced yet</string>
     <string name="settings_sync_sign_out">Sign out</string>
     <string name="settings_sync_error_credentials">That email and password do not match an account.</string>
-    <string name="settings_sync_error_offline">No connection. Cadence will keep working offline.</string>
+    <string name="settings_sync_error_offline">No connection. Primico will keep working offline.</string>
     <string name="settings_sync_error_server">The server could not be reached. Try again later.</string>
     <string name="settings_sync_failed_offline">Last sync failed: no connection.</string>
     <string name="settings_sync_failed_session">Last sync failed: the session expired. Sign in again.</string>
@@ -538,7 +538,7 @@
     <string name="command_toggle_sidebar">Show or hide the sidebar</string>
     <string name="command_go_to">Go to %1$s</string>
     <string name="selection_none">No task selected</string>
-    <string name="tray_show">Show Cadence</string>
+    <string name="tray_show">Show Primico</string>
     <string name="tray_quit">Quit</string>
 
     <!-- ── Context menus ────────────────────────────────────────────────────────────

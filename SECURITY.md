@@ -19,7 +19,7 @@ Please include as much of the following as you can:
 
 - A description of the vulnerability and its impact
 - Steps to reproduce, or a proof of concept
-- The version / commit of Cadence and your platform (Android version, or desktop OS)
+- The version / commit of Primico and your platform (Android version, or desktop OS)
 - Any suggested remediation, if you have one
 
 You can expect an acknowledgement within a few days. We'll keep you updated on progress and let
@@ -29,7 +29,7 @@ you'd prefer to remain anonymous).
 
 ## Security model & scope
 
-Cadence is a **local-first** application. A few aspects of its design are worth knowing when
+Primico is a **local-first** application. A few aspects of its design are worth knowing when
 assessing security:
 
 - **Local data** — tasks, projects and attachments are stored in a SQLite database and a blob

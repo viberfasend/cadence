@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Cadence</string>
+    <string name="app_name">Primico</string>
     <string name="reminder_channel_name">Task reminders</string>
     <string name="reminder_channel_description">Reminders for tasks that are due</string>
     <string name="reminder_content_text">Due today</string>

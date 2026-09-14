@@ -1,6 +1,6 @@
 # Roadmap
 
-Cadence is a local-first Android and desktop todo app (Kotlin, Compose Multiplatform,
+Primico is a local-first Android and desktop todo app (Kotlin, Compose Multiplatform,
 SQLDelight). Sync through a Neon project you sign in to is optional and off until you do —
 these are candidate directions, not commitments. Order is rough priority, not a release plan.
 
@@ -11,7 +11,7 @@ issue, grouped the same way by [milestone](../../milestones) and indexed by the 
 [📍 Roadmap overview](../../issues/49). This file is the human-readable summary; the issues carry
 the detail and the up-to-date state.
 
-Cadence is feature-complete as a single-user list app. What is left is **reach** (machines it does
+Primico is feature-complete as a single-user list app. What is left is **reach** (machines it does
 not run on), **planning** (it can say what is due, not show a week) and **trust** (the server can
 read every title, and the sync engine has no tests).
 
@@ -42,7 +42,7 @@ read every title, and the sync engine has no tests).
       - [ ] Search runs it — [#157](../../issues/157)
       - [ ] Saved views — [#158](../../issues/158)
 - [ ] **Interop — import, share target, bundle export, `.ics`** — [#150](../../issues/150). Makes
-      Cadence adoptable, not only usable. Ships in slices.
+      Primico adoptable, not only usable. Ships in slices.
       - [ ] Import from another app, in the app — [#163](../../issues/163)
       - [ ] Share target (Android share sheet, `PROCESS_TEXT`) — [#35](../../issues/35)
       - [ ] Bundle export (a backup plus its blobs) — [#36](../../issues/36)

@@ -38,7 +38,7 @@ class DesktopReminderScheduler(
      * once" is the one thing about this class worth pinning down.
      */
     private val notify: (String) -> Unit = { title ->
-        trayIcon?.displayMessage("Cadence", title, TrayIcon.MessageType.NONE)
+        trayIcon?.displayMessage("Primico", title, TrayIcon.MessageType.NONE)
     },
 ) : ReminderScheduler {
 
@@ -127,13 +127,18 @@ class DesktopReminderScheduler(
 fun createReminderTrayIcon(): TrayIcon? {
     if (!SystemTray.isSupported()) return null
     return runCatching {
-        val image = java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
-        image.graphics.apply {
-            color = java.awt.Color(0x3D, 0x5A, 0xFE)
-            fillOval(0, 0, 16, 16)
+        // The Primico mark at tray size: a teal tile and the ring that starts at the top.
+        val image = java.awt.image.BufferedImage(32, 32, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+        (image.graphics as java.awt.Graphics2D).apply {
+            setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON)
+            color = java.awt.Color(0x00, 0x6A, 0x60)
+            fillRoundRect(0, 0, 32, 32, 10, 10)
+            color = java.awt.Color(0x9F, 0xF2, 0xE4)
+            stroke = java.awt.BasicStroke(4f, java.awt.BasicStroke.CAP_ROUND, java.awt.BasicStroke.JOIN_ROUND)
+            drawArc(7, 7, 18, 18, 70, -320)
             dispose()
         }
-        val icon = TrayIcon(image, "Cadence")
+        val icon = TrayIcon(image, "Primico")
         icon.isImageAutoSize = true
         SystemTray.getSystemTray().add(icon)
         icon

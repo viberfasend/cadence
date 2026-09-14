@@ -7,7 +7,7 @@ import de.andi1984.cadence.CadenceApplication
 import de.andi1984.cadence.sync.SyncWorker
 
 /**
- * The one place that knows every widget Cadence ships. [de.andi1984.cadence.AppContainer] calls
+ * The one place that knows every widget Primico ships. [de.andi1984.cadence.AppContainer] calls
  * this on every `repository.tasks` emission — the same "reconcile on every emission" shape
  * [de.andi1984.cadence.reminders.AlarmReminderScheduler] follows — so a new widget only has to be
  * added here once rather than at every call site that mutates a task. [ToggleTaskCallback] and

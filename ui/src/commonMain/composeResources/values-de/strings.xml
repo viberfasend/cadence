@@ -362,7 +362,7 @@
     <string name="settings_show_completed">Erledigte Aufgaben anzeigen</string>
     <string name="settings_show_completed_supporting">Erledigtes bleibt für den Rest des Tages stehen</string>
     <string name="settings_about">Über die App</string>
-    <string name="settings_about_text">Cadence sortiert zuerst nach Wichtigkeit und nutzt das Fälligkeitsdatum nur, um Gleichstände aufzulösen. Die Priorität erscheint immer als Balkenanzeige mit Beschriftung, nie allein über Farbe.</string>
+    <string name="settings_about_text">Primico sortiert zuerst nach Wichtigkeit und nutzt das Fälligkeitsdatum nur, um Gleichstände aufzulösen. Die Priorität erscheint immer als Balkenanzeige mit Beschriftung, nie allein über Farbe.</string>
     <string name="settings_metadata_version">Version %1$s</string>
     <string name="settings_metadata_counts">%1$s · %2$s</string>
     <string name="settings_metadata_database_size">Datenbank: %1$s</string>
@@ -403,7 +403,7 @@
     <string name="settings_import">Backup importieren</string>
     <string name="settings_import_supporting">Liest Backup-Dateien ein — eine oder mehrere auf einmal — und führt sie mit dem zusammen, was schon da ist. Es wird nichts gelöscht; wo dieselbe Aufgabe doppelt vorkommt, gewinnt die neuere Fassung.</string>
     <!-- Vom Dateiauswahldialog vorgeschlagener Name; %1$s ist das Datum, z. B. 2026-08-05. -->
-    <string name="backup_file_name">cadence-backup-%1$s.json</string>
+    <string name="backup_file_name">primico-backup-%1$s.json</string>
     <string name="backup_import_confirm_title">Dieses Backup importieren?</string>
     <string name="backup_import_confirm_text">Die Datei wird mit den Daten auf diesem Gerät zusammengeführt. Hier wird nichts gelöscht, und wo eine Aufgabe in beiden vorkommt, gewinnt die neuere Fassung.</string>
     <!-- %1$s ist eine Dateianzahl, z. B. "19 Dateien". -->
@@ -418,10 +418,10 @@
     <string name="backup_imported_unreadable">%1$s konnte nicht gelesen werden.</string>
     <string name="backup_error_write">Das Backup konnte nicht geschrieben werden. Wähle einen anderen Ort und versuche es erneut.</string>
     <string name="backup_error_read">Diese Datei konnte nicht gelesen werden.</string>
-    <string name="backup_error_too_large">Diese Datei ist zu groß für ein Cadence-Backup.</string>
+    <string name="backup_error_too_large">Diese Datei ist zu groß für ein Primico-Backup.</string>
     <string name="backup_error_not_json">Diese Datei ist kein gültiges JSON.</string>
-    <string name="backup_error_not_a_backup">Diese Datei ist kein Cadence-Backup.</string>
-    <string name="backup_error_newer_version">Dieses Backup stammt aus einer neueren Version von Cadence.</string>
+    <string name="backup_error_not_a_backup">Diese Datei ist kein Primico-Backup.</string>
+    <string name="backup_error_newer_version">Dieses Backup stammt aus einer neueren Version von Primico.</string>
 
     <!-- ── Gefahrenzone ────────────────────────────────────────────────────────────── -->
     <string name="settings_danger_zone">Gefahrenzone</string>
@@ -434,8 +434,8 @@
 
     <!-- ── Synchronisation ─────────────────────────────────────────────────────────── -->
     <string name="settings_sync">Synchronisation</string>
-    <string name="settings_sync_supporting">Nach der Anmeldung hält Cadence dieses Gerät über dein eigenes Neon-Projekt mit deinen anderen im Gleichstand. Ohne Anmeldung funktioniert alles wie bisher, und nichts verlässt das Gerät.</string>
-    <string name="settings_sync_unconfigured">In diesem Build ist kein Sync-Server hinterlegt. Cadence funktioniert auf diesem Gerät vollständig. Um mehrere Geräte im Gleichstand zu halten, baue es gegen dein eigenes Neon-Projekt – siehe docs/self-hosting.md im Quell-Repository.</string>
+    <string name="settings_sync_supporting">Nach der Anmeldung hält Primico dieses Gerät über dein eigenes Neon-Projekt mit deinen anderen im Gleichstand. Ohne Anmeldung funktioniert alles wie bisher, und nichts verlässt das Gerät.</string>
+    <string name="settings_sync_unconfigured">In diesem Build ist kein Sync-Server hinterlegt. Primico funktioniert auf diesem Gerät vollständig. Um mehrere Geräte im Gleichstand zu halten, baue es gegen dein eigenes Neon-Projekt – siehe docs/self-hosting.md im Quell-Repository.</string>
     <string name="settings_sync_email">E-Mail</string>
     <string name="settings_sync_password">Passwort</string>
     <string name="settings_sync_sign_in">Anmelden</string>
@@ -449,7 +449,7 @@
     <string name="settings_sync_never">Noch nicht abgeglichen</string>
     <string name="settings_sync_sign_out">Abmelden</string>
     <string name="settings_sync_error_credentials">E-Mail und Passwort passen zu keinem Konto.</string>
-    <string name="settings_sync_error_offline">Keine Verbindung. Cadence funktioniert offline weiter.</string>
+    <string name="settings_sync_error_offline">Keine Verbindung. Primico funktioniert offline weiter.</string>
     <string name="settings_sync_error_server">Der Server war nicht erreichbar. Versuch es später erneut.</string>
     <string name="settings_sync_failed_offline">Letzter Abgleich fehlgeschlagen: keine Verbindung.</string>
     <string name="settings_sync_failed_session">Letzter Abgleich fehlgeschlagen: die Sitzung ist abgelaufen. Melde dich erneut an.</string>
@@ -520,7 +520,7 @@
     <string name="command_toggle_sidebar">Seitenleiste ein- oder ausblenden</string>
     <string name="command_go_to">Zu %1$s</string>
     <string name="selection_none">Keine Aufgabe ausgewählt</string>
-    <string name="tray_show">Cadence anzeigen</string>
+    <string name="tray_show">Primico anzeigen</string>
     <string name="tray_quit">Beenden</string>
 
     <!-- ── Kontextmenüs ─────────────────────────────────────────────────────────────

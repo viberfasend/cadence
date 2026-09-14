@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn a Todoist CSV export into a Cadence backup file.
+"""Turn a Todoist CSV export into a Primico backup file.
 
 Todoist exports one CSV per project ("Garten [6g62GH268rQjFQ92].csv"). This script reads any
 number of those files — or a whole export directory — and writes a single
@@ -12,22 +12,22 @@ a merge: nothing appears in the Inbox or beside the projects already on the devi
 user moves it there deliberately. `--import-project NAME` renames the pile and
 `--no-import-project` skips it.
 
-How a Todoist row lands in Cadence:
+How a Todoist row lands in Primico:
 
     file "Name [id].csv"  -> a subproject of the staging project, the "Inbox" file included
     section row           -> a section of that project — a heading inside its task list, which is
-                             what Cadence's own sections are; the tasks under it stay the
+                             what Primico's own sections are; the tasks under it stay the
                              project's rather than moving into a project of their own
     task row, INDENT 1    -> a task in the current project, carrying the current section
     task row, INDENT >= 2 -> a subtask of the last INDENT 1 task (deeper levels flatten onto it,
-                             because Cadence nests subtasks exactly one level)
+                             because Primico nests subtasks exactly one level)
     note row              -> appended to the task above it, prefixed with the note's date
     DESCRIPTION           -> the task's notes
-    PRIORITY 1..4         -> Cadence P1..P4 (same numbering; --invert-priority if yours differs)
+    PRIORITY 1..4         -> Primico P1..P4 (same numbering; --invert-priority if yours differs)
     DATE                  -> a due date, or a recurrence rule when it is a Todoist repeat phrase
                              ("jeden Monat", "every 2 weeks", "every! 3 months", ...)
     DEADLINE              -> the due date when DATE left none, otherwise a "Deadline: ..." note
-    DURATION              -> a note line; Cadence has no duration field
+    DURATION              -> a note line; Primico has no duration field
 
 Ids are deterministic (UUIDv5 over the source file and row), so re-running this after adding a
 task in Todoist and re-importing updates the rows it already wrote instead of duplicating them.
@@ -35,7 +35,7 @@ task in Todoist and re-importing updates the rows it already wrote instead of du
 Usage:
     python3 tools/todoist_import.py ~/Downloads/"Todoist backup 2026-08-12 2248 UTC"
     python3 tools/todoist_import.py export/ --todoist-token 0123…    # exact dates from Todoist
-    python3 tools/todoist_import.py export/*.csv -o cadence-backup.json
+    python3 tools/todoist_import.py export/*.csv -o primico-backup.json
     python3 tools/todoist_import.py export/ --split        # one JSON per project, into a folder
     python3 tools/todoist_import.py export/ --dry-run      # parse and report, write nothing
     python3 tools/todoist_import.py --self-test            # the parser's unit tests
@@ -76,8 +76,8 @@ from typing import Iterable, Sequence
 BACKUP_FORMAT = "cadence.backup"
 BACKUP_VERSION = 2
 
-DEFAULT_OUT = "cadence-backup.json"
-DEFAULT_SPLIT_OUT = "cadence-import"
+DEFAULT_OUT = "primico-backup.json"
+DEFAULT_SPLIT_OUT = "primico-import"
 
 # ui/projects/ProjectDialogs.kt's PROJECT_COLORS, cycled so imported projects are not all teal.
 PROJECT_COLORS = ["#006A60", "#3E6373", "#A1560A", "#7D5260", "#6F7976", "#BA1A1A"]
@@ -358,7 +358,7 @@ def parse_recurrence(text: str, ref: dt.date) -> Recurrence | None:
     if not tokens:
         return None
 
-    # Todoist's "every! 3 months" means "3 months after I tick it off" — Cadence's
+    # Todoist's "every! 3 months" means "3 months after I tick it off" — Primico's
     # AFTER_COMPLETION mode, the one thing a plain calendar rule cannot express.
     after_completion = bool(re.search(r"(every|alle|jede[nrs]?)\s*!", folded))
 
@@ -792,7 +792,7 @@ class Converter:
                 self.stats.projects += 1
             # A section groups the project's own list, so it needs a project to hang from. The
             # one row that has none is a task in the Todoist Inbox imported with
-            # --no-import-project, which lands in Cadence's Inbox — and the Inbox is not a
+            # --no-import-project, which lands in Primico's Inbox — and the Inbox is not a
             # project, so there is nothing there for a heading to belong to. Its tasks arrive
             # ungrouped rather than dragging a project-less section along.
             grouped_by: str | None = None
@@ -811,7 +811,7 @@ class Converter:
             indent = int((row.get("INDENT") or "1").strip() or 1)
             if indent >= 2 and current_parent is not None:
                 task["parentId"] = current_parent["id"]
-                # A subtask inherits its parent's project *and* its section: Cadence moves the
+                # A subtask inherits its parent's project *and* its section: Primico moves the
                 # two together, and a step drawn under a different heading than its parent would
                 # be a step nobody finds.
                 task["projectId"] = current_parent["projectId"]
@@ -992,7 +992,7 @@ def write_document(path: str, document: dict) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Convert a Todoist CSV export into a Cadence backup file.",
+        description="Convert a Todoist CSV export into a Primico backup file.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -1378,7 +1378,7 @@ class ConversionTest(unittest.TestCase):
         self.assertEqual(self.stats.staging, "Import 2026-08-13")
 
     def test_a_section_belongs_to_the_project_it_was_exported_from(self):
-        # A Todoist section is a heading inside one project's list, and Cadence has exactly that
+        # A Todoist section is a heading inside one project's list, and Primico has exactly that
         # now. It used to arrive as a sibling project named "wohnung · Ofen", because the app had
         # no sections and the staging project had taken the one level of nesting projects allow.
         wohnung = next(p for p in self.document["projects"] if p["name"] == "wohnung")

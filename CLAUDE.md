@@ -4,8 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Cadence — a local-first native Android and desktop todo app (Kotlin, Compose Multiplatform,
+Primico — a local-first native Android and desktop todo app (Kotlin, Compose Multiplatform,
 Material 3, SQLDelight). No analytics. Package `de.andi1984.cadence` throughout.
+
+**The product is Primico; the code still says Cadence, on purpose.** The app was renamed on
+2026-09-14 (an unrelated "Cadence: Aufgaben & Todo" reached the App Store first). Everything a
+person sees says Primico: app names, window and tray, package names, release asset names and
+their permanent URLs, the site, the docs. Everything that is a persisted identity or a published
+contract keeps the old name: the Kotlin package `de.andi1984.cadence` and the Android
+application id (a change means a fresh install for every user), the class names
+(`CadenceViewModel`, `CadenceRepository`, …), the `CADENCE_*` environment variables and CI
+secrets, the `cadence.backup` format string and `cadence.db` file name, the macOS bundle id and
+the Windows upgrade UUID. The desktop data directory moved to `primico`/`Primico`, and
+`PlatformDirs.dataDir()` adopts a `cadence`/`Cadence` directory in place on first start. Don't
+"finish" the rename in code; the churn has no user-visible gain and the ADRs are history.
 
 **Local-first, with an optional account.** The SQLite database on each device is the source of
 truth and the app is fully usable signed out and offline; signing in (Settings) syncs your own
@@ -1034,7 +1046,7 @@ along with the `find ~/.gradle/caches -delete` step that pruned what the action 
   run off `main`**: it creates the tag from the commit it was dispatched on, so a run started on
   a branch would publish a release pointing at unmerged work. Its `targets` **input** decides
   what gets built, and defaults to `android+deb` — the APKs and the Linux `.deb`, one Linux
-  runner each, which is what a Cadence release actually ships today. `android` and `deb` narrow
+  runner each, which is what a Primico release actually ships today. `android` and `deb` narrow
   that to one half; `all` adds the rpm, the tarball, the `.dmg` and the `.msi`, and with them the
   macOS and Windows runners at 10x and 2x. The download list in the release body is generated
   from the files that actually landed in `dist/`, so a run that packaged no `.msi` publishes no
@@ -1066,7 +1078,7 @@ bash .github/scripts/next-version.sh    # prints the outputs when GITHUB_OUTPUT 
 ```
 
 The release action creates the tag from the commit it ran on, so the next run measures from
-there. `releases/latest/download/cadence-debug.apk` still serves the newest published build,
+there. `releases/latest/download/primico-debug.apk` still serves the newest published build,
 because each release is published with `make_latest` — it now moves when someone releases, not
 when someone merges. Debug and release use different application IDs (`.debug` suffix) and
 install side by side.

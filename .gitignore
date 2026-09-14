@@ -31,6 +31,10 @@ local.properties
 !/app-android/debug.keystore
 
 # Converted Todoist exports — real task data, and this repo is public (tools/README.md)
+/primico-backup.json
+/primico-import/
+tools/primico-backup.json
+tools/primico-import/
 /cadence-backup.json
 /cadence-import/
 tools/cadence-backup.json

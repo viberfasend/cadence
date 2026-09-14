@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Release signing and sync endpoints for Cadence's official builds — a wizard that walks the
+# Release signing and sync endpoints for Primico's official builds — a wizard that walks the
 # maintainer (or anyone running their own fork) through the one-time setup the release
 # workflows need, and that only a human can do because it involves a passphrase:
 #
@@ -209,7 +209,7 @@ mkdir -p "$KEY_DIR"
 chmod 700 "$KEY_DIR"
 ENV_FILE="$KEY_DIR/release.env"
 
-banner "Cadence — release signing and sync endpoints"
+banner "Primico — release signing and sync endpoints"
 
 # ── 1 · prerequisites ─────────────────────────────────────────────────────
 stage "Prerequisites"
@@ -275,7 +275,7 @@ else
     -keystore "$CADENCE_KEYSTORE" -storetype PKCS12 \
     -alias "$CADENCE_KEY_ALIAS" \
     -keyalg RSA -keysize 4096 -validity 18250 \
-    -dname "CN=$DNAME_CN, O=Cadence" \
+    -dname "CN=$DNAME_CN, O=Primico" \
     -storepass "$CADENCE_KEYSTORE_PASSWORD" -keypass "$CADENCE_KEY_PASSWORD"
   chmod 600 "$CADENCE_KEYSTORE"
   printf '  %s✓ minted%s %s\n' "$GREEN" "$RESET" "$CADENCE_KEYSTORE"
