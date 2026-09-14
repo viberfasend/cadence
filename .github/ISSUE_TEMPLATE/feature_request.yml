@@ -1,0 +1,48 @@
+name: 💡 Feature request
+description: Suggest an idea or improvement for Cadence
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! Describing the underlying problem (not just the solution) helps us find the best fit. Please check the [roadmap](https://github.com/viberfasend/cadence/blob/main/ROADMAP.md) first — it lists what is planned and what is deliberately out of scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: A clear description of the problem or limitation. e.g. "I'm always frustrated when..."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any alternative solutions or workarounds you've thought about.
+    validations:
+      required: false
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where should it live?
+      multiple: true
+      options:
+        - Android
+        - Desktop
+        - Both
+        - Sync / server
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Mockups, examples from other apps, or anything else that helps explain the idea.
+    validations:
+      required: false

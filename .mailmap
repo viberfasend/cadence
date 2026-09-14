@@ -1,0 +1,4 @@
+# Folds the alternate spellings git history carries into one author, for `git shortlog` and
+# GitHub's contributor graph. The commits themselves are untouched.
+Andreas Sander <mail@andi1984.de> Andreas Sonderegger <mail@andi1984.de>
+Andreas Sander <mail@andi1984.de> Claude <mail@andi1984.de>
