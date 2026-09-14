@@ -1,31 +1,34 @@
 <div align="center">
 
-# Cadence
+<img src="brand/primico-mark.svg" alt="" width="96" height="96">
+
+# Primico
 
 **A local-first todo app for Android and the desktop. Importance first, due date breaks ties.**
 
 Your tasks live in a SQLite file on your device. No account required, no analytics, no cloud
 unless you point it at your own.
 
-[![CI](https://github.com/viberfasend/cadence/actions/workflows/ci.yml/badge.svg)](https://github.com/viberfasend/cadence/actions/workflows/ci.yml)
+[![CI](https://github.com/viberfasend/primico/actions/workflows/ci.yml/badge.svg)](https://github.com/viberfasend/primico/actions/workflows/ci.yml)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![Kotlin Multiplatform](https://img.shields.io/badge/Kotlin-Multiplatform-7F52FF.svg)](https://kotlinlang.org/docs/multiplatform.html)
 [![Compose Multiplatform](https://img.shields.io/badge/Compose-Multiplatform-4285F4.svg)](https://www.jetbrains.com/compose-multiplatform/)
 
-**[viberfasend.github.io/cadence](https://viberfasend.github.io/cadence/)**
+**[viberfasend.github.io/primico](https://viberfasend.github.io/primico/)**
 
 </div>
 
 > **Status:** feature-complete as a single-user list app, in daily use on Android and Linux.
+> Known as *Cadence* until version 3; the name changed to avoid a clash with an unrelated app.
 > macOS and Windows builds are produced by the same code and the same release workflow but see
 > far less real-world use. What comes next is on the [roadmap](ROADMAP.md).
 
 ---
 
-## Why Cadence?
+## Why Primico?
 
 Most todo apps either sort by date and bury what matters under what is merely due, or keep your
-list on someone else's server. Cadence does neither. Every list is ordered by **importance first,
+list on someone else's server. Primico does neither. Every list is ordered by **importance first,
 due date second**, so the thing you should be doing sits on top even when ten small things are due
 today. And every task is stored locally: the app works fully offline and signed out, and syncing
 between your own devices is an optional sign-in against a database you control.
@@ -76,26 +79,33 @@ between your own devices is an optional sign-in against a database you control.
 
 Open this link on the phone and install it:
 
-**https://github.com/viberfasend/cadence/releases/latest/download/cadence-release.apk**
+**https://github.com/viberfasend/primico/releases/latest/download/primico-release.apk**
 
 That URL always serves the newest published build. Android will ask you to allow installs from
 this source, which is expected for an app that does not come from a store. Tap the same link
 again later to update in place: the release APK is signed with a stable release key, so a new
 build installs over the old one and keeps your tasks.
 
+> **Coming from Cadence 3.x?** The release APK installs straight over it: same application id,
+> same signing key, your tasks stay. Only the name on the home screen changes.
+>
 > If you still have an install from **before 3.0** (signed with the debug key), Android will
 > refuse the update with *"App not installed"*: the signing key changed. Export a backup first
 > (Settings → Backup), uninstall once, install again and import.
 
-A debug-signed build sits beside it as `cadence-debug.apk`. The two have different application
+A debug-signed build sits beside it as `primico-debug.apk`. The two have different application
 IDs and install side by side.
 
 ### Desktop
 
-Grab the package for your OS from the [latest release](https://github.com/viberfasend/cadence/releases/latest):
+Grab the package for your OS from the [latest release](https://github.com/viberfasend/primico/releases/latest):
 `.deb`, `.rpm` or a tarball on Linux, `.dmg` on macOS, `.msi` on Windows. Every release ships the
 Linux packages; the macOS and Windows installers are built on request, so if the newest release
 lacks one, the previous one may have it, or [build it yourself](#building-from-source).
+
+Coming from Cadence 3.x on Linux: the package is called `primico` now, so install it and then
+remove the old one (`sudo apt remove cadence`). Your data directory is adopted on first start.
+On macOS and Windows the installer upgrades in place.
 
 ## Quick add
 
@@ -121,7 +131,7 @@ corrected by tapping it. A bare time defaults the date to today.
 | Android | the app's private storage (`Settings → Backup` exports it) |
 | Linux | `$XDG_DATA_HOME/cadence/` (default `~/.local/share/cadence/`) |
 | macOS | `~/Library/Application Support/Cadence/` |
-| Windows | `%APPDATA%\Cadence\` |
+| Windows | `%APPDATA%\Primico\` |
 
 The directory holds the SQLite database, attachments (content-addressed by SHA-256), and on the
 desktop two small JSON files for settings and window state. To start fresh, use **Settings →
@@ -129,10 +139,10 @@ Danger zone → Delete all data** (it asks, and offers Undo), or quit and delete
 
 ## Sync (optional)
 
-Cadence syncs hub-and-spoke through a Postgres database: each device pushes what it wrote and
+Primico syncs hub-and-spoke through a Postgres database: each device pushes what it wrote and
 pulls what the others wrote, last-writer-wins per row, deletes travel as tombstones, and the
 server enforces row-level security so an account only ever sees its own rows. There is no
-Cadence-operated server. The published builds are wired to the maintainer's own instance, which
+Primico-operated server. The published builds are wired to the maintainer's own instance, which
 accepts no sign-ups, so to sync your devices you point a build at **your own** Neon project. The
 walkthrough is in [docs/self-hosting.md](docs/self-hosting.md), and the design in
 [ADR 0002](docs/adr/0002-supabase-sync.md) and [ADR 0005](docs/adr/0005-neon-sync.md).
@@ -161,7 +171,7 @@ beyond the JDK; native installers additionally need the OS's own packaging tool 
 for `.deb`, `rpmbuild` for `.rpm`, WiX on Windows).
 
 ```bash
-git clone https://github.com/viberfasend/cadence.git
+git clone https://github.com/viberfasend/primico.git
 cd cadence
 
 ./gradlew :app-desktop:run                    # launch the desktop app from source
@@ -230,7 +240,7 @@ a public issue for security problems.
 
 ## License
 
-Cadence is free software, licensed under the **GNU General Public License v3.0 or later**
+Primico is free software, licensed under the **GNU General Public License v3.0 or later**
 (`GPL-3.0-or-later`). You may use, study, share and modify it; if you distribute a modified
 version, you must release your source under the same license. See [LICENSE](LICENSE) for the
 full text.

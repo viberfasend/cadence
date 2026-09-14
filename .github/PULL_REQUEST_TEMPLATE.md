@@ -1,4 +1,4 @@
-<!-- Thanks for contributing to Cadence! Please fill in the sections below. -->
+<!-- Thanks for contributing to Primico! Please fill in the sections below. -->
 
 ## Summary
 

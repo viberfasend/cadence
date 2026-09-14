@@ -12,7 +12,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
  *  because Android's genuinely can't be. */
 class DesktopBackupFilePicker : BackupFilePicker {
 
-    private val jsonFilter = FileNameExtensionFilter("Cadence backup (*.json)", "json")
+    private val jsonFilter = FileNameExtensionFilter("Primico backup (*.json)", "json")
 
     override fun pickExportTarget(suggestedName: String, onPicked: (BackupTarget) -> Unit) {
         val chooser = JFileChooser().apply {

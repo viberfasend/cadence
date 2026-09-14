@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit
  *   signed out, schedules nothing.
  *
  * **Neither is the background sync ADR 0002 rejected, and the distinction is the point.** What
- * was rejected was polling *while nobody is looking*: a home screen with a Cadence widget on it
+ * was rejected was polling *while nobody is looking*: a home screen with a Primico widget on it
  * is being looked at — the same reasoning that gives the desktop its 15-minute poll while the
  * window is open, now applied to the surface that is always open. The interval matches the
  * desktop's for that reason.

@@ -1,11 +1,11 @@
 name: 💡 Feature request
-description: Suggest an idea or improvement for Cadence
+description: Suggest an idea or improvement for Primico
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the suggestion! Describing the underlying problem (not just the solution) helps us find the best fit. Please check the [roadmap](https://github.com/viberfasend/cadence/blob/main/ROADMAP.md) first — it lists what is planned and what is deliberately out of scope.
+        Thanks for the suggestion! Describing the underlying problem (not just the solution) helps us find the best fit. Please check the [roadmap](https://github.com/viberfasend/primico/blob/main/ROADMAP.md) first — it lists what is planned and what is deliberately out of scope.
   - type: textarea
     id: problem
     attributes:

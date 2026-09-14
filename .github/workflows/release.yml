@@ -92,7 +92,7 @@ jobs:
           PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
         run: |
           {
-            echo "### Cadence ${VERSION}"
+            echo "### Primico ${VERSION}"
             echo
             echo "- tag: \`${TAG}\` (${BUMP} bump from \`${PREVIOUS_TAG:-no previous tag}\`)"
             echo "- targets: \`${{ inputs.targets }}\`"
@@ -137,8 +137,8 @@ jobs:
       - name: Decode release keystore
         if: env.KEYSTORE_BASE64 != ''
         run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/cadence.jks"
-          echo "CADENCE_KEYSTORE=$RUNNER_TEMP/cadence.jks" >> "$GITHUB_ENV"
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/primico.jks"
+          echo "CADENCE_KEYSTORE=$RUNNER_TEMP/primico.jks" >> "$GITHUB_ENV"
 
       # Tests, build, staging under the fixed names the download URLs point at, and the signing
       # check, in one script — the same one a laptop runs. Tests are not skipped here: this is
@@ -288,9 +288,9 @@ jobs:
           for file in release-assets/*; do
             name="$(basename "$file")"
             case "$name" in
-              cadence-debug.apk)
+              primico-debug.apk)
                 debug="- [Debug APK]($base/$name) — signed with the committed debug key, installs beside a release build"$'\n' ;;
-              cadence-release.apk)
+              primico-release.apk)
                 release="- [Release APK]($base/$name)"$'\n' ;;
               *.deb) deb+="- [Debian package (.deb)]($base/$name)"$'\n' ;;
               *.rpm) rpm+="- [RPM package (.rpm)]($base/$name)"$'\n' ;;
@@ -321,8 +321,8 @@ jobs:
             section Windows "$windows"
             if [[ -n "$android" ]]; then
               printf -- '---\n\n**Permanent latest download links:**\n\n'
-              printf -- '- https://github.com/%s/releases/latest/download/cadence-debug.apk\n' "$GITHUB_REPOSITORY"
-              printf -- '- https://github.com/%s/releases/latest/download/cadence-release.apk\n' "$GITHUB_REPOSITORY"
+              printf -- '- https://github.com/%s/releases/latest/download/primico-debug.apk\n' "$GITHUB_REPOSITORY"
+              printf -- '- https://github.com/%s/releases/latest/download/primico-release.apk\n' "$GITHUB_REPOSITORY"
             fi
           } > release-body.md
 
@@ -331,11 +331,11 @@ jobs:
       - name: Publish GitHub Release
         # The tag is created from the commit this run was dispatched on, which the preflight job
         # has already established is main's tip. make_latest moves
-        # releases/latest/download/cadence-debug.apk onto this build.
+        # releases/latest/download/primico-debug.apk onto this build.
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.preflight.outputs.tag }}
-          name: Cadence ${{ needs.preflight.outputs.version }}
+          name: Primico ${{ needs.preflight.outputs.version }}
           body_path: release-body.md
           make_latest: true
           files: release-assets/*

@@ -1,6 +1,6 @@
 # site/
 
-The landing page at https://viberfasend.github.io/cadence/ — one `index.html`, no build step,
+The landing page at https://viberfasend.github.io/primico/ — one `index.html`, no build step,
 deployed by `.github/workflows/pages.yml` on every push to `main` that touches this directory.
 
 Everything in it is derived from the app rather than invented for the page: the palette is

@@ -3,7 +3,7 @@
 Scripts that run beside the app rather than inside it. Python 3.9+, standard library only —
 nothing to install.
 
-## `todoist_import.py` — Todoist CSV export → Cadence backup
+## `todoist_import.py` — Todoist CSV export → Primico backup
 
 Todoist's export gives you one CSV per project. This turns a whole export into a single
 `cadence.backup` file, which the app imports under **Settings → Backup → Import**. Importing
@@ -11,7 +11,7 @@ Todoist's export gives you one CSV per project. This turns a whole export into a
 
 ```bash
 python3 tools/todoist_import.py ~/Downloads/"Todoist backup 2026-08-12 2248 UTC"
-python3 tools/todoist_import.py export/*.csv -o cadence-backup.json
+python3 tools/todoist_import.py export/*.csv -o primico-backup.json
 python3 tools/todoist_import.py export/ --split       # one JSON per project, into a folder
 python3 tools/todoist_import.py export/ --dry-run     # parse and report, write nothing
 python3 tools/todoist_import.py --self-test           # the parser's own tests
@@ -19,8 +19,8 @@ python3 tools/todoist_import.py --self-test           # the parser's own tests
 
 ### One file, or one per project
 
-By default the whole export becomes a single `cadence-backup.json`. `--split` writes
-`cadence-<project>.json` per Todoist project into a folder (`cadence-import/` unless `-o` names
+By default the whole export becomes a single `primico-backup.json`. `--split` writes
+`cadence-<project>.json` per Todoist project into a folder (`primico-import/` unless `-o` names
 another), skipping projects that hold no tasks:
 
 ```
@@ -29,7 +29,7 @@ $ python3 tools/todoist_import.py "Todoist backup 2026-08-12 2248 UTC" --split
   cadence-inbox.json: 21 task(s)
   cadence-garten.json: 18 task(s)
   …
-wrote 16 file(s) to cadence-import/ — import them under Settings -> Backup, one, several or all at once
+wrote 16 file(s) to primico-import/ — import them under Settings -> Backup, one, several or all at once
 ```
 
 The app's importer takes several files in one go — the picker is multi-select on both Android
@@ -83,7 +83,7 @@ An import is a pile to sort, not a merge. All of it lands under a single project
 already on the device until you move it there. Filing a task into your own system is the
 deliberate act of dragging it out of the pile; when the pile is empty, delete it.
 
-Because Cadence nests projects exactly one level and the staging project has taken that level,
+Because Primico nests projects exactly one level and the staging project has taken that level,
 a Todoist section becomes a *sibling* of its own project rather than a child, carrying the
 project's name: `Garten` and `Garten · August ☀️` sit next to each other under
 `Import 2026-08-13`. No grouping is lost, and both disappear once you have emptied them.
@@ -91,9 +91,9 @@ project's name: `Garten` and `Garten · August ☀️` sit next to each other un
 `--import-project NAME` renames the pile; `--no-import-project` skips it and imports straight
 into top-level projects and the Inbox, the way a merge would.
 
-### How a Todoist row lands in Cadence
+### How a Todoist row lands in Primico
 
-| Todoist | Cadence |
+| Todoist | Primico |
 | --- | --- |
 | file `Name [id].csv` | a subproject of the staging project — the `Inbox` file included, so there is an "Inbox" to open rather than tasks loose in the pile |
 | `section` row | a sibling subproject named `Project · Section`; empty sections are skipped |
@@ -105,7 +105,7 @@ into top-level projects and the Inbox, the way a merge would.
 | `DATE`, a repeat phrase | a recurrence rule + the next date it lands on |
 | `DATE`, a date | the due date (and the time, when it carries one) |
 | `DEADLINE` | the due date when `DATE` left none, otherwise a `Deadline: …` note |
-| `DURATION` | a note line — Cadence has no duration field |
+| `DURATION` | a note line — Primico has no duration field |
 | `@label` | left in the title, unless `--strip-labels` moves it to the notes |
 
 Repeat phrases parse in German and English: `jeden Monat`, `alle 2 Wochen`, `alle vier Tage`,
@@ -138,7 +138,7 @@ updates the rows it wrote before instead of duplicating them — the import merg
 | `--bare-year next-occurrence` | read a year-less date (`15 Mar`) as the *upcoming* one rather than this year's — use it if you would rather not import overdue tasks |
 | `--recurring-due none` | do not give recurring tasks a due date |
 | `--invert-priority` | read `PRIORITY 4` as P1, for an export that numbers them the API's way round |
-| `--inbox-name` | the file whose tasks go to the Cadence Inbox (default `Inbox`) |
+| `--inbox-name` | the file whose tasks go to the Primico Inbox (default `Inbox`) |
 | `--today` | the reference date for relative dates, for a reproducible run |
 
 ### Tests

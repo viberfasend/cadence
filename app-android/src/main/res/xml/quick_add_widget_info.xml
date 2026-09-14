@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     updatePeriodMillis="0": this widget draws a button and reads no task, so there is nothing for
-    a periodic refresh to discover. Every other Cadence widget sets a fallback period because it
+    a periodic refresh to discover. Every other Primico widget sets a fallback period because it
     shows data that ages; this one would only ever burn a wakeup redrawing the same "+".
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"

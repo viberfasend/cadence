@@ -100,7 +100,7 @@
             it is what Google's own Glance manifest example specifies. An APPWIDGET_UPDATE is
             delivered by the AppWidget framework to the provider it is addressed to rather than
             broadcast to whoever declares a filter for it, so the receiver needs no export — and
-            exporting one would let any app on the device drive Cadence's widget updates.
+            exporting one would let any app on the device drive Primico's widget updates.
 
             The Android 12 rule these receivers do have to satisfy is that a component carrying an
             intent-filter states `exported` *explicitly*; it does not require the value to be true.

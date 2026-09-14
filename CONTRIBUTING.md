@@ -1,6 +1,6 @@
-# Contributing to Cadence
+# Contributing to Primico
 
-Thanks for your interest in improving Cadence! This document explains how to set up your
+Thanks for your interest in improving Primico! This document explains how to set up your
 environment, the conventions we follow, and how to get a change merged.
 
 By participating, you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
@@ -30,7 +30,7 @@ You need **JDK 17**. The desktop app needs nothing else; the Android app additio
 `local.properties` at the repo root). The server-side tests need **docker**.
 
 ```bash
-git clone https://github.com/viberfasend/cadence.git
+git clone https://github.com/viberfasend/primico.git
 cd cadence
 ./gradlew :app-desktop:run      # the desktop app, from source
 ./gradlew assembleDebug         # the Android debug APK
@@ -119,7 +119,7 @@ text; the module or feature name works well.
 
 ## License of contributions
 
-Cadence is licensed under **GPL-3.0-or-later**. By submitting a contribution, you agree that
+Primico is licensed under **GPL-3.0-or-later**. By submitting a contribution, you agree that
 your work will be licensed under the same terms. Don't submit code you don't have the right to
 license this way.
 

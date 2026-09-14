@@ -1,8 +1,8 @@
 # Self-hosting sync
 
-Cadence is local-first: every device keeps its own SQLite database and is fully usable signed
+Primico is local-first: every device keeps its own SQLite database and is fully usable signed
 out. Syncing your devices is optional, and the server half is a [Neon](https://neon.tech)
-Postgres project **you** own — there is no Cadence-operated server, and the published builds are
+Postgres project **you** own — there is no Primico-operated server, and the published builds are
 wired to the maintainer's own project, which accepts no sign-ups. To sync your devices you point
 a build at a project of your own. This page is the walkthrough; the design is in
 [ADR 0002](adr/0002-supabase-sync.md) (the protocol) and [ADR 0005](adr/0005-neon-sync.md)

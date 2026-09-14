@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: 🔒 Report a security vulnerability
-    url: https://github.com/viberfasend/cadence/security/advisories/new
+    url: https://github.com/viberfasend/primico/security/advisories/new
     about: Please report security issues privately — not as public issues.
   - name: 🗺️ Roadmap
-    url: https://github.com/viberfasend/cadence/blob/main/ROADMAP.md
+    url: https://github.com/viberfasend/primico/blob/main/ROADMAP.md
     about: What is planned, what is next, and what is deliberately not — check before requesting a feature.

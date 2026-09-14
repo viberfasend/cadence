@@ -14,7 +14,7 @@
 #   apk       assembleDebug + assembleRelease, staged as cadence-{debug,release}.apk
 #   deb rpm   Linux packages       (jpackage; needs fakeroot / rpmbuild)
 #   dmg msi   macOS / Windows      (jpackage; msi needs the WiX Toolset)
-#   tar       the Linux app image as cadence-linux-x64.tar.gz
+#   tar       the Linux app image as primico-linux-x64.tar.gz
 #   desktop   every desktop format above that *this* OS can build
 #   all       apk + desktop
 #
@@ -318,8 +318,8 @@ stage() {
 binaries='app-desktop/build/compose/binaries/main'
 
 if wants apk; then
-    stage "$(find app-android/build/outputs/apk/debug -name '*.apk' | head -n1)" cadence-debug.apk
-    stage "$(find app-android/build/outputs/apk/release -name '*.apk' | head -n1)" cadence-release.apk
+    stage "$(find app-android/build/outputs/apk/debug -name '*.apk' | head -n1)" primico-debug.apk
+    stage "$(find app-android/build/outputs/apk/release -name '*.apk' | head -n1)" primico-release.apk
 fi
 for format in deb rpm dmg msi; do
     wants "$format" || continue
@@ -332,8 +332,8 @@ for format in deb rpm dmg msi; do
     if ! $found; then die "$format was built but nothing landed in $binaries/$format."; fi
 done
 if wants tar; then
-    tar -C "$binaries/app" -czf "$output_dir/cadence-linux-x64.tar.gz" .
-    staged+=(cadence-linux-x64.tar.gz)
+    tar -C "$binaries/app" -czf "$output_dir/primico-linux-x64.tar.gz" .
+    staged+=(primico-linux-x64.tar.gz)
 fi
 
 # ── Verify ─────────────────────────────────────────────────────────────────────────────
@@ -342,11 +342,11 @@ fi
 # only says "App not installed", weeks after the build went green. See check-signing.sh.
 if wants apk && $check_signing; then
     step 'Checking the signing certificate'
-    bash .github/scripts/check-signing.sh "$output_dir/cadence-debug.apk" "$output_dir/cadence-release.apk"
+    bash .github/scripts/check-signing.sh "$output_dir/primico-debug.apk" "$output_dir/primico-release.apk"
 fi
 
 # ── Summary ────────────────────────────────────────────────────────────────────────────
-step "Cadence $version"
+step "Primico $version"
 for name in "${staged[@]}"; do
     printf '    %-40s %8s\n' "$name" "$(du -h "$output_dir/$name" | cut -f1)"
 done
@@ -354,5 +354,5 @@ done
 # Everything needed to publish this build by hand, which is the point of running it here: the
 # assets are already the ones the release notes link to.
 printf '\n%sTo publish these:%s\n' "$C_GREEN" "$C_OFF"
-printf '    gh release create v%s %s/* --title "Cadence %s" --generate-notes\n' \
+printf '    gh release create v%s %s/* --title "Primico %s" --generate-notes\n' \
     "$version" "$output_dir" "$version"

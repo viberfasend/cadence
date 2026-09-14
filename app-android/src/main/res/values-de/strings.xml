@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Cadence</string>
+    <string name="app_name">Primico</string>
     <string name="reminder_channel_name">Aufgaben-Erinnerungen</string>
     <string name="reminder_channel_description">Erinnerungen für fällige Aufgaben</string>
     <string name="reminder_content_text">Heute fällig</string>

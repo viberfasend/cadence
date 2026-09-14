@@ -165,7 +165,7 @@ class TodoistImportFixtureTest {
 
     @Test
     fun `a Todoist section arrives as a section of the project it came from`() {
-        // Todoist's sections are Cadence's, one for one. The converter used to write each of
+        // Todoist's sections are Primico's, one for one. The converter used to write each of
         // them as a sibling project named "wohnung · Ofen", because there were no sections and
         // the staging project had taken the one level of nesting projects allow.
         val wohnung = snapshot.projects.first { it.name == "wohnung" }

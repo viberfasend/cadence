@@ -135,7 +135,7 @@ fun main() = application {
             exitApplication()
         },
         state = windowState,
-        title = "Cadence",
+        title = "Primico",
         // One table decides every shortcut, and the cheat sheet is generated from the same one
         // (`ui/Shortcuts.kt`), so the two cannot drift apart.
         onKeyEvent = { event ->

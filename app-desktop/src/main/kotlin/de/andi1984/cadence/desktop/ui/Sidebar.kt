@@ -301,7 +301,7 @@ private fun SidebarHeader(onToggleCollapsed: () -> Unit, onAddTask: () -> Unit) 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Cadence",
+            text = "Primico",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
