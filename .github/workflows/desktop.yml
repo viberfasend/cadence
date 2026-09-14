@@ -131,6 +131,10 @@ jobs:
           # Empty on a run with nothing to release, which leaves the build.gradle.kts fallback
           # ("1.0.0") in place.
           CADENCE_VERSION_NAME: ${{ steps.version.outputs.version }}
+          # The sync endpoints are compiled in at build time (NeonConfig.fromBuild); a build
+          # without them offers no sync. Set with tools/release-signing-wizard.sh.
+          CADENCE_NEON_DATA_API_URL: ${{ secrets.CADENCE_NEON_DATA_API_URL }}
+          CADENCE_NEON_AUTH_URL: ${{ secrets.CADENCE_NEON_AUTH_URL }}
         run: bash .github/scripts/build.sh desktop --skip-tests
 
       - name: Upload installers

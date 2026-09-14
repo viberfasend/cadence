@@ -453,6 +453,7 @@
     <!-- ── Sync ────────────────────────────────────────────────────────────────────── -->
     <string name="settings_sync">Sync</string>
     <string name="settings_sync_supporting">Signing in keeps this device and your others in step through your own Neon project. Cadence works signed out, and nothing leaves the device until you sign in.</string>
+    <string name="settings_sync_unconfigured">This build has no sync server configured. Cadence works fully on this device. To keep several devices in step, build it against your own Neon project — see docs/self-hosting.md in the source repository.</string>
     <string name="settings_sync_email">Email</string>
     <string name="settings_sync_password">Password</string>
     <string name="settings_sync_sign_in">Sign in</string>

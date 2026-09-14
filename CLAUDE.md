@@ -187,11 +187,25 @@ the harness passed while the live project was handing `schema_migrations` to eve
 account. It checks the trigger semantics, the RLS isolation, the client-shaped sweep statement,
 the bookkeeping lock-down and `db.sh` itself. Needs docker and nothing else. Run it after editing
 anything under `neon/`.
-`NeonConfig` reads `CADENCE_NEON_DATA_API_URL` and `CADENCE_NEON_AUTH_URL` from the environment
-when set, so pointing a build at another project edits no Kotlin. Both URLs are committed on
-purpose — there is no API key in this design; the credential is the account, and RLS is what
-protects the rows. The account itself is created in the Neon console's Auth tab — the app has
-sign-in only, no sign-up.
+**The sync endpoints are compiled in at build time, and there is no default.** `:core`'s
+`generateNeonConfig` Gradle task reads `CADENCE_NEON_DATA_API_URL` and `CADENCE_NEON_AUTH_URL`
+from the environment of the Gradle invocation and writes them into a generated
+`NeonBuildConfig`; `NeonConfig.fromBuild` is that pair, or `null` when either was unset. The
+URLs used to be committed defaults naming the maintainer's project, which was fine while the
+repository was private and wrong once it was not: every build from source would have pointed at
+one person's database. They also used to be read from the environment at *run* time, which
+never worked on Android — a phone has no shell environment. A `null` config makes
+`CadenceSyncEngine` inert: `status` is `SyncStatus.Unconfigured` for the life of the process,
+Settings shows a paragraph instead of the sign-in form, `SyncStatus.hasAccount` (the extension
+every other surface reads) is false, `signIn` refuses, and every round returns before making a
+request — a session the store still holds from a configured build is ignored, not replayed
+against nothing (`CadenceSyncEngineTest`'s unconfigured case pins all of it). The official
+builds get the two values from repository secrets, set alongside the signing secrets by
+`tools/release-signing-wizard.sh`; a fork builds against its own project by exporting the two
+variables — `docs/self-hosting.md` is the walkthrough. The URLs grant nothing on their own:
+there is no API key in this design; the credential is the account, and RLS is what protects
+the rows. The account itself is created in the Neon console's Auth tab — the app has sign-in
+only, no sign-up.
 
 ```bash
 ./gradlew connectedDebugAndroidTest   # needs a device; CI has no emulator
@@ -1056,10 +1070,18 @@ behind `.gitignore` or let the debug `signingConfig` fall back to AGP's default.
 `.github/scripts/check-signing.sh` runs in CI and fails the build if the debug APK's certificate
 stops matching the committed keystore.
 
-Release signing is optional on top of that: the four `CADENCE_*` env vars/secrets enable it,
-otherwise the release build is signed with the debug key too (see the comment block in
-`app-android/build.gradle.kts`) — which means an APK anyone can forge, acceptable only because the app
-ships as a GitHub link rather than through a store.
+**The release APK is signed with a real key since 2.0, and the README's permanent link points
+at it.** The four `CADENCE_KEYSTORE_BASE64` / `CADENCE_KEYSTORE_PASSWORD` / `CADENCE_KEY_ALIAS` /
+`CADENCE_KEY_PASSWORD` secrets carry it into `android.yml` and `release.yml`; the keystore itself
+lives outside every checkout (`~/.cadence-release/` by default) and `tools/release-signing-wizard.sh`
+is how it was minted and how the secrets are (re)set — re-running it reuses the file and never
+overwrites a key. Losing that file means every install has to be uninstalled once, the way the
+pre-2.0 debug-signed installs had to be. Without the secrets the release build still falls back
+to the debug key so `assembleRelease` works on any laptop, but `check-signing.sh` now *fails*
+when `CADENCE_KEYSTORE` is set and the release APK nevertheless carries the debug certificate —
+a release cut that way could not update anyone. The debug APK stays debug-signed and public by
+construction: anyone can build one that installs over it, which is why `SECURITY.md` tells
+users to install the release APK.
 
 ## Agent skills
 

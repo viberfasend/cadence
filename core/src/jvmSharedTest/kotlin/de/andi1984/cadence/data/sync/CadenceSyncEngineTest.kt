@@ -50,6 +50,27 @@ class CadenceSyncEngineTest {
         assertEquals(0, http.requests.size)
     }
 
+    // ── Unconfigured ───────────────────────────────────────────────────────────────
+
+    @Test
+    fun `a build without endpoints is inert - no request, a stored session ignored`() = runTest {
+        // A session left behind by a configured build of the same install must not be replayed
+        // against nothing — and must not make the header claim there is an account.
+        val store = InMemorySyncStore().apply { stateValue = signedInState() }
+        val http = RecordingHttp { unexpected(it) }
+        val engine = CadenceSyncEngine(
+            store = store, scope = backgroundScope, httpClient = HttpClient(http.engine), config = null,
+        )
+        runCurrent()
+
+        assertEquals(SyncStatus.Unconfigured, engine.status.value)
+        assertEquals(false, engine.isSignedIn())
+        assertEquals(SyncOutcome.SignedOut, engine.syncOnce())
+        assertTrue(engine.signIn("me@example.org", "pw") is SignInResult.Failed)
+        assertEquals(SyncStatus.Unconfigured, engine.status.value)
+        assertEquals(0, http.requests.size)
+    }
+
     // ── Sign-in ────────────────────────────────────────────────────────────────────
 
     @Test
@@ -535,8 +556,7 @@ class CadenceSyncEngineTest {
         store = store,
         scope = backgroundScope,
         httpClient = HttpClient(http.engine),
-        dataApiUrl = "https://data.example",
-        authUrl = "https://auth.example",
+        config = NeonConfig("https://data.example", "https://auth.example"),
     )
 
     private fun signedInState(accessToken: String = jwt(FAR_FUTURE)) = SyncState(

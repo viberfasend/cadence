@@ -109,8 +109,8 @@ up — the ordinary full-push path that null cursors and an EPOCH watermark alre
 - `core`'s only wire dependency is Ktor + kotlinx.serialization; the Ktor version is no longer
   pinned to what supabase-kt resolves.
 - Environment/config surface: `CADENCE_NEON_DATA_API_URL` and `CADENCE_NEON_AUTH_URL`
-  (committed defaults in `NeonConfig`; no API key exists in this design), plus
-  `CADENCE_NEON_DB_URL` for `migrate.sh` only.
+  (committed defaults in `NeonConfig` — until amendment 3; no API key exists in this design),
+  plus `CADENCE_NEON_DB_URL` for `migrate.sh` only.
 - The `supabase/` tree, the supabase CLI devDependency (and with it `package.json`), and the
   realtime/pg_cron migrations are deleted. ADR 0002 remains the protocol's record.
 
@@ -141,3 +141,23 @@ in are unreachable from every device. `neon/db.sh` is the missing half — `stat
 which on Neon carries BYPASSRLS. That is what lets it reach every account's rows, and why it
 defaults to showing rather than doing, and why its predicate can only ever match rows that are
 already tombstones.
+
+## Amendment 3 — no default project; the endpoints are a build input (2026-09-14)
+
+The repository went public. `NeonConfig`'s committed defaults named the maintainer's own project,
+which every build from source would then have pointed at — a stranger's binary signing in
+against one person's Neon Auth, and a public repository inviting password guessing at its
+endpoint. The defaults are gone: `:core`'s `generateNeonConfig` task compiles
+`CADENCE_NEON_DATA_API_URL` and `CADENCE_NEON_AUTH_URL` from the *build* environment into a
+generated `NeonBuildConfig`, and `NeonConfig.fromBuild` is `null` when either is missing. (The
+old run-time `System.getenv` read never reached Android at all — a phone has no shell
+environment — so "point a build elsewhere without editing Kotlin" was only ever true of the
+desktop.)
+
+A null config adds one state, `SyncStatus.Unconfigured`, that the engine never leaves: Settings
+explains and shows no form, every other surface treats it as signed out through
+`SyncStatus.hasAccount`, and no request is made. The official builds receive the two values as
+repository secrets beside the release-signing ones; anyone else builds against their own project
+following `docs/self-hosting.md`, which is where the console walkthrough, the migrations, the
+accounts and the maintenance CLI are now described for someone who is not the maintainer.
+

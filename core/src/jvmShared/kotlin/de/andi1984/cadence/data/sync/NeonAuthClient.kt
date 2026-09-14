@@ -38,7 +38,7 @@ import kotlinx.serialization.json.put
  */
 internal class NeonAuthClient(
     private val http: HttpClient,
-    private val authUrl: String = NeonConfig.authUrl,
+    private val authUrl: String,
 ) {
 
     /** A signed-in session: the cookie pair (`name=value`, ready to replay) and who it is. */

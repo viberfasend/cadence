@@ -186,7 +186,7 @@ class CadenceSyncRoundTest {
         val client = HttpClient(http.engine).also { clients += it }
         return CadenceSyncEngine(
             store = store, scope = backgroundScope, httpClient = client,
-            dataApiUrl = "https://data.example", authUrl = "https://auth.example",
+            config = NeonConfig("https://data.example", "https://auth.example"),
         )
     }
 }

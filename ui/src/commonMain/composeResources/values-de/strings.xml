@@ -435,6 +435,7 @@
     <!-- ── Synchronisation ─────────────────────────────────────────────────────────── -->
     <string name="settings_sync">Synchronisation</string>
     <string name="settings_sync_supporting">Nach der Anmeldung hält Cadence dieses Gerät über dein eigenes Neon-Projekt mit deinen anderen im Gleichstand. Ohne Anmeldung funktioniert alles wie bisher, und nichts verlässt das Gerät.</string>
+    <string name="settings_sync_unconfigured">In diesem Build ist kein Sync-Server hinterlegt. Cadence funktioniert auf diesem Gerät vollständig. Um mehrere Geräte im Gleichstand zu halten, baue es gegen dein eigenes Neon-Projekt – siehe docs/self-hosting.md im Quell-Repository.</string>
     <string name="settings_sync_email">E-Mail</string>
     <string name="settings_sync_password">Passwort</string>
     <string name="settings_sync_sign_in">Anmelden</string>
